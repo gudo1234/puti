@@ -37,6 +37,7 @@ if (m.isGroup) {
             categorias[tag].push(...helps)
         }
     }
+
       m.react(e)
 let pais = `${info.flag} ${info.country}`
     let text = `${e} _Hola ${m.pushName}_ ¿Cómo estás?\n\n\`❒ᴄᴏɴᴛᴇxᴛ-ɪɴғᴏ☔\`
@@ -53,19 +54,6 @@ let pais = `${info.flag} ${info.country}`
         text += `╰────────────\n`
     }
 
-    // --- Context info para botones y mensajes ---
-    const contextInfo = {
-      externalAdReply: {
-        title: wm,
-        body: textbot,
-        thumbnailUrl: redes,
-        thumbnail: await (await fetch(icono)).buffer(),
-        sourceUrl: redes,
-        mediaType: 1,
-        renderLargerThumbnail: false
-      }
-    }
-
     // --- Estructura del mensaje interactivo ---
     const nativeFlowPayload = {
       header: {
@@ -80,8 +68,7 @@ let pais = `${info.flag} ${info.country}`
           fileEncSha256: Buffer.from('652f2ff6d8a8dae9f5c9654e386de5c01c623fe98d81a28f63dfb0979a44a22f', 'hex'),
           directPath: '/v/t62.7119-24/539012045_745537058346694_1512031191239726227_n.enc',
           mediaKeyTimestamp: { low: 1756370084, high: 0, unsigned: false },
-          jpegThumbnail: thumbResized || null,
-          contextInfo
+          jpegThumbnail: thumbResized || null
         },
         hasMediaAttachment: true
       },
@@ -159,12 +146,11 @@ let pais = `${info.flag} ${info.country}`
             "button_index":0
           }
         }`
-      },
-      contextInfo
+      }
     }
 
     // --- Envío del mensaje ---
-      const thumbnail = await (await fetch(icono)).buffer();
+      const thumbnail = await (await fetch(icono)).buffer()
         const random = Math.floor(Math.random() * 3);
         const gif = [
   "https://raw.githubusercontent.com/edar123/im/main/media/gif.mp4",
@@ -172,21 +158,12 @@ let pais = `${info.flag} ${info.country}`
   "https://raw.githubusercontent.com/edar123/im/main/media/gifff.mp4",
   "https://raw.githubusercontent.com/edar123/im/main/media/gif4.mp4"
 ][Math.floor(Math.random() * 4)];
+
       if (random === 0) {
         await conn.sendMessage(
     m.chat,
     {
-        text: text,
-        contextInfo: {
-            externalAdReply: {
-                title: wm,
-                body: textbot,
-                thumbnailUrl: redes,
-                thumbnail,
-                sourceUrl: redes,
-                mediaType: 1
-            }
-        }
+        text: text
     },
     { quoted: m }
 )
@@ -198,27 +175,11 @@ let pais = `${info.flag} ${info.country}`
       video: { url: gif },
       gifPlayback: true,
       caption: text,
-      mentions: [m.sender],
-      contextInfo: {
-        mentionedJid: [m.sender],
-        isForwarded: true,
-        forwardedNewsletterMessageInfo: {
-          newsletterJid: channelRD.id,
-          newsletterName: channelRD.name,
-          serverMessageId: -1,
-        },
-        externalAdReply: {
-          title: `🕒 Runtime ${run}`,
-          body: textbot,
-          thumbnailUrl: redes,
-          thumbnail,
-          sourceUrl: redes,
-          mediaType: 1,
-        },
-      },
+      mentions: [m.sender]
     }, { quoted: m })
     return;
   }
+
   if (random === 2) {
       //😈
     await conn.relayMessage(
@@ -232,6 +193,7 @@ let pais = `${info.flag} ${info.country}`
     await conn.reply(m.chat, `❌ Error al generar mensaje:\n${e.message}`, m)
   }
 }
+
 function clockString(ms) {
   let h = isNaN(ms) ? '--' : Math.floor(ms / 3600000)
   let m = isNaN(ms) ? '--' : Math.floor(ms / 60000) % 60
