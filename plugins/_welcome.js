@@ -80,6 +80,7 @@ let handler = async (m, { conn, __dirname }) => {
   }
 
   const channelInfo = global.channelRD || {}
+  const channel = global.canal || global.redes || ''
   const wm = global.wm || ''
   const textbot = global.textbot || ''
   const redes = global.redes || ''
@@ -126,10 +127,7 @@ let handler = async (m, { conn, __dirname }) => {
     }
   }
 
-  const waitForConnection = async (
-    tries = 8,
-    delay = 1500
-  ) => {
+  const waitForConnection = async (tries = 8, delay = 1500) => {
     for (let i = 0; i < tries; i++) {
       if (isConnected()) {
         return true
@@ -139,9 +137,7 @@ let handler = async (m, { conn, __dirname }) => {
         `[WELCOME] Esperando conexión... ${i + 1}/${tries}`
       )
 
-      await new Promise(resolve =>
-        setTimeout(resolve, delay)
-      )
+      await new Promise(resolve => setTimeout(resolve, delay))
     }
 
     return false
@@ -202,26 +198,6 @@ let handler = async (m, { conn, __dirname }) => {
     )
 
     return null
-  }
-
-  let im = null
-
-  try {
-    const pp = await conn
-      .profilePictureUrl(user, 'image')
-      .catch(() => icono || null)
-
-    if (pp) {
-      const response = await fetch(pp)
-
-      if (response.ok) {
-        im = Buffer.from(
-          await response.arrayBuffer()
-        )
-      }
-    }
-  } catch {
-    im = null
   }
 
   const uptime = process.uptime() * 1000
@@ -353,210 +329,676 @@ let handler = async (m, { conn, __dirname }) => {
     : {}
 
   const createContextInfo = ({
+    mentioned = true,
+    forwardingScore = 10,
+    isForwarded = true,
+    external = false,
     title = textbot,
-    body = wm,
-    mentioned = true,
-    forwardingScore = 10,
-    isForwarded = true
+    body = wm
   } = {}) => {
-    const externalAdReply = {
-      showAdAttribution: false,
-      title,
-      body,
-      mediaType: 1,
-      renderLargerThumbnail: false
-    }
 
-    if (redes) {
-      externalAdReply.sourceUrl = redes
-      externalAdReply.thumbnailUrl = redes
-    }
-
-    if (Buffer.isBuffer(previewThumbnail)) {
-      externalAdReply.thumbnail = previewThumbnail
-    } else if (Buffer.isBuffer(im)) {
-      externalAdReply.thumbnail = im
-    }
-
-    return {
+    const contextInfo = {
       ...newsletterInfo,
-      ...(mentioned ? { mentionedJid: [user] } : {}),
-      forwardingScore,
-      isForwarded,
-      externalAdReply
-    }
-  }
 
-  const createNormalContextInfo = ({
-    mentioned = true,
-    forwardingScore = 10,
-    isForwarded = true
-  } = {}) => {
-    return {
-      ...newsletterInfo,
-      ...(mentioned ? { mentionedJid: [user] } : {}),
+      ...(mentioned
+        ? {
+            mentionedJid: [user]
+          }
+        : {}),
+
       forwardingScore,
       isForwarded
     }
+
+    if (external) {
+      contextInfo.externalAdReply = {
+        showAdAttribution: false,
+        title,
+        body,
+        mediaType: 1,
+        renderLargerThumbnail: false,
+        sourceUrl: redes || undefined,
+        thumbnailUrl: redes || undefined,
+        ...(Buffer.isBuffer(previewThumbnail)
+          ? {
+              thumbnail: previewThumbnail
+            }
+          : {})
+      }
+    }
+
+    return contextInfo
   }
 
+  const createLinkPreview = ({
+    title = textbot,
+    description = wm
+  } = {}) => {
+    if (!redes || !previewThumbnail) {
+      return null
+    }
+
+    return {
+      'matched-text': redes,
+      title,
+      description,
+      jpegThumbnail: previewThumbnail,
+      renderLargerThumbnail: false
+    }
+  }
+
+  let stickerBuffer = null
+
   try {
-    if (formatoElegido === 'stiker') {
-      const stickerSource = await fetch(
-        isWelcome
+    switch (formatoElegido) {
+
+      case 'stiker': {
+        try {
+          const imagenSticker = isWelcome
+            ? global.imagen8
+            : global.imagen7
+
+          if (!imagenSticker) {
+            throw new Error(
+              `No existe global.${
+                isWelcome
+                  ? 'imagen8'
+                  : 'imagen7'
+              }`
+            )
+          }
+
+          stickerBuffer = await sticker(
+            imagenSticker,
+            false,
+            global.packname,
+            global.author
+          )
+
+          if (
+            !Buffer.isBuffer(stickerBuffer) ||
+            !stickerBuffer.length
+          ) {
+            throw new Error(
+              'El sticker no devolvió un Buffer válido.'
+            )
+          }
+
+          await safeSendMessage(
+            m.chat,
+            {
+              sticker: stickerBuffer,
+
+              contextInfo: createContextInfo({
+                forwardingScore: 200,
+                isForwarded: false,
+                external: true,
+                title: `| Runtime ${run}`,
+                body: isWelcome
+                  ? 'IzuBot te da la bienvenida'
+                  : 'Esperemos que no vuelva -_-'
+              })
+            }
+          )
+
+        } catch (e) {
+          console.error(
+            '[WELCOME] Error generando/enviando sticker:',
+            e?.message || e
+          )
+
+          await safeSendMessage(
+            m.chat,
+            {
+              text: actividad,
+
+              linkPreview: createLinkPreview({
+                title: `| Runtime ${run}`,
+                description: isWelcome
+                  ? 'IzuBot te da la bienvenida'
+                  : 'Esperemos que no vuelva -_-'
+              }),
+
+              contextInfo: createContextInfo()
+            }
+          )
+        }
+
+        break
+      }
+
+      case 'audio': {
+        const audioUrl = isWelcome
+          ? audioPick(audiosWelcome)
+          : audioPick(audiosBye)
+
+        await safeSendMessage(
+          m.chat,
+          {
+            audio: {
+              url: audioUrl
+            },
+
+            ptt: false,
+
+            mimetype: 'audio/mpeg',
+
+            fileName: 'noti.mp3',
+
+            contextInfo: createContextInfo({
+              forwardingScore: 10,
+              isForwarded: true,
+              external: true,
+              title: `| Runtime ${run}`,
+              body: isWelcome
+                ? 'IzuBot te da la bienvenida'
+                : 'Esperemos que no vuelva -_-'
+            })
+          }
+        )
+
+        break
+      }
+
+      case 'texto': {
+        const linkPreview =
+          createLinkPreview({
+            title: `| Runtime ${run}`,
+            description: isWelcome
+              ? 'IzuBot te da la bienvenida'
+              : 'Esperemos que no vuelva -_-'
+          })
+
+        await safeSendMessage(
+          m.chat,
+          {
+            text: redes
+              ? `${redes}\n${actividad}`
+              : actividad,
+
+            ...(linkPreview
+              ? {
+                  linkPreview
+                }
+              : {}),
+
+            contextInfo: createContextInfo({
+              forwardingScore: 10,
+              isForwarded: true
+            })
+          }
+        )
+
+        break
+      }
+
+      case 'gifPlayback': {
+        const videoUrl = isWelcome
           ? gifsBienvenida[
               Math.floor(
-                Math.random() * gifsBienvenida.length
+                Math.random() *
+                gifsBienvenida.length
               )
             ]
           : gifDespedida
-      )
 
-      if (!stickerSource.ok) {
-        throw new Error('No se pudo obtener el sticker')
+        await safeSendMessage(
+          m.chat,
+          {
+            video: {
+              url: videoUrl
+            },
+
+            gifPlayback: true,
+
+            caption: actividad,
+
+            contextInfo: createContextInfo({
+              forwardingScore: 10,
+              isForwarded: true,
+              external: true,
+              title: `| Runtime ${run}`,
+              body: isWelcome
+                ? 'IzuBot te da la bienvenida'
+                : 'Esperemos que no vuelva -_-'
+            })
+          }
+        )
+
+        break
       }
 
-      const videoBuffer = Buffer.from(
-        await stickerSource.arrayBuffer()
-      )
+      case 'interactivo': {
+        const connected =
+          await waitForConnection(
+            8,
+            1000
+          )
 
-      const stickerBuffer = await sticker(
-        videoBuffer,
-        false,
-        {
-          pack: textbot,
-          author: wm
+        if (!connected) {
+          console.log(
+            '[WELCOME] Conexión no disponible. Se omitió el interactivo.'
+          )
+
+          break
         }
-      )
 
-      await safeSendMessage(
-        m.chat,
-        {
-          sticker: stickerBuffer,
-          contextInfo: createContextInfo()
-        },
-        {
-          quoted: m
-        }
-      )
+        const interactiveContext =
+          createContextInfo({
+            forwardingScore: 10,
+            isForwarded: true
+          })
 
-      return
-    }
+        const nativeFlowPayload = {
+          header: {
+            documentMessage: {
+              url: 'https://mmg.whatsapp.net/v/t62.7119-24/539012045_745537058346694_1512031191239726227_n.enc',
 
-    if (formatoElegido === 'audio') {
-      const audioUrl = audioPick(
-        isWelcome
-          ? audiosWelcome
-          : audiosBye
-      )
+              mimetype:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 
-      await safeSendMessage(
-        m.chat,
-        {
-          audio: {
-            url: audioUrl
+              fileSha256: Buffer.from(
+                'fa09afbc207a724252bae1b764ecc7b13060440ba47a3bf59e77f01924924bfe',
+                'hex'
+              ),
+
+              fileLength: {
+                low: -727379969,
+                high: 232,
+                unsigned: true
+              },
+
+              pageCount: 0,
+
+              mediaKey: Buffer.from(
+                '3163ba7c8db6dd363c4f48bda2735cc0d0413e57567f0a758f514f282889173c',
+                'hex'
+              ),
+
+              fileName:
+                `${global.e || ''} Somos ${tantos} en el grupo`,
+
+              fileEncSha256: Buffer.from(
+                '652f2ff6d8a8dae9f5c9654e386de5c01c623fe98d81a28f63dfb0979a44a22f',
+                'hex'
+              ),
+
+              directPath:
+                '/v/t62.7119-24/539012045_745537058346694_1512031191239726227_n.enc',
+
+              mediaKeyTimestamp: {
+                low: 1756370084,
+                high: 0,
+                unsigned: false
+              },
+
+              ...(thumbResized
+                ? {
+                    jpegThumbnail:
+                      thumbResized
+                  }
+                : {}),
+
+              contextInfo:
+                interactiveContext
+            },
+
+            hasMediaAttachment: true
           },
-          mimetype: 'audio/mpeg',
-          ptt: false,
-          contextInfo: createContextInfo()
-        },
-        {
-          quoted: m
+
+          body: {
+            text: actividad
+          },
+
+          footer: {
+            text: isWelcome
+              ? 'welcome'
+              : 'Usuario ha salido del grupo'
+          },
+
+          nativeFlowMessage: {
+            buttons: [
+
+              {
+                name: 'single_select',
+
+                buttonParamsJson:
+                  JSON.stringify({
+                    has_multiple_buttons: true
+                  })
+              },
+
+              {
+                name:
+                  'call_permission_request',
+
+                buttonParamsJson:
+                  JSON.stringify({
+                    has_multiple_buttons: true
+                  })
+              },
+
+              {
+                name: 'single_select',
+
+                buttonParamsJson:
+                  JSON.stringify({
+                    title: 'Más Opciones',
+
+                    sections: [
+                      {
+                        title:
+                          '⌏Seleccione una opción requerida⌎',
+
+                        highlight_label:
+                          'Solo para negocios',
+
+                        rows: [
+                          {
+                            title:
+                              'Owner/Creador',
+
+                            description: '',
+
+                            id: 'Edar'
+                          },
+
+                          {
+                            title:
+                              'Información del Bot',
+
+                            description: '',
+
+                            id: '.info'
+                          },
+
+                          {
+                            title:
+                              'Reglas/Términos',
+
+                            description: '',
+
+                            id: '.reglas'
+                          },
+
+                          {
+                            title:
+                              'vcard/yo',
+
+                            description: '',
+
+                            id: '.vcar'
+                          },
+
+                          {
+                            title: 'Ping',
+
+                            description:
+                              'Velocidad del bot',
+
+                            id: '.ping'
+                          }
+                        ]
+                      }
+                    ],
+
+                    has_multiple_buttons:
+                      true
+                  })
+              },
+
+              {
+                name: 'cta_copy',
+
+                buttonParamsJson:
+                  JSON.stringify({
+                    display_text:
+                      'Copiar Código',
+
+                    id: '123456789',
+
+                    copy_code:
+                      'Código de bienvenida'
+                  })
+              },
+
+              {
+                name: 'cta_url',
+
+                buttonParamsJson:
+                  JSON.stringify({
+                    display_text:
+                      'sᴇɢᴜɪʀ ᴄᴀɴᴀʟ/ᴡᴀ',
+
+                    url: channel,
+
+                    merchant_url: channel
+                  })
+              },
+
+              {
+                name:
+                  'galaxy_message',
+
+                buttonParamsJson:
+                  JSON.stringify({
+                    mode: 'published',
+
+                    flow_message_version:
+                      '3',
+
+                    flow_token:
+                      '1:1307913409923914:293680f87029f5a13d1ec5e35e718af3',
+
+                    flow_id:
+                      '1307913409923914',
+
+                    flow_cta:
+                      '👨🏻‍💻 ᴀᴄᴄᴇᴅᴇ ᴀ ʙᴏᴛ ᴀɪ',
+
+                    flow_action:
+                      'navigate',
+
+                    flow_action_payload: {
+                      screen:
+                        'QUESTION_ONE',
+
+                      params: {
+                        user_id:
+                          '123456789',
+
+                        referral:
+                          'campaign_xyz'
+                      }
+                    },
+
+                    flow_metadata: {
+                      flow_json_version:
+                        '201',
+
+                      data_api_protocol:
+                        'v2',
+
+                      flow_name:
+                        'Lead Qualification [en]',
+
+                      data_api_version:
+                        'v2',
+
+                      categories: [
+                        'Lead Generation',
+                        'Sales'
+                      ]
+                    }
+                  })
+              },
+
+              {
+                name:
+                  'quick_reply',
+
+                buttonParamsJson:
+                  JSON.stringify({
+                    display_text:
+                      'ʜᴏʟᴀ😔',
+
+                    id: '😔'
+                  })
+              },
+
+              {
+                name: 'cta_url',
+
+                buttonParamsJson:
+                  JSON.stringify({
+                    display_text:
+                      'ᴅᴇsᴀʀʀᴏʟʟᴀᴅᴏʀ',
+
+                    url:
+                      'https://wa.me/50492280729?text=Hola+quiero+un+bot+para+mi+grupo,+cuáles+son+los+planes?',
+
+                    merchant_url:
+                      'https://wa.me/50492280729?text=Hola+quiero+un+bot+para+mi+grupo,+cuáles+son+los+planes?'
+                  })
+              }
+            ],
+
+            messageParamsJson:
+              JSON.stringify({
+                limited_time_offer: {
+                  text:
+                    `| Runtime ${run}`,
+
+                  url:
+                    'https://github.com/edar',
+
+                  copy_code:
+                    groupName,
+
+                  expiration_time:
+                    1754613436864329
+                },
+
+                bottom_sheet: {
+                  in_thread_buttons_limit:
+                    2,
+
+                  divider_indices: [
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    999
+                  ],
+
+                  list_title:
+                    'Select Menu',
+
+                  button_title:
+                    '▻ ᴠᴇʀ ᴍᴇɴᴜ ✨'
+                },
+
+                tap_target_configuration: {
+                  title: '▸ X ◂',
+
+                  description:
+                    'Let’s go',
+
+                  canonical_url:
+                    'https://github.com/edar',
+
+                  domain:
+                    'https://xrljosedvapi.vercel.app',
+
+                  button_index: 0
+                }
+              })
+          },
+
+          contextInfo:
+            interactiveContext
         }
-      )
 
-      return
-    }
+        let enviado = false
 
-    if (formatoElegido === 'gifPlayback') {
-      const gifUrl = isWelcome
-        ? gifsBienvenida[
-            Math.floor(
-              Math.random() * gifsBienvenida.length
+        for (let intento = 1; intento <= 3; intento++) {
+          try {
+            const connected =
+              await waitForConnection(
+                4,
+                1000
+              )
+
+            if (!connected) continue
+
+            await conn.relayMessage(
+              m.chat,
+              {
+                viewOnceMessage: {
+                  message: {
+                    interactiveMessage:
+                      nativeFlowPayload
+                  }
+                }
+              },
+              {}
             )
-          ]
-        : gifDespedida
 
-      await safeSendMessage(
-        m.chat,
-        {
-          video: {
-            url: gifUrl
-          },
-          gifPlayback: true,
-          caption: actividad,
-          contextInfo: createContextInfo()
-        },
-        {
-          quoted: m
+            enviado = true
+            break
+
+          } catch (e) {
+            console.error(
+              `[WELCOME] Error interactivo (${intento}/3):`,
+              e?.message || e
+            )
+
+            await new Promise(
+              resolve =>
+                setTimeout(resolve, 2000)
+            )
+          }
         }
-      )
 
-      return
-    }
-
-    if (formatoElegido === 'texto') {
-      await safeSendMessage(
-        m.chat,
-        {
-          text: actividad,
-          contextInfo: createNormalContextInfo()
-        },
-        {
-          quoted: m
+        if (!enviado) {
+          console.log(
+            '[WELCOME] No se pudo enviar el interactivo.'
+          )
         }
-      )
 
-      return
-    }
-
-    if (formatoElegido === 'interactivo') {
-      const documentMessage = {
-        document: {
-          url: imgPath
-        },
-        mimetype: 'application/pdf',
-        fileName: `${textbot}.pdf`,
-        fileLength: 999999,
-        caption: ac
+        break
       }
-
-      await safeSendMessage(
-        m.chat,
-        documentMessage,
-        {
-          quoted: m
-        }
-      )
-
-      return
     }
+
   } catch (e) {
     console.error(
-      '[WELCOME] Error enviando bienvenida/despedida:',
+      '[WELCOME] Error:',
       e?.message || e
     )
   }
 }
 
 function clockString(ms) {
-  const h = Math.floor(ms / 3600000)
-  const m = Math.floor(
-    (ms % 3600000) / 60000
-  )
-  const s = Math.floor(
-    (ms % 60000) / 1000
-  )
+  let h = isNaN(ms)
+    ? '--'
+    : Math.floor(ms / 3600000)
 
-  return [
-    h,
-    m,
-    s
-  ]
+  let m = isNaN(ms)
+    ? '--'
+    : Math.floor(ms / 60000) % 60
+
+  let s = isNaN(ms)
+    ? '--'
+    : Math.floor(ms / 1000) % 60
+
+  return [h, m, s]
     .map(v =>
       v.toString().padStart(2, '0')
     )
     .join(':')
 }
+
+handler.before = handler
 
 export default handler
