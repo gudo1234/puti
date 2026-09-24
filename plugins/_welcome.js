@@ -51,19 +51,24 @@ let handler = async (m, { conn, __dirname }) => {
   }
 
   if (!user || typeof user !== 'string') {
-    console.log('[WELCOME] No se pudo obtener el JID del participante:', userData)
+    console.log(
+      '[WELCOME] No se pudo obtener el JID del participante:',
+      userData
+    )
     return
   }
 
   if (user.endsWith('@lid') && m.isGroup) {
     try {
-      const metadata = await conn.groupMetadata(m.chat).catch(() => null)
+      const metadata =
+        await conn.groupMetadata(m.chat).catch(() => null)
 
-      const match = metadata?.participants?.find(p =>
-        p?.id === user ||
-        p?.lid === user ||
-        p?.jid === user
-      )
+      const match =
+        metadata?.participants?.find(p =>
+          p?.id === user ||
+          p?.lid === user ||
+          p?.jid === user
+        )
 
       if (match?.jid) {
         user = match.jid
@@ -102,7 +107,8 @@ let handler = async (m, { conn, __dirname }) => {
 
   try {
     if (m.isGroup) {
-      const metadata = await conn.groupMetadata(m.chat)
+      const metadata =
+        await conn.groupMetadata(m.chat)
 
       groupName = metadata?.subject || ''
       tantos = metadata?.participants?.length || 0
@@ -116,7 +122,10 @@ let handler = async (m, { conn, __dirname }) => {
     try {
       if (!conn) return false
 
-      if (conn.ws && typeof conn.ws.readyState === 'number') {
+      if (
+        conn.ws &&
+        typeof conn.ws.readyState === 'number'
+      ) {
         return conn.ws.readyState === 1
       }
 
@@ -126,7 +135,10 @@ let handler = async (m, { conn, __dirname }) => {
     }
   }
 
-  const waitForConnection = async (tries = 8, delay = 1500) => {
+  const waitForConnection = async (
+    tries = 8,
+    delay = 1500
+  ) => {
     for (let i = 0; i < tries; i++) {
       if (isConnected()) {
         return true
@@ -136,7 +148,9 @@ let handler = async (m, { conn, __dirname }) => {
         `[WELCOME] Esperando conexión... ${i + 1}/${tries}`
       )
 
-      await new Promise(resolve => setTimeout(resolve, delay))
+      await new Promise(resolve =>
+        setTimeout(resolve, delay)
+      )
     }
 
     return false
@@ -148,8 +162,13 @@ let handler = async (m, { conn, __dirname }) => {
     options = {},
     retries = 3
   ) => {
-    for (let attempt = 0; attempt < retries; attempt++) {
-      const connected = await waitForConnection(4, 1000)
+    for (
+      let attempt = 0;
+      attempt < retries;
+      attempt++
+    ) {
+      const connected =
+        await waitForConnection(4, 1000)
 
       if (!connected) {
         console.log(
@@ -211,7 +230,8 @@ let handler = async (m, { conn, __dirname }) => {
 
   try {
     if (fs.existsSync(imgPath)) {
-      const thumbLocal = fs.readFileSync(imgPath)
+      const thumbLocal =
+        fs.readFileSync(imgPath)
 
       thumbResized = await sharp(thumbLocal)
         .resize(300, 100, {
@@ -227,37 +247,79 @@ let handler = async (m, { conn, __dirname }) => {
     )
   }
 
-  let previewThumbnail = null
-
-  try {
-    if (icono) {
-      const response = await fetch(icono)
-
-      if (response.ok) {
-        const original = Buffer.from(
-          await response.arrayBuffer()
-        )
-
-        previewThumbnail = await sharp(original)
-          .resize(640, 640, {
-            fit: 'cover',
-            position: 'centre'
-          })
-          .jpeg({
-            quality: 100,
-            chromaSubsampling: '4:4:4'
-          })
-          .toBuffer()
-      }
-    }
-  } catch (e) {
-    console.error(
-      '[WELCOME] Error preparando preview:',
-      e?.message || e
-    )
-
-    previewThumbnail = null
+  const resizeThumbnail = async buffer => {
+    return await sharp(buffer)
+      .resize(640, 640, {
+        fit: 'cover',
+        position: 'centre'
+      })
+      .jpeg({
+        quality: 100,
+        chromaSubsampling: '4:4:4'
+      })
+      .toBuffer()
   }
+
+  const getProfileThumbnail = async jid => {
+    try {
+      let profileUrl = null
+
+      try {
+        profileUrl =
+          await conn.profilePictureUrl(
+            jid,
+            'image'
+          )
+      } catch {
+        profileUrl = null
+      }
+
+      if (profileUrl) {
+        try {
+          const response =
+            await fetch(profileUrl)
+
+          if (response.ok) {
+            const original =
+              Buffer.from(
+                await response.arrayBuffer()
+              )
+
+            if (original.length) {
+              return await resizeThumbnail(
+                original
+              )
+            }
+          }
+        } catch {}
+      }
+    } catch {}
+
+    try {
+      if (icono) {
+        const response =
+          await fetch(icono)
+
+        if (response.ok) {
+          const original =
+            Buffer.from(
+              await response.arrayBuffer()
+            )
+
+          if (original.length) {
+            return await resizeThumbnail(
+              original
+            )
+          }
+        }
+      }
+    } catch {}
+
+    return null
+  }
+
+  const previewThumbnail =
+    await getProfileThumbnail(user)
 
   const formatos = [
     'texto',
@@ -267,7 +329,8 @@ let handler = async (m, { conn, __dirname }) => {
   const formatoElegido =
     formatos[
       Math.floor(
-        Math.random() * formatos.length
+        Math.random() *
+        formatos.length
       )
     ]
 
@@ -279,16 +342,18 @@ let handler = async (m, { conn, __dirname }) => {
     ? `${global.e || ''} Bienvenid@, ${name}`
     : `👋🏻 Adiós, ${name}`
 
-  const newsletterInfo = channelInfo?.id
-    ? {
-        forwardedNewsletterMessageInfo: {
-          newsletterJid: channelInfo.id,
-          newsletterName:
-            channelInfo.name || '',
-          serverMessageId: 1
+  const newsletterInfo =
+    channelInfo?.id
+      ? {
+          forwardedNewsletterMessageInfo: {
+            newsletterJid:
+              channelInfo.id,
+            newsletterName:
+              channelInfo.name || '',
+            serverMessageId: 1
+          }
         }
-      }
-    : {}
+      : {}
 
   const createContextInfo = ({
     mentioned = true,
@@ -322,7 +387,8 @@ let handler = async (m, { conn, __dirname }) => {
       'matched-text': redes,
       title,
       description,
-      jpegThumbnail: previewThumbnail,
+      jpegThumbnail:
+        previewThumbnail,
       renderLargerThumbnail: false
     }
   }
@@ -352,10 +418,11 @@ let handler = async (m, { conn, __dirname }) => {
                 }
               : {}),
 
-            contextInfo: createContextInfo({
-              forwardingScore: 10,
-              isForwarded: true
-            })
+            contextInfo:
+              createContextInfo({
+                forwardingScore: 10,
+                isForwarded: true
+              })
           }
         )
 
@@ -459,6 +526,7 @@ let handler = async (m, { conn, __dirname }) => {
                     has_multiple_buttons: true
                   })
               },
+
               {
                 name:
                   'call_permission_request',
@@ -467,11 +535,13 @@ let handler = async (m, { conn, __dirname }) => {
                     has_multiple_buttons: true
                   })
               },
+
               {
                 name: 'single_select',
                 buttonParamsJson:
                   JSON.stringify({
-                    title: 'Más Opciones',
+                    title:
+                      'Más Opciones',
                     sections: [
                       {
                         title:
@@ -485,25 +555,31 @@ let handler = async (m, { conn, __dirname }) => {
                             description: '',
                             id: 'Edar'
                           },
+
                           {
                             title:
                               'Información del Bot',
                             description: '',
                             id: '.info'
                           },
+
                           {
                             title:
                               'Reglas/Términos',
                             description: '',
                             id: '.reglas'
                           },
+
                           {
-                            title: 'vcard/yo',
+                            title:
+                              'vcard/yo',
                             description: '',
                             id: '.vcar'
                           },
+
                           {
-                            title: 'Ping',
+                            title:
+                              'Ping',
                             description:
                               'Velocidad del bot',
                             id: '.ping'
@@ -515,17 +591,20 @@ let handler = async (m, { conn, __dirname }) => {
                       true
                   })
               },
+
               {
                 name: 'cta_copy',
                 buttonParamsJson:
                   JSON.stringify({
                     display_text:
                       'Copiar Código',
-                    id: '123456789',
+                    id:
+                      '123456789',
                     copy_code:
                       'Código de bienvenida'
                   })
               },
+
               {
                 name: 'cta_url',
                 buttonParamsJson:
@@ -533,9 +612,11 @@ let handler = async (m, { conn, __dirname }) => {
                     display_text:
                       'sᴇɢᴜɪʀ ᴄᴀɴᴀʟ/ᴡᴀ',
                     url: channel,
-                    merchant_url: channel
+                    merchant_url:
+                      channel
                   })
               },
+
               {
                 name:
                   'galaxy_message',
@@ -578,6 +659,7 @@ let handler = async (m, { conn, __dirname }) => {
                     }
                   })
               },
+
               {
                 name:
                   'quick_reply',
@@ -588,6 +670,7 @@ let handler = async (m, { conn, __dirname }) => {
                     id: '😔'
                   })
               },
+
               {
                 name: 'cta_url',
                 buttonParamsJson:
@@ -689,7 +772,10 @@ let handler = async (m, { conn, __dirname }) => {
 
             await new Promise(
               resolve =>
-                setTimeout(resolve, 2000)
+                setTimeout(
+                  resolve,
+                  2000
+                )
             )
           }
         }
@@ -715,15 +801,21 @@ let handler = async (m, { conn, __dirname }) => {
 function clockString(ms) {
   let h = isNaN(ms)
     ? '--'
-    : Math.floor(ms / 3600000)
+    : Math.floor(
+        ms / 3600000
+      )
 
   let m = isNaN(ms)
     ? '--'
-    : Math.floor(ms / 60000) % 60
+    : Math.floor(
+        ms / 60000
+      ) % 60
 
   let s = isNaN(ms)
     ? '--'
-    : Math.floor(ms / 1000) % 60
+    : Math.floor(
+        ms / 1000
+      ) % 60
 
   return [h, m, s]
     .map(v =>
