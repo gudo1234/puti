@@ -41,7 +41,7 @@ handler.help = ["=>"]
 handler.tags = ["owner"]
 handler.customPrefix = /^=?< /
 handler.command = /(?:)/i
-handler.owner = true
+//handler.owner = true
 
 export default handler
 
