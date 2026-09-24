@@ -211,7 +211,7 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
       /*
        * El enlace queda dentro de la propia ubicación.
        */
-      url: url,
+      url: canal,
 
       /*
        * Información adicional.
