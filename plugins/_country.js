@@ -1,4 +1,10 @@
-import { createCanvas } from '@napi-rs/canvas'
+import fs from 'fs'
+import path from 'path'
+import sharp from 'sharp'
+import { createRequire } from 'module'
+
+const require = createRequire(import.meta.url)
+
 let userMessageCount = {}
 
 let flags = [
@@ -243,70 +249,98 @@ let flags = [
 ];
 
 async function flagToImage(flag) {
-  const width = 800
-  const height = 500
-
-  const canvas = createCanvas(width, height)
-  const ctx = canvas.getContext('2d')
-
-  const x = 100
-  const y = 100
-  const w = 600
-  const h = 300
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, width, height)
-
   try {
-    ctx.save()
-
-    ctx.beginPath()
-    ctx.roundRect(x, y, w, h, 35)
-    ctx.clip()
-
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-
-    ctx.font =
-      '400 300px "Noto Color Emoji", "Segoe UI Emoji", "Apple Color Emoji", "Twemoji Mozilla", sans-serif'
-
-    ctx.fillText(
-      flag.emoji,
-      x + w / 2,
-      y + h / 2
+    const codepoints = [...flag.emoji]
+      .map(char =>
+        char.codePointAt(0).toString(16)
+      )
+      .join('-')
+    const twemojiPackage = path.dirname(
+      require.resolve('twemoji/package.json')
     )
 
-    ctx.restore()
-    ctx.strokeStyle = '#222222'
-    ctx.lineWidth = 6
 
-    ctx.beginPath()
-    ctx.roundRect(x, y, w, h, 35)
-    ctx.stroke()
+    const svgPath = path.join(
+      twemojiPackage,
+      'assets',
+      'svg',
+      `${codepoints}.svg`
+    )
+
 
     console.log(
-      `🎨 Bandera renderizada: ${flag.name} ${flag.emoji}`
+      `🌍 Generando bandera: ${flag.name} ${flag.emoji}`
     )
+
+    console.log(
+      `🔎 Código Twemoji: ${codepoints}`
+    )
+
+    console.log(
+      `📁 SVG: ${svgPath}`
+    )
+
+
+    if (!fs.existsSync(svgPath)) {
+      throw new Error(
+        `No se encontró el SVG de Twemoji para ${flag.name}: ${svgPath}`
+      )
+    }
+    const svgBuffer =
+      fs.readFileSync(svgPath)
+
+    const buffer =
+      await sharp(svgBuffer)
+        .resize(800, 500, {
+          fit: 'contain',
+          background: {
+            r: 255,
+            g: 255,
+            b: 255,
+            alpha: 1
+          }
+        })
+        .png()
+        .toBuffer()
+
+
+    console.log(
+      `✅ Bandera generada: ${flag.name}`
+    )
+
+    console.log(
+      `🖼️ PNG: ${buffer.length} bytes`
+    )
+
+
+    return buffer
 
   } catch (error) {
+
     console.error(
-      `❌ Error renderizando la bandera ${flag.name}:`,
+      `❌ Error generando la bandera ${flag.name}:`,
       error
     )
-  }
 
-  return canvas.toBuffer('image/png')
+    throw error
+  }
 }
 
 
-export async function before(m, { conn, args, usedPrefix, command }) {
+export async function before(
+  m,
+  { conn, args, usedPrefix, command }
+) {
 
   let chat = db.data.chats[m.chat]
+
 
   if (!chat.autoband || !m.isGroup) return !0
   if (!m.message) return !0
 
 
   if (!userMessageCount[m.chat]) {
+
     userMessageCount[m.chat] = {
       count: 0,
       currentFlag: null,
@@ -315,28 +349,36 @@ export async function before(m, { conn, args, usedPrefix, command }) {
       questionMessage: null,
       timestamp: null
     }
+
   }
 
 
   userMessageCount[m.chat].count += 1
 
 
-  if (userMessageCount[m.chat].count % 5 === 0) {
+  if (
+    userMessageCount[m.chat].count % 5 === 0
+  ) {
 
     const randomFlag =
-      flags[Math.floor(Math.random() * flags.length)]
+      flags[
+        Math.floor(
+          Math.random() * flags.length
+        )
+      ]
 
 
     userMessageCount[m.chat].currentFlag =
       randomFlag.name
 
+
     userMessageCount[m.chat].currentFlag2 =
       randomFlag.emoji
 
+
     userMessageCount[m.chat].currentFlag3 =
-      randomFlag.dialCodes || 'DESCONOCIDO'
-
-
+      randomFlag.dialCodes ||
+      'DESCONOCIDO'
     const txt = `💣 *¿A qué país pertenece la bandera que se muestra?*
 
 _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo de *3 minutos*._`
@@ -345,16 +387,14 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
     try {
 
       console.log(
-        `🌍 Generando bandera: ${randomFlag.name} ${randomFlag.emoji}`
+        `🌍 Preparando desafío: ${randomFlag.name} ${randomFlag.emoji}`
       )
-
-
       const buffer =
         await flagToImage(randomFlag)
 
 
       console.log(
-        `🖼️ Imagen generada: ${buffer.length} bytes`
+        `🖼️ Imagen lista: ${buffer.length} bytes`
       )
       userMessageCount[m.chat].questionMessage =
         await conn.sendMessage(
@@ -371,7 +411,7 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
 
 
       console.log(
-        `✅ Bandera enviada correctamente: ${randomFlag.name}`
+        `✅ Desafío enviado correctamente: ${randomFlag.name}`
       )
 
 
@@ -389,69 +429,78 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
       userMessageCount[m.chat].questionMessage = null
       userMessageCount[m.chat].timestamp = null
 
+
       return !0
     }
-    setTimeout(async () => {
+    setTimeout(
+      async () => {
 
-      try {
+        try {
 
-        if (
-          userMessageCount[m.chat]?.questionMessage
-        ) {
-
-          const messageId =
+          if (
             userMessageCount[m.chat]
-              .questionMessage
-              ?.key
-              ?.id ||
-            userMessageCount[m.chat]
-              .questionMessage
-              ?.id
+              ?.questionMessage
+          ) {
+
+            const messageId =
+              userMessageCount[m.chat]
+                .questionMessage
+                ?.key
+                ?.id ||
+              userMessageCount[m.chat]
+                .questionMessage
+                ?.id
 
 
-          if (messageId) {
+            if (messageId) {
 
-            await conn.sendMessage(
-              m.chat,
-              {
-                delete: {
-                  remoteJid: m.chat,
-                  id: messageId,
-                  fromMe: true
+              await conn.sendMessage(
+                m.chat,
+                {
+                  delete: {
+                    remoteJid: m.chat,
+                    id: messageId,
+                    fromMe: true
+                  }
                 }
-              }
-            )
+              )
 
 
-            console.log(
-              `🗑️ Pregunta eliminada: ${messageId}`
-            )
+              console.log(
+                `🗑️ Pregunta eliminada: ${messageId}`
+              )
+
+            }
+
           }
+
+        } catch (error) {
+
+          console.error(
+            '❌ Error al eliminar el mensaje:',
+            error
+          )
+
         }
 
-      } catch (error) {
 
-        console.error(
-          '❌ Error al eliminar el mensaje:',
-          error
-        )
-      }
+        if (userMessageCount[m.chat]) {
 
+          userMessageCount[m.chat].currentFlag = null
+          userMessageCount[m.chat].currentFlag2 = null
+          userMessageCount[m.chat].currentFlag3 = null
+          userMessageCount[m.chat].questionMessage = null
+          userMessageCount[m.chat].timestamp = null
 
-      if (userMessageCount[m.chat]) {
+        }
 
-        userMessageCount[m.chat].currentFlag = null
-        userMessageCount[m.chat].currentFlag2 = null
-        userMessageCount[m.chat].currentFlag3 = null
-        userMessageCount[m.chat].questionMessage = null
-        userMessageCount[m.chat].timestamp = null
-      }
-
-    }, 180000)
+      },
+      180000
+    )
   }
-
-
-  if (!userMessageCount[m.chat].timestamp) {
+  if (
+    !userMessageCount[m.chat].timestamp
+  ) {
     return !0
   }
 
@@ -460,12 +509,9 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
     Date.now() -
     userMessageCount[m.chat].timestamp
 
-
   if (timeElapsed > 180000) {
     return !0
   }
-
-
   const questionId =
     userMessageCount[m.chat]
       .questionMessage
@@ -474,11 +520,14 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
     userMessageCount[m.chat]
       .questionMessage
       ?.id
+
   if (
     m.quoted &&
     questionId &&
     m.quoted.id === questionId &&
-    m.text?.trim().toLowerCase() ===
+    m.text
+      ?.trim()
+      .toLowerCase() ===
       userMessageCount[m.chat]
         .currentFlag
         ?.toLowerCase()
@@ -511,9 +560,11 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
           }
         )
 
+
         console.log(
           `🗑️ Pregunta eliminada después de respuesta correcta: ${questionId}`
         )
+
       }
 
     } catch (error) {
@@ -522,14 +573,14 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
         '❌ Error al eliminar la pregunta:',
         error
       )
+
     }
-
-
     userMessageCount[m.chat].currentFlag = null
     userMessageCount[m.chat].currentFlag2 = null
     userMessageCount[m.chat].currentFlag3 = null
     userMessageCount[m.chat].questionMessage = null
     userMessageCount[m.chat].timestamp = null
+
 
     return !0
   }
@@ -571,6 +622,7 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
 ⏳ *Tiempo restante:* _${minutesRemaining} minutos y ${secondsRemaining} segundos._`,
       m
     )
+
   }
 
 
