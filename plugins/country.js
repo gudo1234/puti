@@ -1,5 +1,4 @@
 import moment from 'moment-timezone';
-import fetch from 'node-fetch'
 let userMessageCount = {};
 let flags = [
   {
@@ -2375,7 +2374,7 @@ export async function before(m, { conn, args, usedPrefix, command }) {
 
   userMessageCount[m.chat].count += 1;
 
-  if (userMessageCount[m.chat].count % 5 === 0) {
+  if (userMessageCount[m.chat].count % 103 === 0) {
     const randomFlag = flags[Math.floor(Math.random() * flags.length)];
 
     userMessageCount[m.chat].currentFlag = randomFlag.name;
@@ -2384,17 +2383,32 @@ export async function before(m, { conn, args, usedPrefix, command }) {
 
     let txt = `💣 *¿A qué país pertenece la bandera que se muestra? ${userMessageCount[m.chat].currentFlag2}*\n_🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo de *3 minutos*._`;
 
-    userMessageCount[m.chat].questionMessage = await conn.sendFile(
-      m.chat,
-      await (await fetch(randomFlag.image)).buffer(),
-      "Thumbnail.jpg",
-      txt,
-      null,
-      null,
-      rcanal
-    );
+    try {
+      const response = await fetch(randomFlag.image);
 
-    userMessageCount[m.chat].timestamp = Date.now();
+      if (!response.ok) {
+        throw new Error(`Error HTTP: ${response.status}`);
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      userMessageCount[m.chat].questionMessage = await conn.sendMessage(
+        m.chat,
+        {
+          image: buffer,
+          caption: txt
+        },
+        {
+          quoted: m
+        }
+      );
+
+      userMessageCount[m.chat].timestamp = Date.now();
+
+    } catch (error) {
+      console.error("❌ Error al descargar/enviar la bandera:", error);
+      return !0;
+    }
 
     setTimeout(async () => {
       try {
@@ -2402,7 +2416,8 @@ export async function before(m, { conn, args, usedPrefix, command }) {
           await conn.sendMessage(m.chat, {
             delete: {
               remoteJid: m.chat,
-              id: userMessageCount[m.chat].questionMessage.id,
+              id: userMessageCount[m.chat].questionMessage.key?.id ||
+                 userMessageCount[m.chat].questionMessage.id,
               fromMe: true
             }
           });
@@ -2432,7 +2447,10 @@ export async function before(m, { conn, args, usedPrefix, command }) {
   if (
     m.quoted &&
     userMessageCount[m.chat].questionMessage &&
-    m.quoted.id === userMessageCount[m.chat].questionMessage.id &&
+    m.quoted.id === (
+      userMessageCount[m.chat].questionMessage.key?.id ||
+      userMessageCount[m.chat].questionMessage.id
+    ) &&
     m.text?.toLowerCase() === userMessageCount[m.chat].currentFlag?.toLowerCase()
   ) {
     m.react('🎉');
@@ -2447,7 +2465,8 @@ export async function before(m, { conn, args, usedPrefix, command }) {
       await conn.sendMessage(m.chat, {
         delete: {
           remoteJid: m.chat,
-          id: userMessageCount[m.chat].questionMessage.id,
+          id: userMessageCount[m.chat].questionMessage.key?.id ||
+             userMessageCount[m.chat].questionMessage.id,
           fromMe: true
         }
       });
@@ -2464,7 +2483,10 @@ export async function before(m, { conn, args, usedPrefix, command }) {
   } else if (
     m.quoted &&
     userMessageCount[m.chat].questionMessage &&
-    m.quoted.id === userMessageCount[m.chat].questionMessage.id
+    m.quoted.id === (
+      userMessageCount[m.chat].questionMessage.key?.id ||
+      userMessageCount[m.chat].questionMessage.id
+    )
   ) {
     const timeRemaining = Math.max(0, 180000 - timeElapsed);
     const minutesRemaining = Math.floor(timeRemaining / 60000);
