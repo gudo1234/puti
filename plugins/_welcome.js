@@ -3,11 +3,6 @@ import { join } from 'path'
 import sharp from 'sharp'
 import fetch from 'node-fetch'
 import path from 'path'
-import {
-  prepareWAMessageMedia,
-  generateWAMessageFromContent
-} from '@whiskeysockets/baileys'
-import { sticker } from '../lib/sticker.js'
 
 let handler = async (m, { conn, __dirname }) => {
   const chat = global.db?.data?.chats?.[m.chat] || {}
@@ -264,45 +259,8 @@ let handler = async (m, { conn, __dirname }) => {
     previewThumbnail = null
   }
 
-  const audiosWelcome = [
-    'https://raw.githubusercontent.com/edar123/im/main/media/a.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/bien.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/prueba3.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/prueba4.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/bloody.mp3'
-  ]
-
-  const audiosBye = [
-    'https://raw.githubusercontent.com/edar123/im/main/media/adios.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/prueba.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/sad.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/cardigansad.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/iwas.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/juntos.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/space.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/stellar.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/theb.mp3',
-    'https://raw.githubusercontent.com/edar123/im/main/media/alanspectre.mp3'
-  ]
-
-  const audioPick = arr =>
-    arr[Math.floor(Math.random() * arr.length)]
-
-  const gifsBienvenida = [
-    'https://raw.githubusercontent.com/edar123/im/main/media/gif.mp4',
-    'https://raw.githubusercontent.com/edar123/im/main/media/giff.mp4',
-    'https://raw.githubusercontent.com/edar123/im/main/media/gifff.mp4',
-    'https://raw.githubusercontent.com/edar123/im/main/media/gif4.mp4'
-  ]
-
-  const gifDespedida =
-    'https://qu.ax/xOtQJ.mp4'
-
   const formatos = [
-    'stiker',
-    'audio',
     'texto',
-    'gifPlayback',
     'interactivo'
   ]
 
@@ -369,222 +327,8 @@ let handler = async (m, { conn, __dirname }) => {
     }
   }
 
-  const sendMediaWithPreview = async ({
-    type,
-    media,
-    mimetype,
-    caption = '',
-    gifPlayback = false,
-    ptt = false,
-    contextInfo
-  }) => {
-
-    const connected =
-      await waitForConnection(8, 1000)
-
-    if (!connected) {
-      return null
-    }
-
-    let prepared
-
-    if (type === 'sticker') {
-      prepared = await prepareWAMessageMedia(
-        {
-          sticker: media
-        },
-        {
-          upload: conn.waUploadToServer
-        }
-      )
-    }
-
-    if (type === 'audio') {
-      prepared = await prepareWAMessageMedia(
-        {
-          audio: media,
-          mimetype: mimetype || 'audio/mpeg',
-          ptt
-        },
-        {
-          upload: conn.waUploadToServer
-        }
-      )
-    }
-
-    if (type === 'video') {
-      prepared = await prepareWAMessageMedia(
-        {
-          video: media,
-          mimetype: mimetype || 'video/mp4',
-          caption,
-          gifPlayback
-        },
-        {
-          upload: conn.waUploadToServer
-        }
-      )
-    }
-
-    if (!prepared) {
-      throw new Error(
-        'No se pudo preparar el contenido multimedia.'
-      )
-    }
-
-    const messageType =
-      type === 'sticker'
-        ? 'stickerMessage'
-        : type === 'audio'
-          ? 'audioMessage'
-          : 'videoMessage'
-
-    if (prepared[messageType]) {
-      prepared[messageType].contextInfo =
-        contextInfo
-    }
-
-    /*
-     * Esta es la información equivalente a la lógica
-     * que funciona con linkPreview en mensajes de texto.
-     *
-     * No usamos externalAdReply.
-     */
-    const linkPreview =
-      createLinkPreview({
-        title: `| Runtime ${run}`,
-        description: isWelcome
-          ? 'IzuBot te da la bienvenida'
-          : 'Esperemos que no vuelva -_-'
-      })
-
-    if (prepared[messageType] && linkPreview) {
-      prepared[messageType].linkPreview =
-        linkPreview
-    }
-
-    const generated =
-      generateWAMessageFromContent(
-        m.chat,
-        prepared,
-        {
-          userJid: conn.user?.id
-        }
-      )
-
-    await conn.relayMessage(
-      m.chat,
-      generated.message,
-      {
-        messageId: generated.key.id
-      }
-    )
-
-    return generated
-  }
-
-  let stickerBuffer = null
-
   try {
     switch (formatoElegido) {
-
-      case 'stiker': {
-        try {
-          const imagenSticker = isWelcome
-            ? global.imagen8
-            : global.imagen7
-
-          if (!imagenSticker) {
-            throw new Error(
-              `No existe global.${
-                isWelcome
-                  ? 'imagen8'
-                  : 'imagen7'
-              }`
-            )
-          }
-
-          stickerBuffer = await sticker(
-            imagenSticker,
-            false,
-            global.packname,
-            global.author
-          )
-
-          if (
-            !Buffer.isBuffer(stickerBuffer) ||
-            !stickerBuffer.length
-          ) {
-            throw new Error(
-              'El sticker no devolvió un Buffer válido.'
-            )
-          }
-
-          await sendMediaWithPreview({
-            type: 'sticker',
-            media: stickerBuffer,
-            contextInfo: createContextInfo({
-              forwardingScore: 200,
-              isForwarded: false
-            })
-          })
-
-        } catch (e) {
-          console.error(
-            '[WELCOME] Error generando/enviando sticker:',
-            e?.message || e
-          )
-
-          const linkPreview =
-            createLinkPreview({
-              title: `| Runtime ${run}`,
-              description: isWelcome
-                ? 'IzuBot te da la bienvenida'
-                : 'Esperemos que no vuelva -_-'
-            })
-
-          await safeSendMessage(
-            m.chat,
-            {
-              text: redes
-                ? `${redes}\n${actividad}`
-                : actividad,
-
-              ...(linkPreview
-                ? {
-                    linkPreview
-                  }
-                : {}),
-
-              contextInfo:
-                createContextInfo()
-            }
-          )
-        }
-
-        break
-      }
-
-      case 'audio': {
-        const audioUrl = isWelcome
-          ? audioPick(audiosWelcome)
-          : audioPick(audiosBye)
-
-        await sendMediaWithPreview({
-          type: 'audio',
-          media: {
-            url: audioUrl
-          },
-          mimetype: 'audio/mpeg',
-          ptt: false,
-          contextInfo: createContextInfo({
-            forwardingScore: 10,
-            isForwarded: true
-          })
-        })
-
-        break
-      }
 
       case 'texto': {
         const linkPreview =
@@ -614,33 +358,6 @@ let handler = async (m, { conn, __dirname }) => {
             })
           }
         )
-
-        break
-      }
-
-      case 'gifPlayback': {
-        const videoUrl = isWelcome
-          ? gifsBienvenida[
-              Math.floor(
-                Math.random() *
-                gifsBienvenida.length
-              )
-            ]
-          : gifDespedida
-
-        await sendMediaWithPreview({
-          type: 'video',
-          media: {
-            url: videoUrl
-          },
-          mimetype: 'video/mp4',
-          caption: actividad,
-          gifPlayback: true,
-          contextInfo: createContextInfo({
-            forwardingScore: 10,
-            isForwarded: true
-          })
-        })
 
         break
       }
