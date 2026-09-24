@@ -342,7 +342,7 @@ export async function before(
   userMessageCount[m.chat].count += 1
 
   if (
-    userMessageCount[m.chat].count % 5 === 0
+    userMessageCount[m.chat].count % 10 === 0
   ) {
 
     const randomFlag =
