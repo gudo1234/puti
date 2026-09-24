@@ -2357,7 +2357,11 @@ let flags = [
 
 async function getImageBuffer(url) {
   const response = await fetch(url, {
-    redirect: 'follow'
+    redirect: 'follow',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
+    }
   });
 
   if (!response.ok) {
@@ -2366,73 +2370,133 @@ async function getImageBuffer(url) {
 
   const contentType = response.headers.get('content-type') || '';
 
-  // Si qu.ax devuelve directamente la imagen
-  if (contentType.startsWith('image/')) {
+  // Si la URL ya devuelve una imagen
+  if (contentType.toLowerCase().startsWith('image/')) {
     return Buffer.from(await response.arrayBuffer());
   }
 
-  // Si devuelve una página HTML, buscamos la imagen real
-  if (contentType.includes('text/html')) {
-    const html = await response.text();
+  // qu.ax devuelve una página HTML
+  const html = await response.text();
 
-    let imageUrl = null;
+  console.log('🌐 qu.ax respondió HTML, buscando enlace de descarga...');
 
-    // Buscar og:image
+  let downloadUrl = null;
+
+  /*
+   * qu.ax muestra un enlace "Download".
+   * Buscamos primero cualquier href que contenga
+   * download/download.php/file/etc.
+   */
+  const links = [
+    ...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)
+  ];
+
+  for (const match of links) {
+    const href = match[1];
+    const text = match[2]
+      .replace(/<[^>]+>/g, '')
+      .trim()
+      .toLowerCase();
+
+    if (
+      text.includes('download') ||
+      text.includes('descargar') ||
+      /download/i.test(href)
+    ) {
+      downloadUrl = href;
+      break;
+    }
+  }
+
+  /*
+   * Buscar imágenes declaradas en og:image
+   */
+  if (!downloadUrl) {
     const ogImage =
       html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
       html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
 
     if (ogImage?.[1]) {
-      imageUrl = ogImage[1];
+      downloadUrl = ogImage[1];
     }
-
-    // Buscar twitter:image como respaldo
-    if (!imageUrl) {
-      const twitterImage =
-        html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
-        html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
-
-      if (twitterImage?.[1]) {
-        imageUrl = twitterImage[1];
-      }
-    }
-
-    // Buscar cualquier URL de imagen dentro del HTML
-    if (!imageUrl) {
-      const imageMatch = html.match(
-        /https?:\/\/[^"'<> ]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^"'<> ]*)?/i
-      );
-
-      if (imageMatch?.[0]) {
-        imageUrl = imageMatch[0];
-      }
-    }
-
-    if (!imageUrl) {
-      throw new Error('No se encontró la imagen real dentro de la página de qu.ax');
-    }
-
-    // Convertir URL relativa en absoluta
-    imageUrl = new URL(imageUrl, response.url).href;
-
-    const imageResponse = await fetch(imageUrl, {
-      redirect: 'follow'
-    });
-
-    if (!imageResponse.ok) {
-      throw new Error(`Error al descargar la imagen real: ${imageResponse.status}`);
-    }
-
-    const imageType = imageResponse.headers.get('content-type') || '';
-
-    if (!imageType.startsWith('image/')) {
-      throw new Error(`El enlace encontrado tampoco es una imagen: ${imageType}`);
-    }
-
-    return Buffer.from(await imageResponse.arrayBuffer());
   }
 
-  throw new Error(`Contenido no compatible: ${contentType}`);
+  /*
+   * Buscar cualquier enlace a un archivo de imagen.
+   */
+  if (!downloadUrl) {
+    for (const match of links) {
+      const href = match[1];
+
+      if (
+        /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(href)
+      ) {
+        downloadUrl = href;
+        break;
+      }
+    }
+  }
+
+  /*
+   * Último intento: buscar URLs de imagen
+   * directamente dentro del HTML.
+   */
+  if (!downloadUrl) {
+    const imageMatch = html.match(
+      /https?:\/\/[^"'<> ]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^"'<> ]*)?/i
+    );
+
+    if (imageMatch?.[0]) {
+      downloadUrl = imageMatch[0];
+    }
+  }
+
+  if (!downloadUrl) {
+    console.error('❌ No se encontró el enlace de descarga de qu.ax');
+    console.error(html.slice(0, 5000));
+
+    throw new Error('No se encontró el enlace real de descarga en qu.ax');
+  }
+
+  // Convertir enlace relativo en absoluto
+  downloadUrl = new URL(downloadUrl, response.url).href;
+
+  console.log(`🔗 Enlace encontrado: ${downloadUrl}`);
+
+  const imageResponse = await fetch(downloadUrl, {
+    redirect: 'follow',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36',
+      'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+    }
+  });
+
+  if (!imageResponse.ok) {
+    throw new Error(
+      `Error descargando archivo: ${imageResponse.status}`
+    );
+  }
+
+  const imageType =
+    imageResponse.headers.get('content-type') || '';
+
+  console.log(`📦 Tipo recibido: ${imageType}`);
+
+  if (!imageType.toLowerCase().startsWith('image/')) {
+    throw new Error(
+      `El enlace de descarga no devolvió una imagen: ${imageType}`
+    );
+  }
+
+  const buffer = Buffer.from(
+    await imageResponse.arrayBuffer()
+  );
+
+  if (!buffer.length) {
+    throw new Error('La imagen descargada está vacía');
+  }
+
+  return buffer;
 }
 
 export async function before(m, { conn, args, usedPrefix, command }) {
@@ -2455,38 +2519,58 @@ export async function before(m, { conn, args, usedPrefix, command }) {
   userMessageCount[m.chat].count += 1;
 
   if (userMessageCount[m.chat].count % 5 === 0) {
-    const randomFlag = flags[Math.floor(Math.random() * flags.length)];
+    const randomFlag =
+      flags[Math.floor(Math.random() * flags.length)];
 
-    userMessageCount[m.chat].currentFlag = randomFlag.name;
-    userMessageCount[m.chat].currentFlag2 = randomFlag.emoji;
-    userMessageCount[m.chat].currentFlag3 = randomFlag.dialCodes || "DESCONOCIDO";
+    userMessageCount[m.chat].currentFlag =
+      randomFlag.name;
 
-    let txt = `💣 *¿A qué país pertenece la bandera que se muestra? ${userMessageCount[m.chat].currentFlag2}*\n_🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo de *3 minutos*._`;
+    userMessageCount[m.chat].currentFlag2 =
+      randomFlag.emoji;
+
+    userMessageCount[m.chat].currentFlag3 =
+      randomFlag.dialCodes || "DESCONOCIDO";
+
+    let txt =
+      `💣 *¿A qué país pertenece la bandera que se muestra? ${userMessageCount[m.chat].currentFlag2}*\n` +
+      `_🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo de *3 minutos*._`;
 
     try {
-      console.log(`🌐 Descargando bandera: ${randomFlag.image}`);
-
-      const buffer = await getImageBuffer(randomFlag.image);
-
-      console.log(`✅ Bandera obtenida correctamente: ${buffer.length} bytes`);
-
-      userMessageCount[m.chat].questionMessage = await conn.sendMessage(
-        m.chat,
-        {
-          image: buffer,
-          caption: txt
-        },
-        {
-          quoted: m
-        }
+      console.log(
+        `🌐 Descargando bandera: ${randomFlag.image}`
       );
 
-      userMessageCount[m.chat].timestamp = Date.now();
+      const buffer =
+        await getImageBuffer(randomFlag.image);
 
-      console.log(`✅ Bandera enviada en: ${m.chat}`);
+      console.log(
+        `✅ Bandera obtenida correctamente: ${buffer.length} bytes`
+      );
+
+      userMessageCount[m.chat].questionMessage =
+        await conn.sendMessage(
+          m.chat,
+          {
+            image: buffer,
+            caption: txt
+          },
+          {
+            quoted: m
+          }
+        );
+
+      userMessageCount[m.chat].timestamp =
+        Date.now();
+
+      console.log(
+        `✅ Bandera enviada en: ${m.chat}`
+      );
 
     } catch (error) {
-      console.error("❌ Error al descargar/enviar la bandera:", error);
+      console.error(
+        "❌ Error al descargar/enviar la bandera:",
+        error
+      );
 
       userMessageCount[m.chat].currentFlag = null;
       userMessageCount[m.chat].currentFlag2 = null;
@@ -2499,23 +2583,33 @@ export async function before(m, { conn, args, usedPrefix, command }) {
 
     setTimeout(async () => {
       try {
-        if (userMessageCount[m.chat]?.questionMessage) {
+        if (
+          userMessageCount[m.chat]?.questionMessage
+        ) {
           const messageId =
-            userMessageCount[m.chat].questionMessage.key?.id ||
-            userMessageCount[m.chat].questionMessage.id;
+            userMessageCount[m.chat]
+              .questionMessage.key?.id ||
+            userMessageCount[m.chat]
+              .questionMessage.id;
 
           if (messageId) {
-            await conn.sendMessage(m.chat, {
-              delete: {
-                remoteJid: m.chat,
-                id: messageId,
-                fromMe: true
+            await conn.sendMessage(
+              m.chat,
+              {
+                delete: {
+                  remoteJid: m.chat,
+                  id: messageId,
+                  fromMe: true
+                }
               }
-            });
+            );
           }
         }
       } catch (error) {
-        console.error("Error al eliminar el mensaje:", error);
+        console.error(
+          "Error al eliminar el mensaje:",
+          error
+        );
       }
 
       if (userMessageCount[m.chat]) {
@@ -2528,23 +2622,30 @@ export async function before(m, { conn, args, usedPrefix, command }) {
     }, 180000);
   }
 
-  if (!userMessageCount[m.chat].timestamp) return !0;
+  if (!userMessageCount[m.chat].timestamp)
+    return !0;
 
-  const timeElapsed = Date.now() - userMessageCount[m.chat].timestamp;
+  const timeElapsed =
+    Date.now() -
+    userMessageCount[m.chat].timestamp;
 
   if (timeElapsed > 180000) {
     return;
   }
 
   const questionId =
-    userMessageCount[m.chat].questionMessage?.key?.id ||
-    userMessageCount[m.chat].questionMessage?.id;
+    userMessageCount[m.chat]
+      .questionMessage?.key?.id ||
+    userMessageCount[m.chat]
+      .questionMessage?.id;
 
   if (
     m.quoted &&
     questionId &&
     m.quoted.id === questionId &&
-    m.text?.toLowerCase() === userMessageCount[m.chat].currentFlag?.toLowerCase()
+    m.text?.toLowerCase() ===
+      userMessageCount[m.chat]
+        .currentFlag?.toLowerCase()
   ) {
     m.react('🎉');
 
@@ -2556,16 +2657,22 @@ export async function before(m, { conn, args, usedPrefix, command }) {
 
     try {
       if (questionId) {
-        await conn.sendMessage(m.chat, {
-          delete: {
-            remoteJid: m.chat,
-            id: questionId,
-            fromMe: true
+        await conn.sendMessage(
+          m.chat,
+          {
+            delete: {
+              remoteJid: m.chat,
+              id: questionId,
+              fromMe: true
+            }
           }
-        });
+        );
       }
     } catch (error) {
-      console.error("Error al eliminar el mensaje:", error);
+      console.error(
+        "Error al eliminar el mensaje:",
+        error
+      );
     }
 
     userMessageCount[m.chat].currentFlag = null;
@@ -2579,9 +2686,16 @@ export async function before(m, { conn, args, usedPrefix, command }) {
     questionId &&
     m.quoted.id === questionId
   ) {
-    const timeRemaining = Math.max(0, 180000 - timeElapsed);
-    const minutesRemaining = Math.floor(timeRemaining / 60000);
-    const secondsRemaining = Math.floor((timeRemaining % 60000) / 1000);
+    const timeRemaining =
+      Math.max(0, 180000 - timeElapsed);
+
+    const minutesRemaining =
+      Math.floor(timeRemaining / 60000);
+
+    const secondsRemaining =
+      Math.floor(
+        (timeRemaining % 60000) / 1000
+      );
 
     m.react('✖️');
 
@@ -2591,4 +2705,4 @@ export async function before(m, { conn, args, usedPrefix, command }) {
       m
     );
   }
-      }
+    }
