@@ -211,7 +211,7 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
       /*
        * El enlace queda dentro de la propia ubicación.
        */
-      url: canal,
+      url: "https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H",
 
       /*
        * Información adicional.
