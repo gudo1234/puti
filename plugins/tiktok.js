@@ -207,6 +207,8 @@ const handler = async (m, { conn, args, usedPrefix, command }) => {
     }
 }
 
+handler.help = ["tiktok"]
+handler.tags = ["descargas"]
 handler.command = [
     "tk",
     "tt",
