@@ -1,143 +1,221 @@
 import fetch from "node-fetch"
-import axios from "axios"
-import Starlights from "starlights-scraper"
 
-function extractTikTokUrl(text) {
-    const patterns = [
-        /https?:\/\/(?:www\.)?tiktok\.com\/[^\s]+/i,
-        /https?:\/\/vm\.tiktok\.com\/[^\s]+/i,
-        /https?:\/\/vt\.tiktok\.com\/[^\s]+/i,
-        /tiktok\.com\/[^\s]+/i,
-        /vm\.tiktok\.com\/[^\s]+/i,
-        /vt\.tiktok\.com\/[^\s]+/i
-    ]
+const APIKEY = "oboe"
+const GATAKEY = "gata-2026-ofc"
 
-    for (const reg of patterns) {
-        const m = text.match(reg)
-        if (m) {
-            let url = m[0].replace(/^[^h]+/, "https://")
-            if (!url.startsWith("http")) url = "https://" + url
-            return url
-        }
+const handler = async (m, { conn, args, usedPrefix, command }) => {
+
+    const input = args?.join(" ").trim() || ""
+
+    if (!input) {
+        return m.reply(
+            `*¿Qué TikTok quieres descargar?*\n\n` +
+            `Ejemplo:\n${usedPrefix + command} Diles\n` +
+            `${usedPrefix + command} https://www.tiktok.com/@vitotvo.ec/video/7677072456238058759`
+        )
     }
-    return null
-}
 
-let handler = async (m, { conn, text }) => {
-    if (!text) return m.reply(`${e} Ingrese un *texto o link* de TikTok.`)
-
-    await m.react("🕒")
-
-    let result = null
-    let dl_url = null
+    await m.react?.("⌛")
 
     try {
-        const url = extractTikTokUrl(text)
 
-        if (url) {
-            try {
-                const api = `https://api.deline.web.id/downloader/tiktok?url=${encodeURIComponent(url)}`
-                const res = await fetch(api, { timeout: 20000 })
-                const json = await res.json()
+        const isTikTok =
+            /^(https?:\/\/)?((www|vm|vt|m|t)\.)?tiktok\.com\/\S+/i.test(input)
 
-                if (json?.status && json?.result) {
-                    const data = json.result
-                    result = {
-                        title: data.title || "Sin título",
-                        author: data.author?.nickname || "Desconocido",
-                        type: data.type || "video",
-                        region: data.region || "-",
-                        audio: data.music || null,
-                        images: data.type === "image" && Array.isArray(data.download) ? data.download : []
+        let result = null
+
+        if (isTikTok) {
+
+            const res = await fetch(
+                `https://api.evogb.org/dl/tiktok?key=${encodeURIComponent(GATAKEY)}&url=${encodeURIComponent(input)}`,
+                {
+                    headers: {
+                        "User-Agent": "Mozilla/5.0"
                     }
-                    dl_url = typeof data.download === "string" ? data.download : null
                 }
-            } catch {
-                console.log("Deline falló → usando fallback...")
+            )
+
+            if (!res.ok) {
+                throw new Error(`GataDios HTTP ${res.status}`)
             }
-        }
 
-        if (!result) {
-            const scrape = url
-                ? await Starlights.tiktokdl(url)
-                : await Starlights.tiktokvid(text)
+            const data = await res.json()
 
-            result = {
-                title: scrape.title || "Sin título",
-                author: scrape.author || "Desconocido",
-                type: scrape.images ? "image" : "video",
-                images: scrape.images || [],
-                audio: scrape.audio || null
+            if (
+                !data?.status ||
+                data?.code !== 200 ||
+                !data?.data
+            ) {
+                throw new Error("GataDios no pudo obtener el TikTok.")
             }
-            dl_url = scrape?.dl_url || scrape?.nowm || null
-        }
 
-        if (result.type === "image" && result.images.length) {
-            for (let i = 0; i < result.images.length; i++) {
-                await conn.sendMessage(
-                    m.chat,
-                    {
-                        image: { url: result.images[i] },
-                        caption: i === 0
-                            ? `🎵 *TikTok*
-✦ *Título:* ${result.title}
-✦ *Autor:* ${result.author}`
-                            : undefined
-                    },
-                    { quoted: m }
+            result = data.data
+
+        } else {
+
+            const res = await fetch(
+                `https://api.alyacore.xyz/search/tiktok?query=${encodeURIComponent(input)}&key=${encodeURIComponent(APIKEY)}`
+            )
+
+            if (!res.ok) {
+                throw new Error(`Búsqueda HTTP ${res.status}`)
+            }
+
+            const data = await res.json()
+
+            if (
+                !data?.status ||
+                !Array.isArray(data.data) ||
+                !data.data.length
+            ) {
+                throw new Error("No se encontraron resultados.")
+            }
+
+            result = data.data.find(
+                x => x?.url || x?.dl
+            )
+
+            if (!result) {
+                throw new Error("El resultado no contiene una URL válida.")
+            }
+
+            const url =
+                result.url ||
+                result.dl
+
+            const gataRes = await fetch(
+                `https://api.evogb.org/dl/tiktok?key=${encodeURIComponent(GATAKEY)}&url=${encodeURIComponent(url)}`,
+                {
+                    headers: {
+                        "User-Agent": "Mozilla/5.0"
+                    }
+                }
+            )
+
+            if (!gataRes.ok) {
+                throw new Error(`GataDios HTTP ${gataRes.status}`)
+            }
+
+            const gataData = await gataRes.json()
+
+            if (
+                !gataData?.status ||
+                gataData?.code !== 200 ||
+                !gataData?.data
+            ) {
+                throw new Error(
+                    "GataDios no pudo procesar el resultado."
                 )
             }
 
-            if (result.audio) {
+            result = gataData.data
+        }
+
+        const formatter = n => {
+            n = Number(n) || 0
+
+            if (n >= 1e9)
+                return (n / 1e9).toFixed(1) + "B"
+
+            if (n >= 1e6)
+                return (n / 1e6).toFixed(1) + "M"
+
+            if (n >= 1e3)
+                return (n / 1e3).toFixed(1) + "K"
+
+            return String(n)
+        }
+
+        const author = result.author || {}
+        const stats = result.stats || {}
+
+        const caption =
+            `${result.title || "Sin título"}\n\n` +
+            `> Autor › ${author.nickname || author.unique_id || "Desconocido"}\n` +
+            `> Duración › ${result.duration || "-"}\n` +
+            `> Región › ${result.region || "-"}\n` +
+            `> Vistas › ${formatter(stats.plays)}\n` +
+            `> Likes › ${formatter(stats.likes)}\n` +
+            `> Comentarios › ${formatter(stats.comments)}\n` +
+            `> Compartidos › ${formatter(stats.shares)}\n` +
+            `> Descargas › ${formatter(stats.downloads)}`
+
+        if (result.type === "image") {
+
+            const images = Array.isArray(result.dl)
+                ? result.dl
+                : [result.dl]
+
+            if (!images.length || !images[0]) {
+                throw new Error("No se encontraron imágenes.")
+            }
+
+            for (let i = 0; i < images.length; i++) {
+
                 await conn.sendMessage(
                     m.chat,
                     {
-                        audio: { url: result.audio },
-                        mimetype: "audio/mpeg",
-                        fileName: "tiktok_audio.mp3"
+                        image: {
+                            url: images[i]
+                        },
+                        caption: i === 0 ? caption : undefined
                     },
-                    { quoted: m }
+                    {
+                        quoted: m
+                    }
                 )
             }
 
-            await m.react("✅")
-            return
-        }
+        } else {
 
-        if (!dl_url) return m.reply(`${e} No pude obtener el enlace de descarga.`)
+            if (!result.dl) {
+                throw new Error(
+                    "GataDios no devolvió el enlace del video."
+                )
+            }
 
-        const fileReq = await axios.get(dl_url, {
-            responseType: "arraybuffer",
-            timeout: 30000
-        })
-      let txt = `🎵 *TikTok Downloader*
-✦ *Título:* ${result.title}
-✦ *Autor:* ${result.author}`
-      await conn.sendFile(m.chat, Buffer.from(fileReq.data), 'tiktok.mp4', txt, m, null, rcanal);
-
-        if (result.audio) {
             await conn.sendMessage(
                 m.chat,
                 {
-                    audio: { url: result.audio },
-                    mimetype: "audio/mpeg",
-                    fileName: "tiktok_audio.mp3"
+                    video: {
+                        url: result.dl
+                    },
+                    caption,
+                    mimetype: "video/mp4",
+                    fileName: "tiktok.mp4"
                 },
-                { quoted: m }
+                {
+                    quoted: m
+                }
             )
         }
 
-        await m.react("✅")
+        await m.react?.("✅")
 
-    } catch (err) {
-        console.error("ERROR TIKTOK:", err)
-        return m.reply(`${e} Error procesando el TikTok.`)
+    } catch (e) {
+
+        console.error(
+            "❌ TIKTOK:",
+            e
+        )
+
+        await m.react?.("❌")
+
+        await m.reply(
+            `❌ No pude procesar el TikTok.\n\n> ${e?.message || e}`
+        )
     }
 }
 
-handler.help = ["tiktok"]
-handler.tags = ["descargas"]
-handler.command = ["tiktok", "tt", "ttdl", "tiktokvid", "tiktokdl", "ttvideo", "ttimg"]
-handler.group = true
+handler.command = [
+    "tk",
+    "tt",
+    "ttv",
+    "tiktok",
+    "tkmp4",
+    "ttvid",
+    "tiktokvid"
+]
 
+handler.group = true
 export default handler
