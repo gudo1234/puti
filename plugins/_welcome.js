@@ -3,6 +3,10 @@ import { join } from 'path'
 import sharp from 'sharp'
 import fetch from 'node-fetch'
 import path from 'path'
+import {
+  prepareWAMessageMedia,
+  generateWAMessageFromContent
+} from '@whiskeysockets/baileys'
 import { sticker } from '../lib/sticker.js'
 
 let handler = async (m, { conn, __dirname }) => {
@@ -323,7 +327,7 @@ let handler = async (m, { conn, __dirname }) => {
           newsletterJid: channelInfo.id,
           newsletterName:
             channelInfo.name || '',
-          serverMessageId: 0
+          serverMessageId: 1
         }
       }
     : {}
@@ -331,13 +335,9 @@ let handler = async (m, { conn, __dirname }) => {
   const createContextInfo = ({
     mentioned = true,
     forwardingScore = 10,
-    isForwarded = true,
-    external = false,
-    title = textbot,
-    body = wm
+    isForwarded = true
   } = {}) => {
-
-    const contextInfo = {
+    return {
       ...newsletterInfo,
 
       ...(mentioned
@@ -346,28 +346,10 @@ let handler = async (m, { conn, __dirname }) => {
           }
         : {}),
 
+      remoteJid: '@broadcast',
       forwardingScore,
       isForwarded
     }
-
-    if (external) {
-      contextInfo.externalAdReply = {
-        showAdAttribution: false,
-        title,
-        body,
-        mediaType: 1,
-        renderLargerThumbnail: false,
-        sourceUrl: redes || undefined,
-        thumbnailUrl: redes || undefined,
-        ...(Buffer.isBuffer(previewThumbnail)
-          ? {
-              thumbnail: previewThumbnail
-            }
-          : {})
-      }
-    }
-
-    return contextInfo
   }
 
   const createLinkPreview = ({
@@ -385,6 +367,120 @@ let handler = async (m, { conn, __dirname }) => {
       jpegThumbnail: previewThumbnail,
       renderLargerThumbnail: false
     }
+  }
+
+  const sendMediaWithPreview = async ({
+    type,
+    media,
+    mimetype,
+    caption = '',
+    gifPlayback = false,
+    ptt = false,
+    contextInfo
+  }) => {
+
+    const connected =
+      await waitForConnection(8, 1000)
+
+    if (!connected) {
+      return null
+    }
+
+    let prepared
+
+    if (type === 'sticker') {
+      prepared = await prepareWAMessageMedia(
+        {
+          sticker: media
+        },
+        {
+          upload: conn.waUploadToServer
+        }
+      )
+    }
+
+    if (type === 'audio') {
+      prepared = await prepareWAMessageMedia(
+        {
+          audio: media,
+          mimetype: mimetype || 'audio/mpeg',
+          ptt
+        },
+        {
+          upload: conn.waUploadToServer
+        }
+      )
+    }
+
+    if (type === 'video') {
+      prepared = await prepareWAMessageMedia(
+        {
+          video: media,
+          mimetype: mimetype || 'video/mp4',
+          caption,
+          gifPlayback
+        },
+        {
+          upload: conn.waUploadToServer
+        }
+      )
+    }
+
+    if (!prepared) {
+      throw new Error(
+        'No se pudo preparar el contenido multimedia.'
+      )
+    }
+
+    const messageType =
+      type === 'sticker'
+        ? 'stickerMessage'
+        : type === 'audio'
+          ? 'audioMessage'
+          : 'videoMessage'
+
+    if (prepared[messageType]) {
+      prepared[messageType].contextInfo =
+        contextInfo
+    }
+
+    /*
+     * Esta es la información equivalente a la lógica
+     * que funciona con linkPreview en mensajes de texto.
+     *
+     * No usamos externalAdReply.
+     */
+    const linkPreview =
+      createLinkPreview({
+        title: `| Runtime ${run}`,
+        description: isWelcome
+          ? 'IzuBot te da la bienvenida'
+          : 'Esperemos que no vuelva -_-'
+      })
+
+    if (prepared[messageType] && linkPreview) {
+      prepared[messageType].linkPreview =
+        linkPreview
+    }
+
+    const generated =
+      generateWAMessageFromContent(
+        m.chat,
+        prepared,
+        {
+          userJid: conn.user?.id
+        }
+      )
+
+    await conn.relayMessage(
+      m.chat,
+      generated.message,
+      {
+        messageId: generated.key.id
+      }
+    )
+
+    return generated
   }
 
   let stickerBuffer = null
@@ -424,22 +520,14 @@ let handler = async (m, { conn, __dirname }) => {
             )
           }
 
-          await safeSendMessage(
-            m.chat,
-            {
-              sticker: stickerBuffer,
-
-              contextInfo: createContextInfo({
-                forwardingScore: 200,
-                isForwarded: false,
-                external: true,
-                title: `| Runtime ${run}`,
-                body: isWelcome
-                  ? 'IzuBot te da la bienvenida'
-                  : 'Esperemos que no vuelva -_-'
-              })
-            }
-          )
+          await sendMediaWithPreview({
+            type: 'sticker',
+            media: stickerBuffer,
+            contextInfo: createContextInfo({
+              forwardingScore: 200,
+              isForwarded: false
+            })
+          })
 
         } catch (e) {
           console.error(
@@ -447,19 +535,29 @@ let handler = async (m, { conn, __dirname }) => {
             e?.message || e
           )
 
+          const linkPreview =
+            createLinkPreview({
+              title: `| Runtime ${run}`,
+              description: isWelcome
+                ? 'IzuBot te da la bienvenida'
+                : 'Esperemos que no vuelva -_-'
+            })
+
           await safeSendMessage(
             m.chat,
             {
-              text: actividad,
+              text: redes
+                ? `${redes}\n${actividad}`
+                : actividad,
 
-              linkPreview: createLinkPreview({
-                title: `| Runtime ${run}`,
-                description: isWelcome
-                  ? 'IzuBot te da la bienvenida'
-                  : 'Esperemos que no vuelva -_-'
-              }),
+              ...(linkPreview
+                ? {
+                    linkPreview
+                  }
+                : {}),
 
-              contextInfo: createContextInfo()
+              contextInfo:
+                createContextInfo()
             }
           )
         }
@@ -472,30 +570,18 @@ let handler = async (m, { conn, __dirname }) => {
           ? audioPick(audiosWelcome)
           : audioPick(audiosBye)
 
-        await safeSendMessage(
-          m.chat,
-          {
-            audio: {
-              url: audioUrl
-            },
-
-            ptt: false,
-
-            mimetype: 'audio/mpeg',
-
-            fileName: 'noti.mp3',
-
-            contextInfo: createContextInfo({
-              forwardingScore: 10,
-              isForwarded: true,
-              external: true,
-              title: `| Runtime ${run}`,
-              body: isWelcome
-                ? 'IzuBot te da la bienvenida'
-                : 'Esperemos que no vuelva -_-'
-            })
-          }
-        )
+        await sendMediaWithPreview({
+          type: 'audio',
+          media: {
+            url: audioUrl
+          },
+          mimetype: 'audio/mpeg',
+          ptt: false,
+          contextInfo: createContextInfo({
+            forwardingScore: 10,
+            isForwarded: true
+          })
+        })
 
         break
       }
@@ -542,28 +628,19 @@ let handler = async (m, { conn, __dirname }) => {
             ]
           : gifDespedida
 
-        await safeSendMessage(
-          m.chat,
-          {
-            video: {
-              url: videoUrl
-            },
-
-            gifPlayback: true,
-
-            caption: actividad,
-
-            contextInfo: createContextInfo({
-              forwardingScore: 10,
-              isForwarded: true,
-              external: true,
-              title: `| Runtime ${run}`,
-              body: isWelcome
-                ? 'IzuBot te da la bienvenida'
-                : 'Esperemos que no vuelva -_-'
-            })
-          }
-        )
+        await sendMediaWithPreview({
+          type: 'video',
+          media: {
+            url: videoUrl
+          },
+          mimetype: 'video/mp4',
+          caption: actividad,
+          gifPlayback: true,
+          contextInfo: createContextInfo({
+            forwardingScore: 10,
+            isForwarded: true
+          })
+        })
 
         break
       }
@@ -658,173 +735,125 @@ let handler = async (m, { conn, __dirname }) => {
 
           nativeFlowMessage: {
             buttons: [
-
               {
                 name: 'single_select',
-
                 buttonParamsJson:
                   JSON.stringify({
                     has_multiple_buttons: true
                   })
               },
-
               {
                 name:
                   'call_permission_request',
-
                 buttonParamsJson:
                   JSON.stringify({
                     has_multiple_buttons: true
                   })
               },
-
               {
                 name: 'single_select',
-
                 buttonParamsJson:
                   JSON.stringify({
                     title: 'Más Opciones',
-
                     sections: [
                       {
                         title:
                           '⌏Seleccione una opción requerida⌎',
-
                         highlight_label:
                           'Solo para negocios',
-
                         rows: [
                           {
                             title:
                               'Owner/Creador',
-
                             description: '',
-
                             id: 'Edar'
                           },
-
                           {
                             title:
                               'Información del Bot',
-
                             description: '',
-
                             id: '.info'
                           },
-
                           {
                             title:
                               'Reglas/Términos',
-
                             description: '',
-
                             id: '.reglas'
                           },
-
                           {
-                            title:
-                              'vcard/yo',
-
+                            title: 'vcard/yo',
                             description: '',
-
                             id: '.vcar'
                           },
-
                           {
                             title: 'Ping',
-
                             description:
                               'Velocidad del bot',
-
                             id: '.ping'
                           }
                         ]
                       }
                     ],
-
                     has_multiple_buttons:
                       true
                   })
               },
-
               {
                 name: 'cta_copy',
-
                 buttonParamsJson:
                   JSON.stringify({
                     display_text:
                       'Copiar Código',
-
                     id: '123456789',
-
                     copy_code:
                       'Código de bienvenida'
                   })
               },
-
               {
                 name: 'cta_url',
-
                 buttonParamsJson:
                   JSON.stringify({
                     display_text:
                       'sᴇɢᴜɪʀ ᴄᴀɴᴀʟ/ᴡᴀ',
-
                     url: channel,
-
                     merchant_url: channel
                   })
               },
-
               {
                 name:
                   'galaxy_message',
-
                 buttonParamsJson:
                   JSON.stringify({
                     mode: 'published',
-
                     flow_message_version:
                       '3',
-
                     flow_token:
                       '1:1307913409923914:293680f87029f5a13d1ec5e35e718af3',
-
                     flow_id:
                       '1307913409923914',
-
                     flow_cta:
                       '👨🏻‍💻 ᴀᴄᴄᴇᴅᴇ ᴀ ʙᴏᴛ ᴀɪ',
-
                     flow_action:
                       'navigate',
-
                     flow_action_payload: {
                       screen:
                         'QUESTION_ONE',
-
                       params: {
                         user_id:
                           '123456789',
-
                         referral:
                           'campaign_xyz'
                       }
                     },
-
                     flow_metadata: {
                       flow_json_version:
                         '201',
-
                       data_api_protocol:
                         'v2',
-
                       flow_name:
                         'Lead Qualification [en]',
-
                       data_api_version:
                         'v2',
-
                       categories: [
                         'Lead Generation',
                         'Sales'
@@ -832,31 +861,24 @@ let handler = async (m, { conn, __dirname }) => {
                     }
                   })
               },
-
               {
                 name:
                   'quick_reply',
-
                 buttonParamsJson:
                   JSON.stringify({
                     display_text:
                       'ʜᴏʟᴀ😔',
-
                     id: '😔'
                   })
               },
-
               {
                 name: 'cta_url',
-
                 buttonParamsJson:
                   JSON.stringify({
                     display_text:
                       'ᴅᴇsᴀʀʀᴏʟʟᴀᴅᴏʀ',
-
                     url:
                       'https://wa.me/50492280729?text=Hola+quiero+un+bot+para+mi+grupo,+cuáles+son+los+planes?',
-
                     merchant_url:
                       'https://wa.me/50492280729?text=Hola+quiero+un+bot+para+mi+grupo,+cuáles+son+los+planes?'
                   })
@@ -868,13 +890,10 @@ let handler = async (m, { conn, __dirname }) => {
                 limited_time_offer: {
                   text:
                     `| Runtime ${run}`,
-
                   url:
                     'https://github.com/edar',
-
                   copy_code:
                     groupName,
-
                   expiration_time:
                     1754613436864329
                 },
@@ -882,7 +901,6 @@ let handler = async (m, { conn, __dirname }) => {
                 bottom_sheet: {
                   in_thread_buttons_limit:
                     2,
-
                   divider_indices: [
                     1,
                     2,
@@ -891,26 +909,20 @@ let handler = async (m, { conn, __dirname }) => {
                     5,
                     999
                   ],
-
                   list_title:
                     'Select Menu',
-
                   button_title:
                     '▻ ᴠᴇʀ ᴍᴇɴᴜ ✨'
                 },
 
                 tap_target_configuration: {
                   title: '▸ X ◂',
-
                   description:
                     'Let’s go',
-
                   canonical_url:
                     'https://github.com/edar',
-
                   domain:
                     'https://xrljosedvapi.vercel.app',
-
                   button_index: 0
                 }
               })
@@ -922,7 +934,11 @@ let handler = async (m, { conn, __dirname }) => {
 
         let enviado = false
 
-        for (let intento = 1; intento <= 3; intento++) {
+        for (
+          let intento = 1;
+          intento <= 3;
+          intento++
+        ) {
           try {
             const connected =
               await waitForConnection(
