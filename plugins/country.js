@@ -2357,71 +2357,124 @@ let flags = [
 
 export async function before(m, { conn, args, usedPrefix, command }) {
   let chat = db.data.chats[m.chat];
-if (!chat.autoband || !m.isGroup) return !0;
-    if (!m.message) return !0;
-    if (!userMessageCount[m.chat]) userMessageCount[m.chat] = { count: 0, currentFlag: null, questionMessage: null, timestamp: null };
 
-    userMessageCount[m.chat].count += 1;
+  if (!chat.autoband || !m.isGroup) return !0;
+  if (!m.message) return !0;
 
-    if (userMessageCount[m.chat].count % 103 === 0) {
-        const randomFlag = flags[Math.floor(Math.random() * flags.length)];
-        userMessageCount[m.chat].currentFlag = randomFlag.name; 
-        userMessageCount[m.chat].currentFlag2 = randomFlag.emoji; 
-        userMessageCount[m.chat].currentFlag3 = randomFlag.dialCodes || "DESCONOCIDO"; 
+  if (!userMessageCount[m.chat]) {
+    userMessageCount[m.chat] = {
+      count: 0,
+      currentFlag: null,
+      currentFlag2: null,
+      currentFlag3: null,
+      questionMessage: null,
+      timestamp: null
+    };
+  }
 
-        let txt = `💣 *¿A qué país pertenece la bandera que se muestra? ${userMessageCount[m.chat].currentFlag2}*\n_🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo de *3 minutos*._`;
-        userMessageCount[m.chat].questionMessage = await conn.sendFile(m.chat, randomFlag.image, "Thumbnail.jpg", txt, null, null, rcanal);
-        userMessageCount[m.chat].timestamp = Date.now(); 
+  userMessageCount[m.chat].count += 1;
 
-        setTimeout(async () => {
-            try {
-                await conn.sendMessage(m.chat, { delete: { remoteJid: m.chat, id: userMessageCount[m.chat].questionMessage.id, fromMe: true } });
-            } catch (error) {
-                console.error("Error al eliminar el mensaje:", error);
+  if (userMessageCount[m.chat].count % 5 === 0) {
+    const randomFlag = flags[Math.floor(Math.random() * flags.length)];
+
+    userMessageCount[m.chat].currentFlag = randomFlag.name;
+    userMessageCount[m.chat].currentFlag2 = randomFlag.emoji;
+    userMessageCount[m.chat].currentFlag3 = randomFlag.dialCodes || "DESCONOCIDO";
+
+    let txt = `💣 *¿A qué país pertenece la bandera que se muestra? ${userMessageCount[m.chat].currentFlag2}*\n_🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo de *3 minutos*._`;
+
+    userMessageCount[m.chat].questionMessage = await conn.sendFile(
+      m.chat,
+      randomFlag.image,
+      "Thumbnail.jpg",
+      txt,
+      null,
+      null,
+      rcanal
+    );
+
+    userMessageCount[m.chat].timestamp = Date.now();
+
+    setTimeout(async () => {
+      try {
+        if (userMessageCount[m.chat]?.questionMessage) {
+          await conn.sendMessage(m.chat, {
+            delete: {
+              remoteJid: m.chat,
+              id: userMessageCount[m.chat].questionMessage.id,
+              fromMe: true
             }
-            userMessageCount[m.chat].currentFlag = null; 
-            userMessageCount[m.chat].questionMessage = null; 
-            userMessageCount[m.chat].timestamp = null; 
-        }, 180000); 
-    }
+          });
+        }
+      } catch (error) {
+        console.error("Error al eliminar el mensaje:", error);
+      }
 
-    const timeElapsed = Date.now() - userMessageCount[m.chat].timestamp;
+      if (userMessageCount[m.chat]) {
+        userMessageCount[m.chat].currentFlag = null;
+        userMessageCount[m.chat].currentFlag2 = null;
+        userMessageCount[m.chat].currentFlag3 = null;
+        userMessageCount[m.chat].questionMessage = null;
+        userMessageCount[m.chat].timestamp = null;
+      }
+    }, 180000);
+  }
 
-    if (timeElapsed > 180000) {
-        return; 
-    }
+  if (!userMessageCount[m.chat].timestamp) return !0;
 
-if (m.quoted && m.quoted.id === userMessageCount[m.chat].questionMessage.id && m.text.toLowerCase() === userMessageCount[m.chat].currentFlag.toLowerCase()) {
+  const timeElapsed = Date.now() - userMessageCount[m.chat].timestamp;
+
+  if (timeElapsed > 180000) {
+    return;
+  }
+
+  if (
+    m.quoted &&
+    userMessageCount[m.chat].questionMessage &&
+    m.quoted.id === userMessageCount[m.chat].questionMessage.id &&
+    m.text?.toLowerCase() === userMessageCount[m.chat].currentFlag?.toLowerCase()
+  ) {
     m.react('🎉');
 
-    // Obtener lista de participantes
-    let participants = (await conn.groupMetadata(m.chat)).participants
-    // Filtrar miembros válidos (excluye al bot y al autor del mensaje si deseas)
-    let others = participants.filter(p => p.id !== m.sender && p.id !== conn.user.jid);
-    // Elegir uno al azar
-    let random = others[Math.floor(Math.random() * others.length)];
-    let rewardTag = random?.id || m.sender; // fallback por si algo falla
-
-    await conn.reply(m.chat, `*¡Correcto, ${m.pushName}!* 🎉 La bandera es de *${userMessageCount[m.chat].currentFlag}* ${userMessageCount[m.chat].currentFlag2} y su código es: *${userMessageCount[m.chat].currentFlag3}*.\n\n🎁 *Recompensa:* se la tienes que chupar a @${rewardTag.split('@')[0]}`, m, {
-        mentions: [rewardTag]
-    });
+    await conn.reply(
+      m.chat,
+      `*¡Correcto, ${m.pushName}!* 🎉 La bandera es de *${userMessageCount[m.chat].currentFlag}* ${userMessageCount[m.chat].currentFlag2} y su código es: *${userMessageCount[m.chat].currentFlag3}*.\n\n🏆 *¡Has completado correctamente el desafío!*`,
+      m
+    );
 
     try {
-        await conn.sendMessage(m.chat, { delete: { remoteJid: m.chat, id: userMessageCount[m.chat].questionMessage.id, fromMe: true } });
+      await conn.sendMessage(m.chat, {
+        delete: {
+          remoteJid: m.chat,
+          id: userMessageCount[m.chat].questionMessage.id,
+          fromMe: true
+        }
+      });
     } catch (error) {
-        console.error("Error al eliminar el mensaje:", error);
+      console.error("Error al eliminar el mensaje:", error);
     }
 
-    // Limpiar estado
-    userMessageCount[m.chat].currentFlag = null; 
-    userMessageCount[m.chat].questionMessage = null; 
-    userMessageCount[m.chat].timestamp = null; 
-} else if (m.quoted && m.quoted.id === userMessageCount[m.chat].questionMessage.id) {
-        const timeRemaining = Math.max(0, 180000 - timeElapsed); // Tiempo restante en milisegundos
-        const minutesRemaining = Math.floor(timeRemaining / 60000); // Convertir a minutos
-        const secondsRemaining = Math.floor((timeRemaining % 60000) / 1000); // Convertir a segundos
+    userMessageCount[m.chat].currentFlag = null;
+    userMessageCount[m.chat].currentFlag2 = null;
+    userMessageCount[m.chat].currentFlag3 = null;
+    userMessageCount[m.chat].questionMessage = null;
+    userMessageCount[m.chat].timestamp = null;
 
-        m.react('✖️');
-        await conn.reply(m.chat, `*¡Respuesta Incorrecta!*\n> vuelve a intentar\n🧩 _*Pista:* Su código de área es *${userMessageCount[m.chat].currentFlag3}* ${userMessageCount[m.chat].currentFlag2}_ \n⏳ *Tiempo restante:* _${minutesRemaining} minutos y ${secondsRemaining} segundos._`, m);
-    }
+  } else if (
+    m.quoted &&
+    userMessageCount[m.chat].questionMessage &&
+    m.quoted.id === userMessageCount[m.chat].questionMessage.id
+  ) {
+    const timeRemaining = Math.max(0, 180000 - timeElapsed);
+    const minutesRemaining = Math.floor(timeRemaining / 60000);
+    const secondsRemaining = Math.floor((timeRemaining % 60000) / 1000);
+
+    m.react('✖️');
+
+    await conn.reply(
+      m.chat,
+      `*¡Respuesta Incorrecta!*\n> vuelve a intentar\n🧩 _*Pista:* Su código de área es *${userMessageCount[m.chat].currentFlag3}* ${userMessageCount[m.chat].currentFlag2}_\n⏳ *Tiempo restante:* _${minutesRemaining} minutos y ${secondsRemaining} segundos._`,
+      m
+    );
+  }
 }
