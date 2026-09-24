@@ -2355,6 +2355,86 @@ let flags = [
   }
 ];
 
+async function getImageBuffer(url) {
+  const response = await fetch(url, {
+    redirect: 'follow'
+  });
+
+  if (!response.ok) {
+    throw new Error(`Error HTTP: ${response.status}`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+
+  // Si qu.ax devuelve directamente la imagen
+  if (contentType.startsWith('image/')) {
+    return Buffer.from(await response.arrayBuffer());
+  }
+
+  // Si devuelve una página HTML, buscamos la imagen real
+  if (contentType.includes('text/html')) {
+    const html = await response.text();
+
+    let imageUrl = null;
+
+    // Buscar og:image
+    const ogImage =
+      html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+
+    if (ogImage?.[1]) {
+      imageUrl = ogImage[1];
+    }
+
+    // Buscar twitter:image como respaldo
+    if (!imageUrl) {
+      const twitterImage =
+        html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
+        html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
+
+      if (twitterImage?.[1]) {
+        imageUrl = twitterImage[1];
+      }
+    }
+
+    // Buscar cualquier URL de imagen dentro del HTML
+    if (!imageUrl) {
+      const imageMatch = html.match(
+        /https?:\/\/[^"'<> ]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^"'<> ]*)?/i
+      );
+
+      if (imageMatch?.[0]) {
+        imageUrl = imageMatch[0];
+      }
+    }
+
+    if (!imageUrl) {
+      throw new Error('No se encontró la imagen real dentro de la página de qu.ax');
+    }
+
+    // Convertir URL relativa en absoluta
+    imageUrl = new URL(imageUrl, response.url).href;
+
+    const imageResponse = await fetch(imageUrl, {
+      redirect: 'follow'
+    });
+
+    if (!imageResponse.ok) {
+      throw new Error(`Error al descargar la imagen real: ${imageResponse.status}`);
+    }
+
+    const imageType = imageResponse.headers.get('content-type') || '';
+
+    if (!imageType.startsWith('image/')) {
+      throw new Error(`El enlace encontrado tampoco es una imagen: ${imageType}`);
+    }
+
+    return Buffer.from(await imageResponse.arrayBuffer());
+  }
+
+  throw new Error(`Contenido no compatible: ${contentType}`);
+}
+
 export async function before(m, { conn, args, usedPrefix, command }) {
   let chat = db.data.chats[m.chat];
 
@@ -2384,13 +2464,11 @@ export async function before(m, { conn, args, usedPrefix, command }) {
     let txt = `💣 *¿A qué país pertenece la bandera que se muestra? ${userMessageCount[m.chat].currentFlag2}*\n_🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo de *3 minutos*._`;
 
     try {
-      const response = await fetch(randomFlag.image);
+      console.log(`🌐 Descargando bandera: ${randomFlag.image}`);
 
-      if (!response.ok) {
-        throw new Error(`Error HTTP: ${response.status}`);
-      }
+      const buffer = await getImageBuffer(randomFlag.image);
 
-      const buffer = Buffer.from(await response.arrayBuffer());
+      console.log(`✅ Bandera obtenida correctamente: ${buffer.length} bytes`);
 
       userMessageCount[m.chat].questionMessage = await conn.sendMessage(
         m.chat,
@@ -2405,22 +2483,36 @@ export async function before(m, { conn, args, usedPrefix, command }) {
 
       userMessageCount[m.chat].timestamp = Date.now();
 
+      console.log(`✅ Bandera enviada en: ${m.chat}`);
+
     } catch (error) {
       console.error("❌ Error al descargar/enviar la bandera:", error);
+
+      userMessageCount[m.chat].currentFlag = null;
+      userMessageCount[m.chat].currentFlag2 = null;
+      userMessageCount[m.chat].currentFlag3 = null;
+      userMessageCount[m.chat].questionMessage = null;
+      userMessageCount[m.chat].timestamp = null;
+
       return !0;
     }
 
     setTimeout(async () => {
       try {
         if (userMessageCount[m.chat]?.questionMessage) {
-          await conn.sendMessage(m.chat, {
-            delete: {
-              remoteJid: m.chat,
-              id: userMessageCount[m.chat].questionMessage.key?.id ||
-                 userMessageCount[m.chat].questionMessage.id,
-              fromMe: true
-            }
-          });
+          const messageId =
+            userMessageCount[m.chat].questionMessage.key?.id ||
+            userMessageCount[m.chat].questionMessage.id;
+
+          if (messageId) {
+            await conn.sendMessage(m.chat, {
+              delete: {
+                remoteJid: m.chat,
+                id: messageId,
+                fromMe: true
+              }
+            });
+          }
         }
       } catch (error) {
         console.error("Error al eliminar el mensaje:", error);
@@ -2444,13 +2536,14 @@ export async function before(m, { conn, args, usedPrefix, command }) {
     return;
   }
 
+  const questionId =
+    userMessageCount[m.chat].questionMessage?.key?.id ||
+    userMessageCount[m.chat].questionMessage?.id;
+
   if (
     m.quoted &&
-    userMessageCount[m.chat].questionMessage &&
-    m.quoted.id === (
-      userMessageCount[m.chat].questionMessage.key?.id ||
-      userMessageCount[m.chat].questionMessage.id
-    ) &&
+    questionId &&
+    m.quoted.id === questionId &&
     m.text?.toLowerCase() === userMessageCount[m.chat].currentFlag?.toLowerCase()
   ) {
     m.react('🎉');
@@ -2462,14 +2555,15 @@ export async function before(m, { conn, args, usedPrefix, command }) {
     );
 
     try {
-      await conn.sendMessage(m.chat, {
-        delete: {
-          remoteJid: m.chat,
-          id: userMessageCount[m.chat].questionMessage.key?.id ||
-             userMessageCount[m.chat].questionMessage.id,
-          fromMe: true
-        }
-      });
+      if (questionId) {
+        await conn.sendMessage(m.chat, {
+          delete: {
+            remoteJid: m.chat,
+            id: questionId,
+            fromMe: true
+          }
+        });
+      }
     } catch (error) {
       console.error("Error al eliminar el mensaje:", error);
     }
@@ -2482,11 +2576,8 @@ export async function before(m, { conn, args, usedPrefix, command }) {
 
   } else if (
     m.quoted &&
-    userMessageCount[m.chat].questionMessage &&
-    m.quoted.id === (
-      userMessageCount[m.chat].questionMessage.key?.id ||
-      userMessageCount[m.chat].questionMessage.id
-    )
+    questionId &&
+    m.quoted.id === questionId
   ) {
     const timeRemaining = Math.max(0, 180000 - timeElapsed);
     const minutesRemaining = Math.floor(timeRemaining / 60000);
@@ -2500,4 +2591,4 @@ export async function before(m, { conn, args, usedPrefix, command }) {
       m
     );
   }
-}
+      }
