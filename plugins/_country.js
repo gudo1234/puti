@@ -7,6 +7,316 @@ const require = createRequire(import.meta.url)
 
 let userMessageCount = {}
 
+const autoBandFile = path.resolve(
+  './src/database/autoband.json'
+)
+
+function ensureAutoBandFile() {
+  const dir = path.dirname(autoBandFile)
+
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, {
+      recursive: true
+    })
+  }
+
+  if (!fs.existsSync(autoBandFile)) {
+    fs.writeFileSync(
+      autoBandFile,
+      '{}',
+      'utf8'
+    )
+  }
+}
+
+function loadAutoBand() {
+  try {
+    ensureAutoBandFile()
+
+    const data =
+      fs.readFileSync(
+        autoBandFile,
+        'utf8'
+      )
+
+    return data.trim()
+      ? JSON.parse(data)
+      : {}
+
+  } catch {
+    return {}
+  }
+}
+
+function saveAutoBand(data) {
+  try {
+    ensureAutoBandFile()
+
+    fs.writeFileSync(
+      autoBandFile,
+      JSON.stringify(
+        data,
+        null,
+        2
+      ),
+      'utf8'
+    )
+  } catch {}
+}
+
+let autoBandData =
+  loadAutoBand()
+
+function saveChatState(chatId) {
+
+  if (!userMessageCount[chatId]) {
+    return
+  }
+
+  autoBandData[chatId] = {
+    count:
+      userMessageCount[chatId].count || 0,
+
+    currentFlag:
+      userMessageCount[chatId].currentFlag || null,
+
+    currentFlag2:
+      userMessageCount[chatId].currentFlag2 || null,
+
+    currentFlag3:
+      userMessageCount[chatId].currentFlag3 || null,
+
+    questionId:
+      userMessageCount[chatId].questionId || null,
+
+    timestamp:
+      userMessageCount[chatId].timestamp || null
+  }
+
+  saveAutoBand(autoBandData)
+}
+
+function deleteChatState(chatId) {
+  delete autoBandData[chatId]
+  saveAutoBand(autoBandData)
+}
+
+function getChatState(chatId) {
+
+  if (!userMessageCount[chatId]) {
+
+    const saved =
+      autoBandData[chatId]
+
+    userMessageCount[chatId] = {
+
+      count:
+        saved?.count || 0,
+
+      currentFlag:
+        saved?.currentFlag || null,
+
+      currentFlag2:
+        saved?.currentFlag2 || null,
+
+      currentFlag3:
+        saved?.currentFlag3 || null,
+
+      questionId:
+        saved?.questionId || null,
+
+      timestamp:
+        saved?.timestamp || null,
+
+      timer: null
+    }
+  }
+
+  return userMessageCount[chatId]
+}
+
+function clearChatState(chatId) {
+
+  if (userMessageCount[chatId]?.timer) {
+
+    clearTimeout(
+      userMessageCount[chatId].timer
+    )
+  }
+
+  delete userMessageCount[chatId]
+
+  deleteChatState(chatId)
+}
+
+async function deleteQuestion(
+  conn,
+  chatId,
+  questionId
+) {
+
+  if (!questionId) {
+    return false
+  }
+
+  try {
+
+    await conn.sendMessage(
+      chatId,
+      {
+        delete: {
+          remoteJid: chatId,
+          id: questionId,
+          fromMe: true
+        }
+      }
+    )
+
+    return true
+
+  } catch {
+
+    return false
+  }
+}
+
+async function expireQuestion(
+  conn,
+  chatId,
+  questionId,
+  timestamp
+) {
+
+  const state =
+    getChatState(chatId)
+
+  if (
+    !state.questionId ||
+    state.questionId !== questionId
+  ) {
+    return
+  }
+
+  const elapsed =
+    Date.now() - timestamp
+
+  if (elapsed < 180000) {
+
+    const remaining =
+      180000 - elapsed
+
+    state.timer =
+      setTimeout(
+        () => {
+
+          expireQuestion(
+            conn,
+            chatId,
+            questionId,
+            timestamp
+          )
+
+        },
+        remaining + 100
+      )
+
+    saveChatState(chatId)
+
+    return
+  }
+
+  await deleteQuestion(
+    conn,
+    chatId,
+    questionId
+  )
+
+  clearChatState(chatId)
+}
+
+async function removeCurrentQuestion(
+  conn,
+  chatId
+) {
+
+  const state =
+    getChatState(chatId)
+
+  if (!state.questionId) {
+    return
+  }
+
+  const questionId =
+    state.questionId
+
+  await deleteQuestion(
+    conn,
+    chatId,
+    questionId
+  )
+
+  clearChatState(chatId)
+}
+
+async function flagToImage(flag) {
+
+  try {
+
+    const flagCode =
+      flag.code.toLowerCase()
+
+    const flagIconsPackage =
+      path.dirname(
+        require.resolve(
+          'flag-icons/package.json'
+        )
+      )
+
+    const svgPath =
+      path.join(
+        flagIconsPackage,
+        'flags',
+        '4x3',
+        `${flagCode}.svg`
+      )
+
+    if (!fs.existsSync(svgPath)) {
+      throw new Error(
+        `No se encontró la bandera ${flag.name} (${flag.code})`
+      )
+    }
+
+    const svgBuffer =
+      fs.readFileSync(
+        svgPath
+      )
+
+    const buffer =
+      await sharp(svgBuffer)
+        .resize(
+          800,
+          533,
+          {
+            fit: 'contain',
+            background: {
+              r: 255,
+              g: 255,
+              b: 255,
+              alpha: 1
+            }
+          }
+        )
+        .png()
+        .toBuffer()
+
+    return buffer
+
+  } catch (error) {
+
+    throw error
+  }
+}
+
 let flags = [
   {"name": "Afganistán","code": "AF","emoji": "🇦🇫","dialCodes": ["+93"],"slug": "afghanistan"},
   {"name": "Albania","code": "AL","emoji": "🇦🇱","dialCodes": ["+355"],"slug": "albania"},
@@ -247,139 +557,154 @@ let flags = [
   {"name": "Yemen","code": "YE","emoji": "🇾🇪","dialCodes": ["+967"],"slug": "yemen"},
   {"name": "Wallis y Futuna","code": "WF","emoji": "🇼🇫","dialCodes": ["+681"],"slug": "wallis-and-futuna"}
 ];
-async function flagToImage(flag) {
-  try {
-    const flagCode = flag.code.toLowerCase()
-
-    const flagIconsPackage = path.dirname(
-      require.resolve('flag-icons/package.json')
-    )
-
-    const svgPath = path.join(
-      flagIconsPackage,
-      'flags',
-      '4x3',
-      `${flagCode}.svg`
-    )
-
-    console.log(
-      `🌍 Generando bandera: ${flag.name} ${flag.emoji}`
-    )
-
-    console.log(
-      `🔎 Código ISO: ${flag.code}`
-    )
-
-    console.log(
-      `📁 SVG: ${svgPath}`
-    )
-
-    if (!fs.existsSync(svgPath)) {
-      throw new Error(
-        `No se encontró la bandera ${flag.name} (${flag.code}): ${svgPath}`
-      )
-    }
-
-    const svgBuffer = fs.readFileSync(svgPath)
-
-    const buffer = await sharp(svgBuffer)
-      .resize(800, 533, {
-        fit: 'contain',
-        background: {
-          r: 255,
-          g: 255,
-          b: 255,
-          alpha: 1
-        }
-      })
-      .png()
-      .toBuffer()
-
-    console.log(
-      `✅ Bandera generada: ${flag.name} ${flag.emoji}`
-    )
-
-    console.log(
-      `🖼️ PNG: ${buffer.length} bytes`
-    )
-
-    return buffer
-
-  } catch (error) {
-
-    console.error(
-      `❌ Error generando la bandera ${flag.name}:`,
-      error
-    )
-
-    throw error
-  }
-}
 
 export async function before(
   m,
   { conn, args, usedPrefix, command }
 ) {
 
-  let chat = db.data.chats[m.chat]
-
-  if (!chat.autoband || !m.isGroup) return !0
-  if (!m.message) return !0
-
-  if (!userMessageCount[m.chat]) {
-
-    userMessageCount[m.chat] = {
-      count: 0,
-      currentFlag: null,
-      currentFlag2: null,
-      currentFlag3: null,
-      questionMessage: null,
-      timestamp: null
-    }
-
-  }
-
-  userMessageCount[m.chat].count += 1
+  const chat =
+    db.data.chats[m.chat]
 
   if (
-    userMessageCount[m.chat].count % 10 === 0
+    !chat.autoband ||
+    !m.isGroup
   ) {
+    return !0
+  }
+
+  if (!m.message) {
+    return !0
+  }
+
+  if (
+    m.key?.fromMe ||
+    m.fromMe
+  ) {
+    return !0
+  }
+
+  const botJid =
+    conn.user?.id
+
+  const sender =
+    m.sender ||
+    m.key?.participant ||
+    ''
+
+  const cleanJid = jid => {
+    return String(jid)
+      .split(':')[0]
+  }
+
+  if (
+    botJid &&
+    sender &&
+    cleanJid(sender) ===
+    cleanJid(botJid)
+  ) {
+    return !0
+  }
+
+  const state =
+    getChatState(m.chat)
+
+  if (
+    state.questionId &&
+    state.timestamp
+  ) {
+
+    const elapsed =
+      Date.now() -
+      state.timestamp
+
+    if (
+      elapsed >= 180000
+    ) {
+
+      await deleteQuestion(
+        conn,
+        m.chat,
+        state.questionId
+      )
+
+      clearChatState(
+        m.chat
+      )
+    }
+  }
+
+  const currentState =
+    getChatState(m.chat)
+
+  currentState.count += 1
+
+  saveChatState(
+    m.chat
+  )
+
+  if (
+    currentState.count % 103 === 0
+  ) {
+
+    if (
+      currentState.questionId
+    ) {
+
+      await removeCurrentQuestion(
+        conn,
+        m.chat
+      )
+    }
 
     const randomFlag =
       flags[
         Math.floor(
-          Math.random() * flags.length
+          Math.random() *
+          flags.length
         )
       ]
 
-    userMessageCount[m.chat].currentFlag =
+    if (!randomFlag) {
+      return !0
+    }
+
+    const newState =
+      getChatState(m.chat)
+
+    newState.currentFlag =
       randomFlag.name
 
-    userMessageCount[m.chat].currentFlag2 =
+    newState.currentFlag2 =
       randomFlag.emoji
 
-    userMessageCount[m.chat].currentFlag3 =
+    newState.currentFlag3 =
       randomFlag.dialCodes ||
       'DESCONOCIDO'
 
-    const txt = `💣 *¿A qué país pertenece la bandera que se muestra?*
+    newState.questionId =
+      null
+
+    newState.timestamp =
+      Date.now()
+
+    saveChatState(
+      m.chat
+    )
+
+    const txt =
+      `💣 *¿A qué país pertenece la bandera que se muestra?*
 
 _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo de *3 minutos*._`
 
     try {
 
-      console.log(
-        `🌍 Preparando desafío: ${randomFlag.name} ${randomFlag.emoji}`
-      )
-
       const buffer =
-        await flagToImage(randomFlag)
+        await flagToImage(
+          randomFlag
+        )
 
-      console.log(
-        `🖼️ Imagen lista: ${buffer.length} bytes`
-      )
-
-      userMessageCount[m.chat].questionMessage =
+      const questionMessage =
         await conn.sendMessage(
           m.chat,
           {
@@ -388,115 +713,97 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
           }
         )
 
-      userMessageCount[m.chat].timestamp =
+      const questionId =
+        questionMessage
+          ?.key
+          ?.id ||
+        questionMessage
+          ?.id
+
+      if (!questionId) {
+
+        clearChatState(
+          m.chat
+        )
+
+        return !0
+      }
+
+      newState.questionId =
+        questionId
+
+      newState.timestamp =
         Date.now()
 
-      console.log(
-        `✅ Desafío enviado correctamente: ${randomFlag.name}`
+      saveChatState(
+        m.chat
       )
 
-    } catch (error) {
+      if (newState.timer) {
 
-      console.error(
-        '❌ Error generando/enviando bandera:',
-        error
+        clearTimeout(
+          newState.timer
+        )
+      }
+
+      newState.timer =
+        setTimeout(
+          () => {
+
+            expireQuestion(
+              conn,
+              m.chat,
+              questionId,
+              newState.timestamp
+            )
+
+          },
+          180000
+        )
+
+    } catch {
+
+      clearChatState(
+        m.chat
       )
-
-      userMessageCount[m.chat].currentFlag = null
-      userMessageCount[m.chat].currentFlag2 = null
-      userMessageCount[m.chat].currentFlag3 = null
-      userMessageCount[m.chat].questionMessage = null
-      userMessageCount[m.chat].timestamp = null
 
       return !0
     }
-
-    setTimeout(
-      async () => {
-
-        try {
-
-          if (
-            userMessageCount[m.chat]
-              ?.questionMessage
-          ) {
-
-            const messageId =
-              userMessageCount[m.chat]
-                .questionMessage
-                ?.key
-                ?.id ||
-              userMessageCount[m.chat]
-                .questionMessage
-                ?.id
-
-            if (messageId) {
-
-              await conn.sendMessage(
-                m.chat,
-                {
-                  delete: {
-                    remoteJid: m.chat,
-                    id: messageId,
-                    fromMe: true
-                  }
-                }
-              )
-
-              console.log(
-                `🗑️ Pregunta eliminada: ${messageId}`
-              )
-
-            }
-
-          }
-
-        } catch (error) {
-
-          console.error(
-            '❌ Error al eliminar el mensaje:',
-            error
-          )
-
-        }
-
-        if (userMessageCount[m.chat]) {
-
-          userMessageCount[m.chat].currentFlag = null
-          userMessageCount[m.chat].currentFlag2 = null
-          userMessageCount[m.chat].currentFlag3 = null
-          userMessageCount[m.chat].questionMessage = null
-          userMessageCount[m.chat].timestamp = null
-
-        }
-
-      },
-      180000
-    )
   }
 
+  const activeState =
+    getChatState(m.chat)
+
   if (
-    !userMessageCount[m.chat].timestamp
+    !activeState.questionId ||
+    !activeState.timestamp
   ) {
     return !0
   }
 
   const timeElapsed =
     Date.now() -
-    userMessageCount[m.chat].timestamp
+    activeState.timestamp
 
-  if (timeElapsed > 180000) {
+  if (
+    timeElapsed >= 180000
+  ) {
+
+    await deleteQuestion(
+      conn,
+      m.chat,
+      activeState.questionId
+    )
+
+    clearChatState(
+      m.chat
+    )
+
     return !0
   }
 
   const questionId =
-    userMessageCount[m.chat]
-      .questionMessage
-      ?.key
-      ?.id ||
-    userMessageCount[m.chat]
-      .questionMessage
-      ?.id
+    activeState.questionId
 
   if (
     m.quoted &&
@@ -505,60 +812,36 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
     m.text
       ?.trim()
       .toLowerCase() ===
-      userMessageCount[m.chat]
-        .currentFlag
+      activeState.currentFlag
         ?.toLowerCase()
   ) {
 
-    await m.react('🎉')
+    await m.react(
+      '🎉'
+    )
 
     await conn.reply(
       m.chat,
-      `*¡Correcto, ${m.pushName}!* 🎉 La bandera es de *${userMessageCount[m.chat].currentFlag}* ${userMessageCount[m.chat].currentFlag2} y su código es: *${userMessageCount[m.chat].currentFlag3}*.
+      `*¡Correcto, ${m.pushName}!* 🎉 La bandera es de *${activeState.currentFlag}* ${activeState.currentFlag2} y su código es: *${activeState.currentFlag3}*.
 
 🏆 *¡Has completado correctamente el desafío!*`,
       m
     )
 
-    try {
+    await deleteQuestion(
+      conn,
+      m.chat,
+      questionId
+    )
 
-      if (questionId) {
-
-        await conn.sendMessage(
-          m.chat,
-          {
-            delete: {
-              remoteJid: m.chat,
-              id: questionId,
-              fromMe: true
-            }
-          }
-        )
-
-        console.log(
-          `🗑️ Pregunta eliminada después de respuesta correcta: ${questionId}`
-        )
-
-      }
-
-    } catch (error) {
-
-      console.error(
-        '❌ Error al eliminar la pregunta:',
-        error
-      )
-
-    }
-
-    userMessageCount[m.chat].currentFlag = null
-    userMessageCount[m.chat].currentFlag2 = null
-    userMessageCount[m.chat].currentFlag3 = null
-    userMessageCount[m.chat].questionMessage = null
-    userMessageCount[m.chat].timestamp = null
+    clearChatState(
+      m.chat
+    )
 
     return !0
+  }
 
-  } else if (
+  if (
     m.quoted &&
     questionId &&
     m.quoted.id === questionId
@@ -567,32 +850,37 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
     const timeRemaining =
       Math.max(
         0,
-        180000 - timeElapsed
+        180000 -
+        timeElapsed
       )
 
     const minutesRemaining =
       Math.floor(
-        timeRemaining / 60000
+        timeRemaining /
+        60000
       )
 
     const secondsRemaining =
       Math.floor(
-        (timeRemaining % 60000) / 1000
+        (timeRemaining %
+          60000) /
+        1000
       )
 
-    await m.react('✖️')
+    await m.react(
+      '✖️'
+    )
 
     await conn.reply(
       m.chat,
       `*¡Respuesta Incorrecta!*
 > vuelve a intentar
 
-🧩 _*Pista:* Su código de área es *${userMessageCount[m.chat].currentFlag3}* ${userMessageCount[m.chat].currentFlag2}_
+🧩 _*Pista:* Su código de área es *${activeState.currentFlag3}* ${activeState.currentFlag2}_
 
 ⏳ *Tiempo restante:* _${minutesRemaining} minutos y ${secondsRemaining} segundos._`,
       m
     )
-
   }
 
   return !0
