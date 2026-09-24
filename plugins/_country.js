@@ -13,21 +13,15 @@ const autoBandFile = path.resolve(
 
 function ensureAutoBandFile() {
 
-  const dir =
-    path.dirname(autoBandFile)
+  const dir = path.dirname(autoBandFile)
 
   if (!fs.existsSync(dir)) {
-
-    fs.mkdirSync(
-      dir,
-      {
-        recursive: true
-      }
-    )
+    fs.mkdirSync(dir, {
+      recursive: true
+    })
   }
 
   if (!fs.existsSync(autoBandFile)) {
-
     fs.writeFileSync(
       autoBandFile,
       '{}',
@@ -82,14 +76,11 @@ let autoBandData =
 
 function saveChatState(chatId) {
 
-  if (
-    !userMessageCount[chatId]
-  ) {
+  if (!userMessageCount[chatId]) {
     return
   }
 
   autoBandData[chatId] = {
-
     count:
       userMessageCount[chatId].count || 0,
 
@@ -128,9 +119,7 @@ function deleteChatState(chatId) {
 
 function getChatState(chatId) {
 
-  if (
-    !userMessageCount[chatId]
-  ) {
+  if (!userMessageCount[chatId]) {
 
     const saved =
       autoBandData[chatId]
@@ -225,10 +214,7 @@ async function deleteChallengeMessages(
 
   const ids = []
 
-  if (
-    state.questionId
-  ) {
-
+  if (state.questionId) {
     ids.push(
       state.questionId
     )
@@ -280,9 +266,7 @@ async function expireQuestion(
   const elapsed =
     Date.now() - timestamp
 
-  if (
-    elapsed < 180000
-  ) {
+  if (elapsed < 180000) {
 
     const remaining =
       180000 - elapsed
@@ -327,9 +311,7 @@ async function removeCurrentQuestion(
   const state =
     getChatState(chatId)
 
-  if (
-    !state.questionId
-  ) {
+  if (!state.questionId) {
     return
   }
 
@@ -345,66 +327,53 @@ async function removeCurrentQuestion(
 
 async function flagToImage(flag) {
 
-  try {
+  const flagCode =
+    flag.code.toLowerCase()
 
-    const flagCode =
-      flag.code.toLowerCase()
-
-    const flagIconsPackage =
-      path.dirname(
-        require.resolve(
-          'flag-icons/package.json'
-        )
+  const flagIconsPackage =
+    path.dirname(
+      require.resolve(
+        'flag-icons/package.json'
       )
+    )
 
-    const svgPath =
-      path.join(
-        flagIconsPackage,
-        'flags',
-        '4x3',
-        `${flagCode}.svg`
-      )
+  const svgPath =
+    path.join(
+      flagIconsPackage,
+      'flags',
+      '4x3',
+      `${flagCode}.svg`
+    )
 
-    if (
-      !fs.existsSync(svgPath)
-    ) {
-
-      throw new Error(
-        `No se encontró la bandera ${flag.name} (${flag.code})`
-      )
-    }
-
-    const svgBuffer =
-      fs.readFileSync(
-        svgPath
-      )
-
-    const buffer =
-      await sharp(
-        svgBuffer
-      )
-        .resize(
-          800,
-          533,
-          {
-            fit: 'contain',
-            background: {
-              r: 255,
-              g: 255,
-              b: 255,
-              alpha: 1
-            }
-          }
-        )
-        .png()
-        .toBuffer()
-
-    return buffer
-
-  } catch (error) {
-
-    throw error
+  if (!fs.existsSync(svgPath)) {
+    throw new Error(
+      `No se encontró la bandera ${flag.name} (${flag.code})`
+    )
   }
+
+  const svgBuffer =
+    fs.readFileSync(
+      svgPath
+    )
+
+  return await sharp(
+    svgBuffer
+  )
+    .resize(
+      800,
+      533,
+      {
+        fit: 'contain',
+        background: {
+          r: 255,
+          g: 255,
+          b: 255,
+          alpha: 1
+        }
+      }
+    )
+    .png()
+    .toBuffer()
 }
 
 let flags = [
@@ -648,10 +617,9 @@ let flags = [
   {"name": "Wallis y Futuna","code": "WF","emoji": "🇼🇫","dialCodes": ["+681"],"slug": "wallis-and-futuna"}
 ];
 
-export async function before(
-  m,
-  { conn, args, usedPrefix, command }
-) {
+let handler = m => m
+
+handler.before = async function (m) {
 
   const chat =
     db.data.chats[m.chat]
@@ -660,20 +628,18 @@ export async function before(
     !chat.autoband ||
     !m.isGroup
   ) {
-    return !0
+    return true
   }
 
-  if (
-    !m.message
-  ) {
-    return !0
+  if (!m.message) {
+    return true
   }
 
   if (
     m.key?.fromMe ||
     m.fromMe
   ) {
-    return !0
+    return true
   }
 
   const botJid =
@@ -685,7 +651,6 @@ export async function before(
     ''
 
   const cleanJid = jid => {
-
     return String(jid)
       .split(':')[0]
   }
@@ -696,7 +661,7 @@ export async function before(
     cleanJid(sender) ===
     cleanJid(botJid)
   ) {
-    return !0
+    return true
   }
 
   const state =
@@ -757,10 +722,8 @@ export async function before(
         )
       ]
 
-    if (
-      !randomFlag
-    ) {
-      return !0
+    if (!randomFlag) {
+      return true
     }
 
     const newState =
@@ -811,21 +774,16 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
         )
 
       const questionId =
-        questionMessage
-          ?.key
-          ?.id ||
-        questionMessage
-          ?.id
+        questionMessage?.key?.id ||
+        questionMessage?.id
 
-      if (
-        !questionId
-      ) {
+      if (!questionId) {
 
         clearChatState(
           m.chat
         )
 
-        return !0
+        return true
       }
 
       newState.questionId =
@@ -838,9 +796,7 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
         m.chat
       )
 
-      if (
-        newState.timer
-      ) {
+      if (newState.timer) {
 
         clearTimeout(
           newState.timer
@@ -867,7 +823,7 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
         m.chat
       )
 
-      return !0
+      return true
     }
   }
 
@@ -878,7 +834,7 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
     !activeState.questionId ||
     !activeState.timestamp
   ) {
-    return !0
+    return true
   }
 
   const timeElapsed =
@@ -898,7 +854,7 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
       m.chat
     )
 
-    return !0
+    return true
   }
 
   const questionId =
@@ -969,7 +925,7 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
         m.chat
       )
 
-      return !0
+      return true
     }
 
     const timeRemaining =
@@ -1009,15 +965,10 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
       )
 
     const incorrectId =
-      incorrectMessage
-        ?.key
-        ?.id ||
-      incorrectMessage
-        ?.id
+      incorrectMessage?.key?.id ||
+      incorrectMessage?.id
 
-    if (
-      incorrectId
-    ) {
+    if (incorrectId) {
 
       if (
         !Array.isArray(
@@ -1046,5 +997,7 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
     }
   }
 
-  return !0
+  return true
 }
+
+export default handler
