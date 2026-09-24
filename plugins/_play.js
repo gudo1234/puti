@@ -177,9 +177,9 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
       degreesLatitude: 0,
       degreesLongitude: 0,
 
-      name: info,
+      name: wm,
 
-      address: "ᴢᴇɴᴛʀɪx-ʙᴏᴛ"
+      address: info
     }
 
     if (thumb) {
