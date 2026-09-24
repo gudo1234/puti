@@ -25,7 +25,7 @@ const emojiList = [
 const redesList = [
     "https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H",
     "https://wa.me/50492280729?text=Hola+quiero+un+bot+para+mi+grupo,+cuáles+son+los+planes?+",
-    "https://www.instagram.com/edar504__",
+    "https://www.instagram.com/edi504_?",
     "https://www.tiktok.com/@edar_xd",
     "https://www.paypal.me/edar504",
     "https://chat.whatsapp.com/EGWREmKYGUAADNAan5vxZo?mode=wwt"
