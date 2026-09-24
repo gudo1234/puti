@@ -4,59 +4,144 @@ import sharp from 'sharp'
 import fetch from 'node-fetch'
 import { getDevice } from "@whiskeysockets/baileys"
 
-let handler = async (m, { conn, usedPrefix, __dirname }) => {
-let groupName = ''
-if (m.isGroup) {
-    const metadata = await conn.groupMetadata(m.chat)
-    groupName = metadata.subject
-}
+let handler = async (
+  m,
+  {
+    conn,
+    usedPrefix,
+    __dirname,
+    realUserNumber,
+    userInGroup
+  }
+) => {
+  let groupName = ''
+
+  if (m.isGroup) {
+    const metadata =
+      await conn.groupMetadata(m.chat)
+
+    groupName =
+      metadata.subject
+  }
 
   try {
     // --- Imagen miniatura ---
-    const imgPath = join(__dirname, '../storage/catalogo.jpg')
-    const thumbLocal = fs.existsSync(imgPath) ? fs.readFileSync(imgPath) : null
-    const thumbResized = thumbLocal
-      ? await sharp(thumbLocal).resize(300, 100, { fit: 'cover' }).jpeg().toBuffer()
-      : null
+    const imgPath = join(
+      __dirname,
+      '../storage/catalogo.jpg'
+    )
+
+    const thumbLocal =
+      fs.existsSync(imgPath)
+        ? fs.readFileSync(imgPath)
+        : null
+
+    const thumbResized =
+      thumbLocal
+        ? await sharp(thumbLocal)
+            .resize(300, 100, {
+              fit: 'cover'
+            })
+            .jpeg()
+            .toBuffer()
+        : null
 
     // --- Menú simple ---
-    let uptime = process.uptime() * 1000
-    let run = clockString(uptime)
+    let uptime =
+      process.uptime() * 1000
 
-    const info = await global.mundo(m, conn)
+    let run =
+      clockString(uptime)
+
+    const info =
+      await global.mundo(m, conn)
+
     let categorias = {}
 
-    for (const plugin of Object.values(global.plugins)) {
-        const h = plugin.default || plugin
-        if (!h || !h.help || !h.tags) continue
+    for (
+      const plugin of Object.values(
+        global.plugins
+      )
+    ) {
+      const h =
+        plugin.default || plugin
 
-        const helps = Array.isArray(h.help) ? h.help : [h.help]
-        const tags = Array.isArray(h.tags) ? h.tags : [h.tags]
+      if (
+        !h ||
+        !h.help ||
+        !h.tags
+      ) {
+        continue
+      }
 
-        for (const tag of tags) {
-            if (!categorias[tag]) categorias[tag] = []
-            categorias[tag].push(...helps)
+      const helps =
+        Array.isArray(h.help)
+          ? h.help
+          : [h.help]
+
+      const tags =
+        Array.isArray(h.tags)
+          ? h.tags
+          : [h.tags]
+
+      for (const tag of tags) {
+        if (!categorias[tag]) {
+          categorias[tag] = []
         }
+
+        categorias[tag].push(
+          ...helps
+        )
+      }
     }
 
     m.react(e)
 
-    let pais = `${info.flag} ${info.country}`
+    let pais =
+      `${info.flag} ${info.country}`
+
+    // --- Número real y rol ---
+    const numeroReal =
+      realUserNumber
+        ? `+${String(realUserNumber).replace(/\D/g, '')}`
+        : 'No disponible'
+
+    const rol =
+      userInGroup?.admin === 'superadmin'
+        ? 'Creador'
+        : userInGroup?.admin === 'admin'
+          ? 'Administrador'
+          : 'Miembro'
 
     let text = `${e} _Hola ${m.pushName}_ ¿Cómo estás?\n\n\`❒ᴄᴏɴᴛᴇxᴛ-ɪɴғᴏ☔\`
 ┌────────────
 │ 🌎 *País:* ${pais}
 │ 📱 *Sistema/Opr:* ${getDevice(m.key.id)}
+│ 📞 *Número:* ${numeroReal}
+│ 👤 *Rol:* ${rol}
 └────────────\n\n🤖 *MENÚ DE COMANDOS*\n━━━━━━━━━━━━━━\n`
 
-    for (const tag of Object.keys(categorias).sort()) {
-        text += `\n╭─❏ *${tag.toUpperCase()}*\n`
+    for (
+      const tag of Object.keys(
+        categorias
+      ).sort()
+    ) {
+      text +=
+        `\n╭─❏ *${tag.toUpperCase()}*\n`
 
-        for (const cmd of [...new Set(categorias[tag])]) {
-            text += `│ • ${usedPrefix}${cmd}\n`
-        }
+      for (
+        const cmd of [
+          ...new Set(
+            categorias[tag]
+          )
+        ]
+      ) {
+        text +=
+          `│ • ${usedPrefix}${cmd}\n`
+      }
 
-        text += `╰────────────\n`
+      text +=
+        `╰────────────\n`
     }
 
     // --- Estructura del mensaje interactivo ---
@@ -64,42 +149,84 @@ if (m.isGroup) {
       header: {
         documentMessage: {
           url: 'https://mmg.whatsapp.net/v/t62.7119-24/539012045_745537058346694_1512031191239726227_n.enc',
-          mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          fileSha256: Buffer.from('fa09afbc207a724252bae1b764ecc7b13060440ba47a3bf59e77f01924924bfe', 'hex'),
-          fileLength: { low: -727379969, high: 232, unsigned: true },
+
+          mimetype:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+
+          fileSha256: Buffer.from(
+            'fa09afbc207a724252bae1b764ecc7b13060440ba47a3bf59e77f01924924bfe',
+            'hex'
+          ),
+
+          fileLength: {
+            low: -727379969,
+            high: 232,
+            unsigned: true
+          },
+
           pageCount: 0,
-          mediaKey: Buffer.from('3163ba7c8db6dd363c4f48bda2735cc0d0413e57567f0a758f514f282889173c', 'hex'),
-          fileName: 'Bot- AI WhatsApp',
-          fileEncSha256: Buffer.from('652f2ff6d8a8dae9f5c9654e386de5c01c623fe98d81a28f63dfb0979a44a22f', 'hex'),
-          directPath: '/v/t62.7119-24/539012045_745537058346694_1512031191239726227_n.enc',
-          mediaKeyTimestamp: { low: 1756370084, high: 0, unsigned: false },
-          jpegThumbnail: thumbResized || null
+
+          mediaKey: Buffer.from(
+            '3163ba7c8db6dd363c4f48bda2735cc0d0413e57567f0a758f514f282889173c',
+            'hex'
+          ),
+
+          fileName:
+            'Bot- AI WhatsApp',
+
+          fileEncSha256: Buffer.from(
+            '652f2ff6d8a8dae9f5c9654e386de5c01c623fe98d81a28f63dfb0979a44a22f',
+            'hex'
+          ),
+
+          directPath:
+            '/v/t62.7119-24/539012045_745537058346694_1512031191239726227_n.enc',
+
+          mediaKeyTimestamp: {
+            low: 1756370084,
+            high: 0,
+            unsigned: false
+          },
+
+          jpegThumbnail:
+            thumbResized || null
         },
-        hasMediaAttachment: true
+
+        hasMediaAttachment:
+          true
       },
 
       body: {
-        text: text
+        text
       },
 
       footer: {
-        text: '🤨 xvidẹ𝆬os.er/k (๑ ิټ ิ)'
+        text:
+          '🤨 xvidẹ𝆬os.er/k (๑ ิټ ิ)'
       },
 
       nativeFlowMessage: {
         buttons: [
           {
-            name: 'single_select',
-            buttonParamsJson: '{"has_multiple_buttons":true}'
+            name:
+              'single_select',
+
+            buttonParamsJson:
+              '{"has_multiple_buttons":true}'
           },
 
           {
-            name: 'call_permission_request',
-            buttonParamsJson: '{"has_multiple_buttons":true}'
+            name:
+              'call_permission_request',
+
+            buttonParamsJson:
+              '{"has_multiple_buttons":true}'
           },
 
           {
-            name: 'single_select',
+            name:
+              'single_select',
+
             buttonParamsJson: `{
               "title":"Más Opciones",
               "sections":[
@@ -107,10 +234,26 @@ if (m.isGroup) {
                   "title":"⌏Seleccione una opción requerida⌎",
                   "highlight_label":"Desarrollador",
                   "rows":[
-                    {"title":"Owner/Creador","description":"","id":"Edar"},
-                    {"title":"Información del Bot","description":"","id":".info"},
-                    {"title":"Reglas/Términos","description":"","id":".reglas"},
-                    {"title":"Ping","description":"Velocidad del bot","id":".ping"}
+                    {
+                      "title":"Owner/Creador",
+                      "description":"",
+                      "id":"Edar"
+                    },
+                    {
+                      "title":"Información del Bot",
+                      "description":"",
+                      "id":".info"
+                    },
+                    {
+                      "title":"Reglas/Términos",
+                      "description":"",
+                      "id":".reglas"
+                    },
+                    {
+                      "title":"Ping",
+                      "description":"Velocidad del bot",
+                      "id":".ping"
+                    }
                   ]
                 }
               ],
@@ -119,17 +262,25 @@ if (m.isGroup) {
           },
 
           {
-            name: 'cta_copy',
-            buttonParamsJson: '{"display_text":"Copiar Código","id":"123456789","copy_code":"Soy bien puto alv :v"}'
+            name:
+              'cta_copy',
+
+            buttonParamsJson:
+              '{"display_text":"Copiar Código","id":"123456789","copy_code":"Soy bien puto alv :v"}'
           },
 
           {
-            name: 'cta_url',
-            buttonParamsJson: `{"display_text":"Canal de WhatsApp","url":"https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H","merchant_url":"https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H"}`
+            name:
+              'cta_url',
+
+            buttonParamsJson:
+              `{"display_text":"Canal de WhatsApp","url":"https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H","merchant_url":"https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H"}`
           },
 
           {
-            name: 'galaxy_message',
+            name:
+              'galaxy_message',
+
             buttonParamsJson: `{
               "mode":"published",
               "flow_message_version":"3",
@@ -139,14 +290,20 @@ if (m.isGroup) {
               "flow_action":"navigate",
               "flow_action_payload":{
                 "screen":"QUESTION_ONE",
-                "params":{"user_id":"123456789","referral":"campaign_xyz"}
+                "params":{
+                  "user_id":"123456789",
+                  "referral":"campaign_xyz"
+                }
               },
               "flow_metadata":{
                 "flow_json_version":"201",
                 "data_api_protocol":"v2",
                 "flow_name":"Lead Qualification [en]",
                 "data_api_version":"v2",
-                "categories":["Lead Generation","Sales"]
+                "categories":[
+                  "Lead Generation",
+                  "Sales"
+                ]
               }
             }`
           }
@@ -177,62 +334,96 @@ if (m.isGroup) {
     }
 
     // --- Envío del mensaje ---
-    const random = Math.floor(Math.random() * 3)
+    const random =
+      Math.floor(
+        Math.random() * 3
+      )
 
     const gif = [
       "https://raw.githubusercontent.com/edar123/im/main/media/gif.mp4",
       "https://raw.githubusercontent.com/edar123/im/main/media/giff.mp4",
       "https://raw.githubusercontent.com/edar123/im/main/media/gifff.mp4",
       "https://raw.githubusercontent.com/edar123/im/main/media/gif4.mp4"
-    ][Math.floor(Math.random() * 4)]
+    ][
+      Math.floor(
+        Math.random() * 4
+      )
+    ]
 
     if (random === 0) {
 
-      const iconResponse = await fetch(icono)
+      const iconResponse =
+        await fetch(icono)
 
       if (!iconResponse.ok) {
-        throw new Error('No se pudo obtener la imagen de icono')
+        throw new Error(
+          'No se pudo obtener la imagen de icono'
+        )
       }
 
-      const iconBuffer = Buffer.from(
-        await iconResponse.arrayBuffer()
-      )
+      const iconBuffer =
+        Buffer.from(
+          await iconResponse.arrayBuffer()
+        )
 
-      const previewThumbnail = await sharp(iconBuffer)
-        .resize(640, 640, {
-          fit: 'cover',
-          position: 'centre'
-        })
-        .jpeg({
-          quality: 100,
-          chromaSubsampling: '4:4:4'
-        })
-        .toBuffer()
+      const previewThumbnail =
+        await sharp(iconBuffer)
+          .resize(640, 640, {
+            fit: 'cover',
+            position: 'centre'
+          })
+          .jpeg({
+            quality: 100,
+            chromaSubsampling: '4:4:4'
+          })
+          .toBuffer()
 
       await conn.sendMessage(
         m.chat,
         {
-          text: `${redes}\n${text}`,
+          text:
+            `${redes}\n${text}`,
 
           linkPreview: {
-            'matched-text': redes,
-            title: textbot,
-            description: wm,
-            jpegThumbnail: previewThumbnail,
-            renderLargerThumbnail: false
+            'matched-text':
+              redes,
+
+            title:
+              textbot,
+
+            description:
+              wm,
+
+            jpegThumbnail:
+              previewThumbnail,
+
+            renderLargerThumbnail:
+              false
           },
 
           contextInfo: {
-            mentionedJid: [m.sender],
-            remoteJid: '@broadcast',
-            forwardingScore: 10,
-            isForwarded: true,
+            mentionedJid: [
+              m.sender
+            ],
+
+            remoteJid:
+              '@broadcast',
+
+            forwardingScore:
+              10,
+
+            isForwarded:
+              true,
 
             ...(global.channelRD?.id
               ? {
                   forwardedNewsletterMessageInfo: {
-                    newsletterJid: global.channelRD.id,
-                    serverMessageId: 1,
+                    newsletterJid:
+                      global.channelRD.id,
+
+                    serverMessageId:
+                      1,
+
                     newsletterName:
                       global.channelRD.name || ''
                   }
@@ -240,7 +431,9 @@ if (m.isGroup) {
               : {})
           }
         },
-        { quoted: m }
+        {
+          quoted: m
+        }
       )
 
       return
@@ -250,12 +443,23 @@ if (m.isGroup) {
       await conn.sendMessage(
         m.chat,
         {
-          video: { url: gif },
-          gifPlayback: true,
-          caption: text,
-          mentions: [m.sender]
+          video: {
+            url: gif
+          },
+
+          gifPlayback:
+            true,
+
+          caption:
+            text,
+
+          mentions: [
+            m.sender
+          ]
         },
-        { quoted: m }
+        {
+          quoted: m
+        }
       )
 
       return
@@ -272,7 +476,9 @@ if (m.isGroup) {
             }
           }
         },
-        { quoted: m }
+        {
+          quoted: m
+        }
       )
     }
 
@@ -291,18 +497,48 @@ if (m.isGroup) {
 }
 
 function clockString(ms) {
-  let h = isNaN(ms) ? '--' : Math.floor(ms / 3600000)
-  let m = isNaN(ms) ? '--' : Math.floor(ms / 60000) % 60
-  let s = isNaN(ms) ? '--' : Math.floor(ms / 1000) % 60
+  let h =
+    isNaN(ms)
+      ? '--'
+      : Math.floor(
+          ms / 3600000
+        )
 
-  return [h, m, s]
-    .map(v => v.toString().padStart(2, 0))
+  let m =
+    isNaN(ms)
+      ? '--'
+      : Math.floor(
+          ms / 60000
+        ) % 60
+
+  let s =
+    isNaN(ms)
+      ? '--'
+      : Math.floor(
+          ms / 1000
+        ) % 60
+
+  return [
+    h,
+    m,
+    s
+  ]
+    .map(v =>
+      v.toString().padStart(2, 0)
+    )
     .join(':')
 }
 
-handler.help = ['menu']
-handler.tags = ['main']
+handler.help = [
+  'menu'
+]
+
+handler.tags = [
+  'main'
+]
+
 handler.group = true
+
 handler.command = [
   'menu',
   'help',
