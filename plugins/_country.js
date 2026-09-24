@@ -247,71 +247,61 @@ let flags = [
   {"name": "Yemen","code": "YE","emoji": "🇾🇪","dialCodes": ["+967"],"slug": "yemen"},
   {"name": "Wallis y Futuna","code": "WF","emoji": "🇼🇫","dialCodes": ["+681"],"slug": "wallis-and-futuna"}
 ];
-
 async function flagToImage(flag) {
   try {
-    const codepoints = [...flag.emoji]
-      .map(char =>
-        char.codePointAt(0).toString(16)
-      )
-      .join('-')
-    const twemojiPackage = path.dirname(
-      require.resolve('twemoji/package.json')
-    )
+    const flagCode = flag.code.toLowerCase()
 
+    const flagIconsPackage = path.dirname(
+      require.resolve('flag-icons/package.json')
+    )
 
     const svgPath = path.join(
-      twemojiPackage,
-      'assets',
-      'svg',
-      `${codepoints}.svg`
+      flagIconsPackage,
+      'flags',
+      '4x3',
+      `${flagCode}.svg`
     )
-
 
     console.log(
       `🌍 Generando bandera: ${flag.name} ${flag.emoji}`
     )
 
     console.log(
-      `🔎 Código Twemoji: ${codepoints}`
+      `🔎 Código ISO: ${flag.code}`
     )
 
     console.log(
       `📁 SVG: ${svgPath}`
     )
 
-
     if (!fs.existsSync(svgPath)) {
       throw new Error(
-        `No se encontró el SVG de Twemoji para ${flag.name}: ${svgPath}`
+        `No se encontró la bandera ${flag.name} (${flag.code}): ${svgPath}`
       )
     }
-    const svgBuffer =
-      fs.readFileSync(svgPath)
 
-    const buffer =
-      await sharp(svgBuffer)
-        .resize(800, 500, {
-          fit: 'contain',
-          background: {
-            r: 255,
-            g: 255,
-            b: 255,
-            alpha: 1
-          }
-        })
-        .png()
-        .toBuffer()
+    const svgBuffer = fs.readFileSync(svgPath)
 
+    const buffer = await sharp(svgBuffer)
+      .resize(800, 533, {
+        fit: 'contain',
+        background: {
+          r: 255,
+          g: 255,
+          b: 255,
+          alpha: 1
+        }
+      })
+      .png()
+      .toBuffer()
 
     console.log(
-      `✅ Bandera generada: ${flag.name}`
+      `✅ Bandera generada: ${flag.name} ${flag.emoji}`
     )
 
     console.log(
       `🖼️ PNG: ${buffer.length} bytes`
     )
-
 
     return buffer
 
@@ -326,7 +316,6 @@ async function flagToImage(flag) {
   }
 }
 
-
 export async function before(
   m,
   { conn, args, usedPrefix, command }
@@ -334,10 +323,8 @@ export async function before(
 
   let chat = db.data.chats[m.chat]
 
-
   if (!chat.autoband || !m.isGroup) return !0
   if (!m.message) return !0
-
 
   if (!userMessageCount[m.chat]) {
 
@@ -352,9 +339,7 @@ export async function before(
 
   }
 
-
   userMessageCount[m.chat].count += 1
-
 
   if (
     userMessageCount[m.chat].count % 5 === 0
@@ -367,35 +352,33 @@ export async function before(
         )
       ]
 
-
     userMessageCount[m.chat].currentFlag =
       randomFlag.name
-
 
     userMessageCount[m.chat].currentFlag2 =
       randomFlag.emoji
 
-
     userMessageCount[m.chat].currentFlag3 =
       randomFlag.dialCodes ||
       'DESCONOCIDO'
+
     const txt = `💣 *¿A qué país pertenece la bandera que se muestra?*
 
 _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo de *3 minutos*._`
-
 
     try {
 
       console.log(
         `🌍 Preparando desafío: ${randomFlag.name} ${randomFlag.emoji}`
       )
+
       const buffer =
         await flagToImage(randomFlag)
-
 
       console.log(
         `🖼️ Imagen lista: ${buffer.length} bytes`
       )
+
       userMessageCount[m.chat].questionMessage =
         await conn.sendMessage(
           m.chat,
@@ -405,15 +388,12 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
           }
         )
 
-
       userMessageCount[m.chat].timestamp =
         Date.now()
-
 
       console.log(
         `✅ Desafío enviado correctamente: ${randomFlag.name}`
       )
-
 
     } catch (error) {
 
@@ -422,16 +402,15 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
         error
       )
 
-
       userMessageCount[m.chat].currentFlag = null
       userMessageCount[m.chat].currentFlag2 = null
       userMessageCount[m.chat].currentFlag3 = null
       userMessageCount[m.chat].questionMessage = null
       userMessageCount[m.chat].timestamp = null
 
-
       return !0
     }
+
     setTimeout(
       async () => {
 
@@ -451,7 +430,6 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
                 .questionMessage
                 ?.id
 
-
             if (messageId) {
 
               await conn.sendMessage(
@@ -464,7 +442,6 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
                   }
                 }
               )
-
 
               console.log(
                 `🗑️ Pregunta eliminada: ${messageId}`
@@ -483,7 +460,6 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
 
         }
 
-
         if (userMessageCount[m.chat]) {
 
           userMessageCount[m.chat].currentFlag = null
@@ -498,12 +474,12 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
       180000
     )
   }
+
   if (
     !userMessageCount[m.chat].timestamp
   ) {
     return !0
   }
-
 
   const timeElapsed =
     Date.now() -
@@ -512,6 +488,7 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
   if (timeElapsed > 180000) {
     return !0
   }
+
   const questionId =
     userMessageCount[m.chat]
       .questionMessage
@@ -535,7 +512,6 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
 
     await m.react('🎉')
 
-
     await conn.reply(
       m.chat,
       `*¡Correcto, ${m.pushName}!* 🎉 La bandera es de *${userMessageCount[m.chat].currentFlag}* ${userMessageCount[m.chat].currentFlag2} y su código es: *${userMessageCount[m.chat].currentFlag3}*.
@@ -543,7 +519,6 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
 🏆 *¡Has completado correctamente el desafío!*`,
       m
     )
-
 
     try {
 
@@ -560,7 +535,6 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
           }
         )
 
-
         console.log(
           `🗑️ Pregunta eliminada después de respuesta correcta: ${questionId}`
         )
@@ -575,16 +549,16 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
       )
 
     }
+
     userMessageCount[m.chat].currentFlag = null
     userMessageCount[m.chat].currentFlag2 = null
     userMessageCount[m.chat].currentFlag3 = null
     userMessageCount[m.chat].questionMessage = null
     userMessageCount[m.chat].timestamp = null
 
-
     return !0
-  }
-  else if (
+
+  } else if (
     m.quoted &&
     questionId &&
     m.quoted.id === questionId
@@ -596,21 +570,17 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
         180000 - timeElapsed
       )
 
-
     const minutesRemaining =
       Math.floor(
         timeRemaining / 60000
       )
-
 
     const secondsRemaining =
       Math.floor(
         (timeRemaining % 60000) / 1000
       )
 
-
     await m.react('✖️')
-
 
     await conn.reply(
       m.chat,
@@ -624,7 +594,6 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
     )
 
   }
-
 
   return !0
 }
