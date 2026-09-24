@@ -21,7 +21,8 @@ if (m.isGroup) {
 
     // --- Menú simple ---
     let uptime = process.uptime() * 1000
-  let run = clockString(uptime)
+    let run = clockString(uptime)
+
     const info = await global.mundo(m, conn)
     let categorias = {}
 
@@ -38,8 +39,10 @@ if (m.isGroup) {
         }
     }
 
-      m.react(e)
-let pais = `${info.flag} ${info.country}`
+    m.react(e)
+
+    let pais = `${info.flag} ${info.country}`
+
     let text = `${e} _Hola ${m.pushName}_ ¿Cómo estás?\n\n\`❒ᴄᴏɴᴛᴇxᴛ-ɪɴғᴏ☔\`
 ┌────────────
 │ 🌎 *País:* ${pais}
@@ -48,9 +51,11 @@ let pais = `${info.flag} ${info.country}`
 
     for (const tag of Object.keys(categorias).sort()) {
         text += `\n╭─❏ *${tag.toUpperCase()}*\n`
+
         for (const cmd of [...new Set(categorias[tag])]) {
             text += `│ • ${usedPrefix}${cmd}\n`
         }
+
         text += `╰────────────\n`
     }
 
@@ -72,12 +77,27 @@ let pais = `${info.flag} ${info.country}`
         },
         hasMediaAttachment: true
       },
-      body: { text: text },
-      footer: { text: '🤨 xvidẹ𝆬os.er/k (๑ ิټ ิ)' },
+
+      body: {
+        text: text
+      },
+
+      footer: {
+        text: '🤨 xvidẹ𝆬os.er/k (๑ ิټ ิ)'
+      },
+
       nativeFlowMessage: {
         buttons: [
-          { name: 'single_select', buttonParamsJson: '{"has_multiple_buttons":true}' },
-          { name: 'call_permission_request', buttonParamsJson: '{"has_multiple_buttons":true}' },
+          {
+            name: 'single_select',
+            buttonParamsJson: '{"has_multiple_buttons":true}'
+          },
+
+          {
+            name: 'call_permission_request',
+            buttonParamsJson: '{"has_multiple_buttons":true}'
+          },
+
           {
             name: 'single_select',
             buttonParamsJson: `{
@@ -97,11 +117,17 @@ let pais = `${info.flag} ${info.country}`
               "has_multiple_buttons":true
             }`
           },
-          { name: 'cta_copy', buttonParamsJson: '{"display_text":"Copiar Código","id":"123456789","copy_code":"Soy bien puto alv :v"}' },
+
+          {
+            name: 'cta_copy',
+            buttonParamsJson: '{"display_text":"Copiar Código","id":"123456789","copy_code":"Soy bien puto alv :v"}'
+          },
+
           {
             name: 'cta_url',
             buttonParamsJson: `{"display_text":"Canal de WhatsApp","url":"https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H","merchant_url":"https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H"}`
           },
+
           {
             name: 'galaxy_message',
             buttonParamsJson: `{
@@ -125,6 +151,7 @@ let pais = `${info.flag} ${info.country}`
             }`
           }
         ],
+
         messageParamsJson: `{
           "limited_time_offer":{
             "text":"🕒 Runtime ${run}",
@@ -150,47 +177,116 @@ let pais = `${info.flag} ${info.country}`
     }
 
     // --- Envío del mensaje ---
-      const thumbnail = await (await fetch(icono)).buffer()
-        const random = Math.floor(Math.random() * 3);
-        const gif = [
-  "https://raw.githubusercontent.com/edar123/im/main/media/gif.mp4",
-  "https://raw.githubusercontent.com/edar123/im/main/media/giff.mp4",
-  "https://raw.githubusercontent.com/edar123/im/main/media/gifff.mp4",
-  "https://raw.githubusercontent.com/edar123/im/main/media/gif4.mp4"
-][Math.floor(Math.random() * 4)];
+    const random = Math.floor(Math.random() * 3)
 
-      if (random === 0) {
-        await conn.sendMessage(
-    m.chat,
-    {
-        text: text
-    },
-    { quoted: m }
-)
-        return;
+    const gif = [
+      "https://raw.githubusercontent.com/edar123/im/main/media/gif.mp4",
+      "https://raw.githubusercontent.com/edar123/im/main/media/giff.mp4",
+      "https://raw.githubusercontent.com/edar123/im/main/media/gifff.mp4",
+      "https://raw.githubusercontent.com/edar123/im/main/media/gif4.mp4"
+    ][Math.floor(Math.random() * 4)]
+
+    if (random === 0) {
+
+      const iconResponse = await fetch(icono)
+
+      if (!iconResponse.ok) {
+        throw new Error('No se pudo obtener la imagen de icono')
       }
 
-      if (random === 1) {
-      await conn.sendMessage(m.chat, {
-      video: { url: gif },
-      gifPlayback: true,
-      caption: text,
-      mentions: [m.sender]
-    }, { quoted: m })
-    return;
-  }
+      const iconBuffer = Buffer.from(
+        await iconResponse.arrayBuffer()
+      )
 
-  if (random === 2) {
-      //😈
-    await conn.relayMessage(
-      m.chat,
-      { viewOnceMessage: { message: { interactiveMessage: nativeFlowPayload } } },
-      { quoted: m }
-    )
-  }
+      const previewThumbnail = await sharp(iconBuffer)
+        .resize(640, 640, {
+          fit: 'cover',
+          position: 'centre'
+        })
+        .jpeg({
+          quality: 100,
+          chromaSubsampling: '4:4:4'
+        })
+        .toBuffer()
+
+      await conn.sendMessage(
+        m.chat,
+        {
+          text: `${redes}\n${text}`,
+
+          linkPreview: {
+            'matched-text': redes,
+            title: textbot,
+            description: wm,
+            jpegThumbnail: previewThumbnail,
+            renderLargerThumbnail: false
+          },
+
+          contextInfo: {
+            mentionedJid: [m.sender],
+            remoteJid: '@broadcast',
+            forwardingScore: 10,
+            isForwarded: true,
+
+            ...(global.channelRD?.id
+              ? {
+                  forwardedNewsletterMessageInfo: {
+                    newsletterJid: global.channelRD.id,
+                    serverMessageId: 1,
+                    newsletterName:
+                      global.channelRD.name || ''
+                  }
+                }
+              : {})
+          }
+        },
+        { quoted: m }
+      )
+
+      return
+    }
+
+    if (random === 1) {
+      await conn.sendMessage(
+        m.chat,
+        {
+          video: { url: gif },
+          gifPlayback: true,
+          caption: text,
+          mentions: [m.sender]
+        },
+        { quoted: m }
+      )
+
+      return
+    }
+
+    if (random === 2) {
+      await conn.relayMessage(
+        m.chat,
+        {
+          viewOnceMessage: {
+            message: {
+              interactiveMessage:
+                nativeFlowPayload
+            }
+          }
+        },
+        { quoted: m }
+      )
+    }
+
   } catch (e) {
-    console.error('Error al generar mensaje interactivo:', e)
-    await conn.reply(m.chat, `❌ Error al generar mensaje:\n${e.message}`, m)
+    console.error(
+      'Error al generar mensaje interactivo:',
+      e
+    )
+
+    await conn.reply(
+      m.chat,
+      `❌ Error al generar mensaje:\n${e.message}`,
+      m
+    )
   }
 }
 
@@ -198,11 +294,22 @@ function clockString(ms) {
   let h = isNaN(ms) ? '--' : Math.floor(ms / 3600000)
   let m = isNaN(ms) ? '--' : Math.floor(ms / 60000) % 60
   let s = isNaN(ms) ? '--' : Math.floor(ms / 1000) % 60
-  return [h, m, s].map(v => v.toString().padStart(2, 0)).join(':')
+
+  return [h, m, s]
+    .map(v => v.toString().padStart(2, 0))
+    .join(':')
 }
 
 handler.help = ['menu']
 handler.tags = ['main']
-handler.group = true;
-handler.command = ['menu', 'help', 'comandos', 'menú', 'm', 'memu']
+handler.group = true
+handler.command = [
+  'menu',
+  'help',
+  'comandos',
+  'menú',
+  'm',
+  'memu'
+]
+
 export default handler
