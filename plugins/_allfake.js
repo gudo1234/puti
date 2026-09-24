@@ -12,7 +12,7 @@ async function getRandomChannel() {
   ]
 
   const canalNombreM = [
-    "🤖⃧►iʑυвöτ◃2.0▹",
+    "ᴄʜᴀɴɴᴇʟ🦖ᴢᴇɴᴛʀɪx",
     "Zeus Bot🔆Channel-OFC"
   ]
 
