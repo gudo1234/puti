@@ -644,7 +644,7 @@ export async function before(
   )
 
   if (
-    currentState.count % 103 === 0
+    currentState.count % 10 === 0
   ) {
 
     if (
