@@ -32,8 +32,19 @@ const safeJson = async (res) => {
 
 const handler = async (m, { conn, text, usedPrefix, command, args }) => {
 
-  const docAudio = ['play3', 'ytadoc', 'mp3doc', 'ytmp3doc']
-  const docVideo = ['play4', 'ytvdoc', 'mp4doc', 'ytmp4doc']
+  const docAudio = [
+    'play3',
+    'ytadoc',
+    'mp3doc',
+    'ytmp3doc'
+  ]
+
+  const docVideo = [
+    'play4',
+    'ytvdoc',
+    'mp4doc',
+    'ytmp4doc'
+  ]
 
   const normalAudio = [
     'play',
@@ -130,16 +141,22 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
         ? `\n> ‣ Se enviará como documento por superar 20 minutos.`
         : ""
 
-    const info = `╭──── • ────╮
-> ✰ *Título:* ${title}
-> ♢ *Canal:* ${author?.name || "Desconocido"}
-> ♪ *Duración:* ${duration}
-> ♫ *Vistas:* ${views?.toLocaleString() || "Desconocidas"}
-> ♪ *Publicado:* ${ago || "Desconocido"}
-> ♬ *Link:* ${url}
-╰──── • ────╯
+    /*
+     * INFORMACIÓN DEL VIDEO
+     */
 
-⏳ _Preparando ${type}..._${aviso}`.trim()
+    const canal = author?.name || "Desconocido"
+
+    const vistas =
+      views != null
+        ? Number(views).toLocaleString()
+        : "Desconocidas"
+
+    const publicado = ago || "Desconocido"
+
+    /*
+     * THUMBNAIL PARA LA LOCATION
+     */
 
     let thumb = null
 
@@ -163,40 +180,76 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
     } catch {}
 
     /*
-     * VISTA PREVIA:
-     * ÚNICAMENTE locationMessage.
+     * LOCATION MESSAGE
      *
-     * No externalAdReply
-     * No buttons
-     * No buttonsMessage
-     * No forwardedNewsletterMessageInfo
-     * No contextInfo
+     * Toda la información se coloca en los
+     * campos propios de locationMessage.
+     *
+     * NO externalAdReply
+     * NO buttons
+     * NO contextInfo
      */
 
     const locationMessage = {
       degreesLatitude: 0,
       degreesLongitude: 0,
 
-      name: wm,
+      /*
+       * Título principal
+       */
+      name: `🎧 ${title}`,
 
-      address: info
+      /*
+       * Información secundaria
+       */
+      address:
+        `👤 Canal: ${canal}\n` +
+        `⏱️ Duración: ${duration}\n` +
+        `👁️ Vistas: ${vistas}\n` +
+        `📅 Publicado: ${publicado}`,
+
+      /*
+       * El enlace queda dentro de la propia ubicación.
+       */
+      url: url,
+
+      /*
+       * Información adicional.
+       */
+      comment:
+        `╭──── • ────╮\n` +
+        `> ✰ *Título:* ${title}\n` +
+        `> ♢ *Canal:* ${canal}\n` +
+        `> ♪ *Duración:* ${duration}\n` +
+        `> ♫ *Vistas:* ${vistas}\n` +
+        `> ♪ *Publicado:* ${publicado}\n` +
+        `> ♬ *Link:* ${url}\n` +
+        `╰──── • ────╯\n\n` +
+        `⏳ _Preparando ${type}..._${aviso}`
     }
 
     if (thumb) {
       locationMessage.jpegThumbnail = thumb
     }
 
-    const rawContent = {
-      locationMessage
-    }
+    /*
+     * GENERAR LOCATION CITADA
+     */
 
     const msg = generateWAMessageFromContent(
       m.chat,
-      rawContent,
       {
-        userJid: conn.user.id
+        locationMessage
+      },
+      {
+        userJid: conn.user.id,
+        quoted: m
       }
     )
+
+    /*
+     * ENVIAR LOCATION
+     */
 
     await conn.relayMessage(
       m.chat,
@@ -211,7 +264,6 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
      */
 
     let data = null
-    let usedApi = ""
 
     const alyaUrl = isAudio
       ? `https://api.alyacore.xyz/dl/fastytmp3?url=${encodeURIComponent(url)}&key=oboe`
@@ -224,31 +276,38 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
       alyaJson?.status &&
       alyaJson?.data?.dl
     ) {
+
       data = {
         link: alyaJson.data.dl,
-        title: alyaJson.data.title || title,
+
+        title:
+          alyaJson.data.title ||
+          title,
+
         author:
           alyaJson.data.author ||
-          author?.name ||
-          "Desconocido",
+          canal,
+
         duration:
           alyaJson.data.duration ||
           duration,
+
         thumbnail:
           alyaJson.data.thumbnail ||
           thumbnail,
+
         format:
           alyaJson.data.format ||
           (isAudio ? "mp3" : "mp4"),
+
         quality:
           alyaJson.data.quality ||
           "Automática",
+
         fileName:
           alyaJson.data.fileName ||
           `${title}.${isAudio ? "mp3" : "mp4"}`
       }
-
-      usedApi = "alyacore"
     }
 
     /*
@@ -280,8 +339,7 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
 
           author:
             lempiJson.canal ||
-            author?.name ||
-            "Desconocido",
+            canal,
 
           duration:
             lempiJson.duracion ||
@@ -303,8 +361,6 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
             d.archivo ||
             `${title}.${isAudio ? "mp3" : "mp4"}`
         }
-
-        usedApi = "lempi"
       }
     }
 
@@ -316,9 +372,18 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
       )
     }
 
+    /*
+     * NOMBRE Y MIME
+     */
+
+    const extension =
+      isAudio
+        ? "mp3"
+        : "mp4"
+
     const fileName =
       data.fileName ||
-      `${data.title || title}.${isAudio ? "mp3" : "mp4"}`
+      `${data.title || title}.${extension}`
 
     const mimetype =
       isAudio
@@ -326,7 +391,7 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
         : "video/mp4"
 
     /*
-     * ENVÍO DEL ARCHIVO
+     * MENSAJE FINAL
      */
 
     const msgMedia = sendDoc
