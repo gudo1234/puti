@@ -65,6 +65,9 @@ const result = await conn.relayMessage(m.chat,
 console.log(result)
 
 }
+handler.help = ["Juega al dinosaurio sin internet"]
+handler.tags = ["juegos"]
 handler.command = ['dino']
+handler.group = true
 
 export default handler
