@@ -245,10 +245,6 @@ let handler = async (m, { conn }) => {
         return str
     }
 
-    if (!m.sender?.role?.('root', 'owner')) {
-        return m.reply('ⓘ Este comando solo puede ser utilizado por el owner.')
-    }
-
     if (!m.quoted) {
         return m.reply('ⓘ Cita el mensaje que deseas destripar.')
     }
@@ -322,10 +318,6 @@ let handler = async (m, { conn }) => {
                     parentPayload.pollCreationMessageV3
             }
         }
-
-        /*
-         * MULTI-PART
-         */
 
         if (childMsgs.length > 0) {
 
@@ -482,10 +474,6 @@ let handler = async (m, { conn }) => {
 
             return await m.react('done')
         }
-
-        /*
-         * SINGLE PACKET
-         */
 
         const singlePayload =
             parentPayload
