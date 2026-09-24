@@ -42,15 +42,13 @@ handler.before = async function (m) {
 
     if (stiker) {
       await conn.sendFile(
-        m.chat,
-        stiker,
-        'sticker.webp',
-        '',
-        m,
-        true,
-        {},
-        { quoted: null }
-      )
+  m.chat,
+  stiker,
+  'sticker.webp',
+  '',
+  null,
+  true
+)
     }
   }
 
