@@ -12,15 +12,22 @@ const autoBandFile = path.resolve(
 )
 
 function ensureAutoBandFile() {
-  const dir = path.dirname(autoBandFile)
+
+  const dir =
+    path.dirname(autoBandFile)
 
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, {
-      recursive: true
-    })
+
+    fs.mkdirSync(
+      dir,
+      {
+        recursive: true
+      }
+    )
   }
 
   if (!fs.existsSync(autoBandFile)) {
+
     fs.writeFileSync(
       autoBandFile,
       '{}',
@@ -30,7 +37,9 @@ function ensureAutoBandFile() {
 }
 
 function loadAutoBand() {
+
   try {
+
     ensureAutoBandFile()
 
     const data =
@@ -44,12 +53,15 @@ function loadAutoBand() {
       : {}
 
   } catch {
+
     return {}
   }
 }
 
 function saveAutoBand(data) {
+
   try {
+
     ensureAutoBandFile()
 
     fs.writeFileSync(
@@ -61,6 +73,7 @@ function saveAutoBand(data) {
       ),
       'utf8'
     )
+
   } catch {}
 }
 
@@ -69,11 +82,14 @@ let autoBandData =
 
 function saveChatState(chatId) {
 
-  if (!userMessageCount[chatId]) {
+  if (
+    !userMessageCount[chatId]
+  ) {
     return
   }
 
   autoBandData[chatId] = {
+
     count:
       userMessageCount[chatId].count || 0,
 
@@ -89,21 +105,32 @@ function saveChatState(chatId) {
     questionId:
       userMessageCount[chatId].questionId || null,
 
+    incorrectIds:
+      userMessageCount[chatId].incorrectIds || [],
+
     timestamp:
       userMessageCount[chatId].timestamp || null
   }
 
-  saveAutoBand(autoBandData)
+  saveAutoBand(
+    autoBandData
+  )
 }
 
 function deleteChatState(chatId) {
+
   delete autoBandData[chatId]
-  saveAutoBand(autoBandData)
+
+  saveAutoBand(
+    autoBandData
+  )
 }
 
 function getChatState(chatId) {
 
-  if (!userMessageCount[chatId]) {
+  if (
+    !userMessageCount[chatId]
+  ) {
 
     const saved =
       autoBandData[chatId]
@@ -125,10 +152,14 @@ function getChatState(chatId) {
       questionId:
         saved?.questionId || null,
 
+      incorrectIds:
+        saved?.incorrectIds || [],
+
       timestamp:
         saved?.timestamp || null,
 
-      timer: null
+      timer:
+        null
     }
   }
 
@@ -137,7 +168,9 @@ function getChatState(chatId) {
 
 function clearChatState(chatId) {
 
-  if (userMessageCount[chatId]?.timer) {
+  if (
+    userMessageCount[chatId]?.timer
+  ) {
 
     clearTimeout(
       userMessageCount[chatId].timer
@@ -146,16 +179,18 @@ function clearChatState(chatId) {
 
   delete userMessageCount[chatId]
 
-  deleteChatState(chatId)
+  deleteChatState(
+    chatId
+  )
 }
 
-async function deleteQuestion(
+async function deleteMessage(
   conn,
   chatId,
-  questionId
+  messageId
 ) {
 
-  if (!questionId) {
+  if (!messageId) {
     return false
   }
 
@@ -166,7 +201,7 @@ async function deleteQuestion(
       {
         delete: {
           remoteJid: chatId,
-          id: questionId,
+          id: messageId,
           fromMe: true
         }
       }
@@ -177,6 +212,51 @@ async function deleteQuestion(
   } catch {
 
     return false
+  }
+}
+
+async function deleteChallengeMessages(
+  conn,
+  chatId
+) {
+
+  const state =
+    getChatState(chatId)
+
+  const ids = []
+
+  if (
+    state.questionId
+  ) {
+
+    ids.push(
+      state.questionId
+    )
+  }
+
+  if (
+    Array.isArray(
+      state.incorrectIds
+    )
+  ) {
+
+    ids.push(
+      ...state.incorrectIds
+    )
+  }
+
+  const uniqueIds =
+    [...new Set(ids)]
+
+  for (
+    const messageId of uniqueIds
+  ) {
+
+    await deleteMessage(
+      conn,
+      chatId,
+      messageId
+    )
   }
 }
 
@@ -200,7 +280,9 @@ async function expireQuestion(
   const elapsed =
     Date.now() - timestamp
 
-  if (elapsed < 180000) {
+  if (
+    elapsed < 180000
+  ) {
 
     const remaining =
       180000 - elapsed
@@ -220,18 +302,21 @@ async function expireQuestion(
         remaining + 100
       )
 
-    saveChatState(chatId)
+    saveChatState(
+      chatId
+    )
 
     return
   }
 
-  await deleteQuestion(
+  await deleteChallengeMessages(
     conn,
-    chatId,
-    questionId
+    chatId
   )
 
-  clearChatState(chatId)
+  clearChatState(
+    chatId
+  )
 }
 
 async function removeCurrentQuestion(
@@ -242,20 +327,20 @@ async function removeCurrentQuestion(
   const state =
     getChatState(chatId)
 
-  if (!state.questionId) {
+  if (
+    !state.questionId
+  ) {
     return
   }
 
-  const questionId =
-    state.questionId
-
-  await deleteQuestion(
+  await deleteChallengeMessages(
     conn,
-    chatId,
-    questionId
+    chatId
   )
 
-  clearChatState(chatId)
+  clearChatState(
+    chatId
+  )
 }
 
 async function flagToImage(flag) {
@@ -280,7 +365,10 @@ async function flagToImage(flag) {
         `${flagCode}.svg`
       )
 
-    if (!fs.existsSync(svgPath)) {
+    if (
+      !fs.existsSync(svgPath)
+    ) {
+
       throw new Error(
         `No se encontró la bandera ${flag.name} (${flag.code})`
       )
@@ -292,7 +380,9 @@ async function flagToImage(flag) {
       )
 
     const buffer =
-      await sharp(svgBuffer)
+      await sharp(
+        svgBuffer
+      )
         .resize(
           800,
           533,
@@ -573,7 +663,9 @@ export async function before(
     return !0
   }
 
-  if (!m.message) {
+  if (
+    !m.message
+  ) {
     return !0
   }
 
@@ -593,6 +685,7 @@ export async function before(
     ''
 
   const cleanJid = jid => {
+
     return String(jid)
       .split(':')[0]
   }
@@ -622,10 +715,9 @@ export async function before(
       elapsed >= 180000
     ) {
 
-      await deleteQuestion(
+      await deleteChallengeMessages(
         conn,
-        m.chat,
-        state.questionId
+        m.chat
       )
 
       clearChatState(
@@ -665,7 +757,9 @@ export async function before(
         )
       ]
 
-    if (!randomFlag) {
+    if (
+      !randomFlag
+    ) {
       return !0
     }
 
@@ -684,6 +778,9 @@ export async function before(
 
     newState.questionId =
       null
+
+    newState.incorrectIds =
+      []
 
     newState.timestamp =
       Date.now()
@@ -705,7 +802,13 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
         )
 
       const questionMessage =
-      await conn.sendFile(m.chat, buffer, 'img.jpg', txt, null, null, rcanal);
+        await conn.sendMessage(
+          m.chat,
+          {
+            image: buffer,
+            caption: txt
+          }
+        )
 
       const questionId =
         questionMessage
@@ -714,7 +817,9 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
         questionMessage
           ?.id
 
-      if (!questionId) {
+      if (
+        !questionId
+      ) {
 
         clearChatState(
           m.chat
@@ -733,7 +838,9 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
         m.chat
       )
 
-      if (newState.timer) {
+      if (
+        newState.timer
+      ) {
 
         clearTimeout(
           newState.timer
@@ -754,7 +861,6 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
           },
           180000
         )
-
     } catch {
 
       clearChatState(
@@ -783,10 +889,9 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
     timeElapsed >= 180000
   ) {
 
-    await deleteQuestion(
+    await deleteChallengeMessages(
       conn,
-      m.chat,
-      activeState.questionId
+      m.chat
     )
 
     clearChatState(
@@ -799,47 +904,73 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
   const questionId =
     activeState.questionId
 
-  if (
-    m.quoted &&
-    questionId &&
-    m.quoted.id === questionId &&
-    m.text
-      ?.trim()
-      .toLowerCase() ===
-      activeState.currentFlag
-        ?.toLowerCase()
-  ) {
-
-    await m.react(
-      '🎉'
+  const incorrectIds =
+    Array.isArray(
+      activeState.incorrectIds
     )
+      ? activeState.incorrectIds
+      : []
 
-    await conn.reply(
-      m.chat,
-      `*¡Correcto, ${m.pushName}!* 🎉 La bandera es de *${activeState.currentFlag}* ${activeState.currentFlag2} y su código es: *${activeState.currentFlag3}*.
+  const repliedMessageId =
+    m.quoted?.id
 
-🏆 *¡Has completado correctamente el desafío!*`,
-      m
-    )
-
-    await deleteQuestion(
-      conn,
-      m.chat,
+  const repliedToQuestion =
+    Boolean(
+      repliedMessageId &&
+      repliedMessageId ===
       questionId
     )
 
-    clearChatState(
-      m.chat
+  const repliedToIncorrect =
+    Boolean(
+      repliedMessageId &&
+      incorrectIds.includes(
+        repliedMessageId
+      )
     )
 
-    return !0
-  }
-
   if (
-    m.quoted &&
-    questionId &&
-    m.quoted.id === questionId
+    repliedToQuestion ||
+    repliedToIncorrect
   ) {
+
+    const answer =
+      m.text
+        ?.trim()
+        .toLowerCase()
+
+    const correctAnswer =
+      activeState.currentFlag
+        ?.trim()
+        .toLowerCase()
+
+    if (
+      answer === correctAnswer
+    ) {
+
+      await m.react(
+        '🎉'
+      )
+
+      await conn.reply(
+        m.chat,
+        `*¡Correcto, ${m.pushName}!* 🎉 La bandera es de *${activeState.currentFlag}* ${activeState.currentFlag2} y su código es: *${activeState.currentFlag3}*.
+
+🏆 *¡Has completado correctamente el desafío!*`,
+        m
+      )
+
+      await deleteChallengeMessages(
+        conn,
+        m.chat
+      )
+
+      clearChatState(
+        m.chat
+      )
+
+      return !0
+    }
 
     const timeRemaining =
       Math.max(
@@ -865,16 +996,54 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
       '✖️'
     )
 
-    await conn.reply(
-      m.chat,
-      `*¡Respuesta Incorrecta!*
+    const incorrectMessage =
+      await conn.reply(
+        m.chat,
+        `*¡Respuesta Incorrecta!*
 > vuelve a intentar
 
 🧩 _*Pista:* Su código de área es *${activeState.currentFlag3}* ${activeState.currentFlag2}_
 
 ⏳ *Tiempo restante:* _${minutesRemaining} minutos y ${secondsRemaining} segundos._`,
-      m
-    )
+        m
+      )
+
+    const incorrectId =
+      incorrectMessage
+        ?.key
+        ?.id ||
+      incorrectMessage
+        ?.id
+
+    if (
+      incorrectId
+    ) {
+
+      if (
+        !Array.isArray(
+          activeState.incorrectIds
+        )
+      ) {
+
+        activeState.incorrectIds =
+          []
+      }
+
+      activeState.incorrectIds.push(
+        incorrectId
+      )
+
+      activeState.incorrectIds =
+        [
+          ...new Set(
+            activeState.incorrectIds
+          )
+        ]
+
+      saveChatState(
+        m.chat
+      )
+    }
   }
 
   return !0
