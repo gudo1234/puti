@@ -56,7 +56,8 @@ function getChat(id) {
     antifake: false,
     nsfw: true,
     expired: 0,
-    autosticker: true
+    autosticker: true,
+    autoband: true
   }
 
   if (c.welcome == null) c.welcome = true
