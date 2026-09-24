@@ -1,237 +1,143 @@
 let handler = async (m, { conn }) => {
 
-    function unwrapMessage(msg) {
-        let current = msg || {}
+    const {
+        getContentType,
+        normalizeMessageContent,
+        extractMessageContent
+    } = await import('@whiskeysockets/baileys')
 
-        while (
-            current.ephemeralMessage ||
-            current.viewOnceMessage ||
-            current.viewOnceMessageV2 ||
-            current.viewOnceMessageV2Extension ||
-            current.documentWithCaptionMessage ||
-            current.editedMessage ||
-            (current.pollCreationMessageV4 && current.pollCreationMessageV4.message) ||
-            (current.pollCreationMessageV5 && current.pollCreationMessageV5.message)
-        ) {
-            if (current.ephemeralMessage) {
-                current = current.ephemeralMessage.message || {}
-            } else if (current.viewOnceMessage) {
-                current = current.viewOnceMessage.message || {}
-            } else if (current.viewOnceMessageV2) {
-                current = current.viewOnceMessageV2.message || {}
-            } else if (current.viewOnceMessageV2Extension) {
-                current = current.viewOnceMessageV2Extension.message || {}
-            } else if (current.documentWithCaptionMessage) {
-                current = current.documentWithCaptionMessage.message || {}
-            } else if (current.editedMessage) {
-                current =
-                    current.editedMessage.message?.protocolMessage?.editedMessage || {}
-            } else if (current.pollCreationMessageV4?.message) {
-                current = current.pollCreationMessageV4.message
-            } else if (current.pollCreationMessageV5?.message) {
-                current = current.pollCreationMessageV5.message
+    function getRawQuoted(q) {
+        if (!q) return null
+
+        const candidates = [
+            q.raw,
+            q.message,
+            q.msg,
+            q
+        ]
+
+        for (const candidate of candidates) {
+            if (!candidate || typeof candidate !== 'object') continue
+
+            if (
+                candidate.key ||
+                candidate.message ||
+                candidate.messageTimestamp ||
+                candidate.pushName ||
+                candidate.participant ||
+                candidate.status
+            ) {
+                return candidate
             }
         }
 
-        return current
+        return q
     }
 
-    function getMessageAssociation(rawMsg) {
-        const msg = rawMsg?.message || rawMsg || {}
-        const unwrapped = unwrapMessage(msg)
+    function unwrapMessage(message) {
+        if (!message) return {}
+
+        let current = message
+
+        for (let i = 0; i < 15; i++) {
+
+            if (!current || typeof current !== 'object') {
+                return {}
+            }
+
+            const type = getContentType(current)
+
+            if (!type) {
+                const extracted = extractMessageContent(current)
+
+                if (
+                    extracted &&
+                    extracted !== current
+                ) {
+                    current = extracted
+                    continue
+                }
+
+                break
+            }
+
+            if (
+                type === 'ephemeralMessage' ||
+                type === 'viewOnceMessage' ||
+                type === 'viewOnceMessageV2' ||
+                type === 'viewOnceMessageV2Extension' ||
+                type === 'documentWithCaptionMessage'
+            ) {
+                const inner =
+                    current[type]?.message
+
+                if (inner) {
+                    current = inner
+                    continue
+                }
+            }
+
+            break
+        }
+
+        return current || {}
+    }
+
+    function getAssociation(message) {
+        const content =
+            unwrapMessage(
+                message?.message || message
+            )
 
         return (
-            msg.messageContextInfo?.messageAssociation ||
-            msg.ephemeralMessage?.message?.messageContextInfo?.messageAssociation ||
-            unwrapped.messageContextInfo?.messageAssociation ||
-            unwrapped.imageMessage?.contextInfo?.messageAssociation ||
-            unwrapped.videoMessage?.contextInfo?.messageAssociation ||
-            unwrapped.pollCreationOptionImageMessage?.messageContextInfo?.messageAssociation ||
+            content?.messageContextInfo?.messageAssociation ||
+            content?.imageMessage?.contextInfo?.messageAssociation ||
+            content?.videoMessage?.contextInfo?.messageAssociation ||
+            content?.pollCreationOptionImageMessage?.messageContextInfo?.messageAssociation ||
             null
         )
     }
 
-    function detectAdditionalNodes(obj) {
-        const rawJson =
-            typeof obj === 'string'
-                ? obj
-                : JSON.stringify(obj)
-
-        const has = (s) => rawJson.includes(s)
+    function cleanPOJO(obj, seen = new WeakSet()) {
 
         if (
-            has('"pollCreationOptionImageMessage"') ||
-            has('"media_poll"')
+            obj === null ||
+            obj === undefined
         ) {
-            return {
-                additionalNodes: [
-                    {
-                        tag: 'meta',
-                        attrs: {
-                            message_association_type: 'media_poll'
-                        }
-                    }
-                ]
-            }
-        }
-
-        if (
-            has('"pollCreationMessage"') ||
-            has('"pollCreationMessageV3"') ||
-            has('"pollCreationMessageV4"') ||
-            has('"pollCreationMessageV5"')
-        ) {
-            const isImagePoll =
-                has('"pollContentType": 2') ||
-                has('"pollContentType":2')
-
-            return {
-                additionalNodes: [
-                    {
-                        tag: 'meta',
-                        attrs: {
-                            polltype: 'creation',
-                            ...(isImagePoll
-                                ? { contenttype: 'image' }
-                                : {})
-                        }
-                    }
-                ]
-            }
-        }
-
-        if (
-            has('"botAIMessage"') ||
-            has('"aiChatMessage"') ||
-            has('"forwardedAiBotMessageInfo"')
-        ) {
-            return {
-                additionalNodes: [
-                    {
-                        tag: 'bot',
-                        attrs: {
-                            biz_bot: '1'
-                        }
-                    },
-                    {
-                        tag: 'biz',
-                        attrs: {}
-                    }
-                ]
-            }
-        }
-
-        if (
-            has('"interactiveMessage"') ||
-            has('"buttonsMessage"') ||
-            has('"nativeFlowMessage"')
-        ) {
-            if (has('"catalog_message"')) {
-                return {
-                    additionalNodes: [
-                        {
-                            tag: 'biz',
-                            attrs: {
-                                native_flow_name: 'catalog_message'
-                            }
-                        }
-                    ]
-                }
-            }
-
-            if (has('"order_details"')) {
-                return {
-                    additionalNodes: [
-                        {
-                            tag: 'biz',
-                            attrs: {
-                                native_flow_name: 'order_details'
-                            }
-                        }
-                    ]
-                }
-            }
-
-            if (has('"payment_key_info"')) {
-                return {
-                    additionalNodes: [
-                        {
-                            tag: 'biz',
-                            attrs: {},
-                            content: [
-                                {
-                                    tag: 'interactive',
-                                    attrs: {
-                                        type: 'native_flow',
-                                        v: '1'
-                                    },
-                                    content: [
-                                        {
-                                            tag: 'native_flow',
-                                            attrs: {
-                                                name: 'payment_key_info'
-                                            }
-                                        }
-                                    ]
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
-
-            return {
-                additionalNodes: [
-                    {
-                        tag: 'biz',
-                        attrs: {},
-                        content: [
-                            {
-                                tag: 'interactive',
-                                attrs: {
-                                    type: 'native_flow',
-                                    v: '1'
-                                },
-                                content: [
-                                    {
-                                        tag: 'native_flow',
-                                        attrs: {
-                                            v: '9',
-                                            name: 'mixed'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        }
-
-        return {}
-    }
-
-    function cleanPOJO(obj) {
-        if (obj === null || obj === undefined) {
             return obj
         }
 
-        if (Buffer.isBuffer(obj) || obj instanceof Uint8Array) {
+        if (
+            Buffer.isBuffer(obj) ||
+            obj instanceof Uint8Array
+        ) {
             return `__BUFFER_START__${Buffer.from(obj).toString('base64')}__BUFFER_END__`
         }
 
         if (
-            obj.type === 'Buffer' &&
-            Array.isArray(obj.data)
+            obj?.type === 'Buffer' &&
+            Array.isArray(obj?.data)
         ) {
             return `__BUFFER_START__${Buffer.from(obj.data).toString('base64')}__BUFFER_END__`
         }
 
+        if (typeof obj === 'bigint') {
+            return obj.toString()
+        }
+
         if (Array.isArray(obj)) {
-            return obj.map(cleanPOJO)
+            return obj.map(x =>
+                cleanPOJO(x, seen)
+            )
         }
 
         if (typeof obj === 'object') {
+
+            if (seen.has(obj)) {
+                return '[Circular]'
+            }
+
+            seen.add(obj)
 
             if (
                 typeof obj.toNumber === 'function' ||
@@ -243,45 +149,201 @@ let handler = async (m, { conn }) => {
                 return obj.toString()
             }
 
-            const res = {}
+            const result = {}
 
             for (const key of Object.keys(obj)) {
 
                 if (
-                    typeof obj[key] === 'function' ||
                     key === 'toJSON' ||
-                    key === 'constructor'
+                    key === 'constructor' ||
+                    typeof obj[key] === 'function'
                 ) {
                     continue
                 }
 
-                res[key] = cleanPOJO(obj[key])
+                try {
+                    result[key] =
+                        cleanPOJO(
+                            obj[key],
+                            seen
+                        )
+                } catch {}
             }
 
-            return res
+            return result
         }
 
         return obj
     }
 
-    function formatJsonCode(obj) {
-        let str = JSON.stringify(
-            cleanPOJO(obj),
-            null,
-            2
-        )
+    function formatCode(obj) {
 
-        str = str.replace(
-            /"__BUFFER_START__(.*?)__BUFFER_END__"/g,
-            'Buffer.from("$1", "base64")'
-        )
+        let json =
+            JSON.stringify(
+                cleanPOJO(obj),
+                null,
+                2
+            )
 
-        return str
+        json =
+            json.replace(
+                /"__BUFFER_START__(.*?)__BUFFER_END__"/g,
+                'Buffer.from("$1", "base64")'
+            )
+
+        return json
+    }
+
+    function detectNodes(content) {
+
+        const raw =
+            JSON.stringify(content)
+
+        const nodes = []
+
+        if (
+            raw.includes('"pollCreationOptionImageMessage"')
+        ) {
+            nodes.push({
+                tag: 'meta',
+                attrs: {
+                    message_association_type:
+                        'media_poll'
+                }
+            })
+        }
+
+        if (
+            raw.includes('"pollCreationMessage"') ||
+            raw.includes('"pollCreationMessageV3"') ||
+            raw.includes('"pollCreationMessageV4"') ||
+            raw.includes('"pollCreationMessageV5"')
+        ) {
+
+            const imagePoll =
+                raw.includes('"pollContentType":2') ||
+                raw.includes('"pollContentType": 2')
+
+            nodes.push({
+                tag: 'meta',
+                attrs: {
+                    polltype: 'creation',
+                    ...(imagePoll
+                        ? {
+                            contenttype: 'image'
+                        }
+                        : {})
+                }
+            })
+        }
+
+        if (
+            raw.includes('"botAIMessage"') ||
+            raw.includes('"aiChatMessage"') ||
+            raw.includes('"forwardedAiBotMessageInfo"')
+        ) {
+            nodes.push(
+                {
+                    tag: 'bot',
+                    attrs: {
+                        biz_bot: '1'
+                    }
+                },
+                {
+                    tag: 'biz',
+                    attrs: {}
+                }
+            )
+        }
+
+        if (
+            raw.includes('"interactiveMessage"') ||
+            raw.includes('"buttonsMessage"') ||
+            raw.includes('"nativeFlowMessage"')
+        ) {
+
+            if (raw.includes('"catalog_message"')) {
+
+                nodes.push({
+                    tag: 'biz',
+                    attrs: {
+                        native_flow_name:
+                            'catalog_message'
+                    }
+                })
+
+            } else if (raw.includes('"order_details"')) {
+
+                nodes.push({
+                    tag: 'biz',
+                    attrs: {
+                        native_flow_name:
+                            'order_details'
+                    }
+                })
+
+            } else if (raw.includes('"payment_key_info"')) {
+
+                nodes.push({
+                    tag: 'biz',
+                    attrs: {},
+                    content: [
+                        {
+                            tag: 'interactive',
+                            attrs: {
+                                type: 'native_flow',
+                                v: '1'
+                            },
+                            content: [
+                                {
+                                    tag: 'native_flow',
+                                    attrs: {
+                                        name:
+                                            'payment_key_info'
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                })
+
+            } else {
+
+                nodes.push({
+                    tag: 'biz',
+                    attrs: {},
+                    content: [
+                        {
+                            tag: 'interactive',
+                            attrs: {
+                                type: 'native_flow',
+                                v: '1'
+                            },
+                            content: [
+                                {
+                                    tag: 'native_flow',
+                                    attrs: {
+                                        v: '9',
+                                        name: 'mixed'
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            }
+        }
+
+        return nodes.length
+            ? {
+                additionalNodes: nodes
+            }
+            : {}
     }
 
     if (!m.quoted) {
         return m.reply(
-            'ⓘ Cita el mensaje que deseas destripar.'
+            'ⓘ Responde al mensaje que deseas destripar.'
         )
     }
 
@@ -290,126 +352,233 @@ let handler = async (m, { conn }) => {
     try {
 
         /*
-         * Obtener directamente el mensaje citado.
-         * Ya no se utiliza global.db.open()
+         * ============================================================
+         * OBTENER EL MENSAJE REAL
+         * ============================================================
          */
 
-        const quotedRaw =
-            m.quoted.raw ||
-            m.quoted
-
-        const quotedId =
-            m.quoted.id ||
-            quotedRaw?.key?.id ||
-            'unknown'
-
-        const association =
-            getMessageAssociation(quotedRaw)
-
-        const rootParentId =
-            association?.parentMessageKey?.id ||
-            quotedId
-
-        let rawParentContent =
-            quotedRaw?.message ||
-            m.quoted.message ||
-            {}
-
-        let parentPayload =
-            unwrapMessage(rawParentContent)
+        let rawQuoted =
+            getRawQuoted(m.quoted)
 
         /*
-         * Mantener messageContextInfo para polls
+         * Si el wrapper del bot no entregó el mensaje completo,
+         * intentamos localizarlo mediante el store de Baileys.
          */
 
-        if (parentPayload.pollCreationMessageV3) {
+        if (
+            !rawQuoted?.message &&
+            m.quoted?.id &&
+            conn.store?.loadMessages
+        ) {
 
-            parentPayload = {
-                ...(rawParentContent.messageContextInfo
-                    ? {
-                        messageContextInfo:
-                            rawParentContent.messageContextInfo
+            try {
+
+                const loaded =
+                    await conn.store.loadMessages(
+                        m.chat,
+                        20,
+                        m.quoted.id
+                    )
+
+                if (Array.isArray(loaded)) {
+
+                    const found =
+                        loaded.find(
+                            x =>
+                                x?.key?.id ===
+                                m.quoted.id
+                        )
+
+                    if (found) {
+                        rawQuoted = found
                     }
-                    : {}),
+                }
 
-                pollCreationMessageV3:
-                    parentPayload.pollCreationMessageV3
+            } catch (e) {
+
+                console.log(
+                    '[DUMP] store.loadMessages:',
+                    e.message
+                )
             }
         }
 
         /*
-         * Detectar el tipo principal
+         * ============================================================
+         * DEBUG
+         * ============================================================
          */
 
-        const typeName =
-            Object.keys(parentPayload || {})
-                .find(key =>
-                    ![
-                        'messageContextInfo',
-                        'senderKeyDistributionMessage'
-                    ].includes(key)
-                ) ||
-            m.quoted.type ||
-            'unknown'
+        console.log(
+            '[DUMP] quoted keys:',
+            Object.keys(m.quoted || {})
+        )
 
-        const senderName =
-            m.quoted.sender?.name ||
-            m.quoted.sender?.number ||
-            m.sender ||
-            'Desconocido'
+        console.log(
+            '[DUMP] raw keys:',
+            Object.keys(rawQuoted || {})
+        )
+
+        console.log(
+            '[DUMP] message keys:',
+            Object.keys(
+                rawQuoted?.message || {}
+            )
+        )
 
         /*
-         * Detectar nodos especiales
+         * ============================================================
+         * VALIDAR
+         * ============================================================
+         */
+
+        if (
+            !rawQuoted?.message ||
+            !Object.keys(rawQuoted.message).length
+        ) {
+
+            throw new Error(
+                'Baileys no entregó el contenido raw del mensaje citado. ' +
+                'El wrapper de m.quoted está ocultando el mensaje original.'
+            )
+        }
+
+        /*
+         * ============================================================
+         * NORMALIZAR CON BAILEYS
+         * ============================================================
+         */
+
+        const originalMessage =
+            rawQuoted.message
+
+        let normalized
+
+        try {
+
+            normalized =
+                normalizeMessageContent(
+                    originalMessage
+                )
+
+        } catch {
+
+            normalized =
+                originalMessage
+        }
+
+        /*
+         * ============================================================
+         * EXTRAER CONTENIDO
+         * ============================================================
+         */
+
+        let content =
+            extractMessageContent(
+                normalized
+            ) || normalized
+
+        /*
+         * ============================================================
+         * TIPO
+         * ============================================================
+         */
+
+        const type =
+            getContentType(
+                normalized
+            ) ||
+            Object.keys(content || {})[0] ||
+            'unknown'
+
+        /*
+         * ============================================================
+         * ASSOCIATION
+         * ============================================================
+         */
+
+        const association =
+            getAssociation(
+                rawQuoted
+            )
+
+        const parentId =
+            association?.parentMessageKey?.id ||
+            rawQuoted?.key?.id ||
+            m.quoted.id ||
+            'unknown'
+
+        /*
+         * ============================================================
+         * NODOS
+         * ============================================================
          */
 
         const additionalNodes =
-            detectAdditionalNodes(parentPayload)
+            detectNodes(
+                content
+            )
 
         /*
-         * Convertir paquete a código JS
+         * ============================================================
+         * GENERAR CÓDIGO
+         * ============================================================
          */
 
-        const packetJson =
-            formatJsonCode(parentPayload)
+        const payload =
+            formatCode(
+                content
+            )
 
-        const jsContent =
+        const js =
 `// Aethero Engine - Packet Dump
-// Tipo      : ${typeName}
-// Emisor    : ${senderName}
-// ID        : ${quotedId}
-// Parent ID : ${rootParentId}
+// Tipo      : ${type}
+// Emisor    : ${rawQuoted?.key?.participant || rawQuoted?.key?.remoteJid || m.quoted.sender || 'Desconocido'}
+// ID        : ${rawQuoted?.key?.id || m.quoted.id || 'unknown'}
+// Parent ID : ${parentId}
 // Timestamp : ${new Date().toLocaleString('es-ES', {
     timeZone: 'America/Tegucigalpa'
 })}
 
+// Contenido extraído mediante @whiskeysockets/baileys
+
 await conn.relayMessage(
   m.chat,
-  ${packetJson},
+  ${payload},
   ${JSON.stringify(additionalNodes, null, 2)}
 )
 `
 
-        const fileBuffer =
+        /*
+         * ============================================================
+         * ENVIAR ARCHIVO
+         * ============================================================
+         */
+
+        const file =
             Buffer.from(
-                jsContent,
-                'utf-8'
+                js,
+                'utf8'
             )
 
         const fileName =
-            `dump_${typeName}_${Date.now()}.js`
+            `dump_${type}_${Date.now()}.js`
 
         await conn.sendMessage(
             m.chat,
             {
-                document: fileBuffer,
+                document: file,
+                mimetype:
+                    'application/javascript',
                 fileName,
-                mimetype: 'application/javascript',
 
                 caption:
-                    `- *Tipo:* ${typeName}\n` +
-                    `- *Emisor:* ${senderName}\n` +
-                    `- *ID:* \`${quotedId}\`\n` +
-                    `- *Archivo:* \`${fileName}\``
+                    `╭─〔 DUMP 〕\n` +
+                    `│ Tipo: ${type}\n` +
+                    `│ ID: ${rawQuoted?.key?.id || m.quoted.id}\n` +
+                    `│ Parent: ${parentId}\n` +
+                    `│ Archivo: ${fileName}\n` +
+                    `╰────────────`
             },
             {
                 quoted: m
@@ -421,14 +590,14 @@ await conn.relayMessage(
     } catch (e) {
 
         console.error(
-            'Dump Error:',
+            '[DUMP ERROR]',
             e
         )
 
         await m.react('error')
 
         await m.reply(
-            `ⓘ Error al extraer paquete: ${e.message}`
+            `ⓘ Error al extraer paquete:\n\n${e.message}`
         )
     }
 }
