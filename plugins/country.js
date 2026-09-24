@@ -1,4 +1,5 @@
 import moment from 'moment-timezone';
+import fetch from 'node-fetch'
 let userMessageCount = {};
 let flags = [
   {
@@ -2385,7 +2386,7 @@ export async function before(m, { conn, args, usedPrefix, command }) {
 
     userMessageCount[m.chat].questionMessage = await conn.sendFile(
       m.chat,
-      randomFlag.image,
+      await (await fetch(randomFlag.image)).buffer(),
       "Thumbnail.jpg",
       txt,
       null,
