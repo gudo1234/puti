@@ -1,157 +1,423 @@
-import { downloadContentFromMessage } from '@whiskeysockets/baileys'
+import {
+  downloadContentFromMessage
+} from '@whiskeysockets/baileys'
+
 import { sticker } from '../lib/sticker.js'
 
 let handler = m => m
 
 handler.all = async function (m) {
-  const chat = db.data.chats[m.chat]
-  const user = db.data.users[m.sender]
-
-  if (!chat?.autosticker || !m.isGroup) return true
-
-  let stiker = false
-
   try {
+    const chat = db.data.chats[m.chat]
+
+    if (!chat?.autosticker || !m.isGroup) {
+      return true
+    }
+
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    console.log('🤖 [AUTOSTICKER] MENSAJE DETECTADO')
+    console.log('💬 Chat:', m.chat)
+    console.log('👤 Sender:', m.sender)
+    console.log('📝 Texto:', m.text || '(sin texto)')
+    console.log('📦 Type:', m.mtype || '(desconocido)')
+    console.log('🎞️ MediaType:', m.mediaType || '(desconocido)')
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+
     /*
-     * ==========================================
-     * DESENVOLVER MENSAJES DE BAILEYS
-     * ==========================================
+     * =====================================================
+     * MOSTRAR QUÉ ESTÁ LLEGANDO REALMENTE
+     * =====================================================
      */
 
-    const unwrapMessage = msg => {
-      if (!msg) return null
+    try {
+      console.log(
+        '🔎 [AUTOSTICKER] m.mtype:',
+        m.mtype
+      )
 
-      let current = msg
+      console.log(
+        '🔎 [AUTOSTICKER] m.msg keys:',
+        m.msg
+          ? Object.keys(m.msg)
+          : '(sin m.msg)'
+      )
 
-      while (true) {
-        if (current.ephemeralMessage?.message) {
-          current = current.ephemeralMessage.message
-          continue
-        }
+      console.log(
+        '🔎 [AUTOSTICKER] m.message keys:',
+        m.message
+          ? Object.keys(m.message)
+          : '(sin m.message)'
+      )
 
-        if (current.viewOnceMessage?.message) {
-          current = current.viewOnceMessage.message
-          continue
-        }
+      console.log(
+        '🔎 [AUTOSTICKER] mimetype:',
+        m.msg?.mimetype ||
+        m.mimetype ||
+        '(sin mimetype)'
+      )
 
-        if (current.viewOnceMessageV2?.message) {
-          current = current.viewOnceMessageV2.message
-          continue
-        }
+      console.log(
+        '🔎 [AUTOSTICKER] mediaType:',
+        m.mediaType ||
+        '(sin mediaType)'
+      )
+    } catch (e) {
+      console.log(
+        '⚠️ [AUTOSTICKER] No se pudo inspeccionar m:',
+        e.message
+      )
+    }
 
-        if (current.viewOnceMessageV2Extension?.message) {
-          current = current.viewOnceMessageV2Extension.message
-          continue
-        }
+    /*
+     * =====================================================
+     * SI ES STICKER, NO HACER NADA
+     * =====================================================
+     */
 
-        if (current.documentWithCaptionMessage?.message) {
-          current = current.documentWithCaptionMessage.message
-          continue
-        }
+    const directMime =
+      m.msg?.mimetype ||
+      m.mimetype ||
+      ''
 
-        break
+    if (
+      /webp/i.test(directMime) ||
+      /sticker/i.test(m.mtype || '')
+    ) {
+      console.log(
+        '⏭️ [AUTOSTICKER] Es sticker/WebP. Ignorando.'
+      )
+
+      return true
+    }
+
+    /*
+     * =====================================================
+     * BUSCADOR RECURSIVO DE MEDIA
+     *
+     * Esto permite encontrar:
+     *
+     * imageMessage
+     * videoMessage
+     * documentMessage
+     * ephemeralMessage
+     * viewOnceMessage
+     * viewOnceMessageV2
+     * viewOnceMessageV2Extension
+     * documentWithCaptionMessage
+     * etc.
+     * =====================================================
+     */
+
+    const findMedia = (obj, path = 'root', depth = 0) => {
+      if (!obj || typeof obj !== 'object') {
+        return null
       }
 
-      return current
+      if (depth > 15) {
+        return null
+      }
+
+      /*
+       * IMAGEN
+       */
+
+      if (obj.imageMessage) {
+        console.log(
+          '🖼️ [AUTOSTICKER] imageMessage encontrado:',
+          path + '.imageMessage'
+        )
+
+        return {
+          type: 'image',
+          message: obj.imageMessage,
+          path: path + '.imageMessage'
+        }
+      }
+
+      /*
+       * VIDEO
+       */
+
+      if (obj.videoMessage) {
+        console.log(
+          '🎥 [AUTOSTICKER] videoMessage encontrado:',
+          path + '.videoMessage'
+        )
+
+        return {
+          type: 'video',
+          message: obj.videoMessage,
+          path: path + '.videoMessage'
+        }
+      }
+
+      /*
+       * DOCUMENTO
+       */
+
+      if (obj.documentMessage) {
+        const mime =
+          obj.documentMessage.mimetype || ''
+
+        console.log(
+          '📄 [AUTOSTICKER] documentMessage encontrado:',
+          path + '.documentMessage',
+          '| MIME:',
+          mime
+        )
+
+        if (/^image\//i.test(mime)) {
+          return {
+            type: 'image',
+            message: obj.documentMessage,
+            path: path + '.documentMessage'
+          }
+        }
+
+        if (/^video\//i.test(mime)) {
+          return {
+            type: 'video',
+            message: obj.documentMessage,
+            path: path + '.documentMessage'
+          }
+        }
+      }
+
+      /*
+       * RECORRER TODO EL OBJETO
+       */
+
+      for (const key of Object.keys(obj)) {
+        if (
+          key === 'contextInfo' ||
+          key === 'messageContextInfo' ||
+          key === 'senderKeyDistributionMessage'
+        ) {
+          continue
+        }
+
+        const value = obj[key]
+
+        if (
+          value &&
+          typeof value === 'object'
+        ) {
+          const result = findMedia(
+            value,
+            `${path}.${key}`,
+            depth + 1
+          )
+
+          if (result) {
+            return result
+          }
+        }
+      }
+
+      return null
     }
 
     /*
-     * ==========================================
-     * BUSCAR EL MENSAJE REAL
-     * ==========================================
+     * =====================================================
+     * CONSTRUIR TODAS LAS POSIBLES FUENTES
+     * =====================================================
      */
 
-    let rawMessage =
-      m.message ||
-      m.msg ||
-      m
+    const sources = []
 
-    /*
-     * Si es respuesta a otro mensaje, primero
-     * intentamos trabajar con el mensaje citado.
-     */
+    if (m.message) {
+      sources.push({
+        name: 'm.message',
+        value: m.message
+      })
+    }
+
+    if (m.msg) {
+      sources.push({
+        name: 'm.msg',
+        value: m.msg
+      })
+    }
+
+    if (m) {
+      sources.push({
+        name: 'm',
+        value: m
+      })
+    }
+
     if (m.quoted) {
-      rawMessage =
-        m.quoted.message ||
-        m.quoted.msg ||
-        m.quoted
-    }
+      if (m.quoted.message) {
+        sources.push({
+          name: 'm.quoted.message',
+          value: m.quoted.message
+        })
+      }
 
-    const message = unwrapMessage(rawMessage)
+      if (m.quoted.msg) {
+        sources.push({
+          name: 'm.quoted.msg',
+          value: m.quoted.msg
+        })
+      }
 
-    if (!message) return true
-
-    /*
-     * ==========================================
-     * DETECTAR TIPO DE MEDIA
-     * ==========================================
-     */
-
-    let mediaMessage = null
-    let mediaType = ''
-
-    if (message.imageMessage) {
-      mediaMessage = message.imageMessage
-      mediaType = 'image'
-    }
-
-    else if (message.videoMessage) {
-      mediaMessage = message.videoMessage
-      mediaType = 'video'
+      sources.push({
+        name: 'm.quoted',
+        value: m.quoted
+      })
     }
 
     /*
-     * Documentos enviados como imagen/video.
+     * =====================================================
+     * BUSCAR MEDIA
+     * =====================================================
      */
-    else if (message.documentMessage) {
-      const doc = message.documentMessage
 
-      const mime = doc.mimetype || ''
+    let media = null
+
+    for (const source of sources) {
+      console.log(
+        '🔍 [AUTOSTICKER] Buscando multimedia en:',
+        source.name
+      )
+
+      const found = findMedia(
+        source.value,
+        source.name
+      )
+
+      if (found) {
+        media = found
+        break
+      }
+    }
+
+    /*
+     * =====================================================
+     * FALLBACK POR MIME
+     * =====================================================
+     */
+
+    if (!media) {
+      const mime =
+        m.msg?.mimetype ||
+        m.mimetype ||
+        m.quoted?.msg?.mimetype ||
+        m.quoted?.mimetype ||
+        ''
+
+      if (mime) {
+        console.log(
+          '🧩 [AUTOSTICKER] MIME encontrado por fallback:',
+          mime
+        )
+      }
 
       if (/^image\//i.test(mime)) {
-        mediaMessage = doc
-        mediaType = 'image'
+        media = {
+          type: 'image',
+          message: m.msg || m.quoted?.msg,
+          path: 'fallback'
+        }
       }
 
       else if (/^video\//i.test(mime)) {
-        mediaMessage = doc
-        mediaType = 'video'
+        media = {
+          type: 'video',
+          message: m.msg || m.quoted?.msg,
+          path: 'fallback'
+        }
       }
     }
 
     /*
-     * ==========================================
-     * SI NO ENCONTRÓ MEDIA, USAR EL MIME DEL
-     * MENSAJE NORMALIZADO DEL BOT
-     * ==========================================
+     * =====================================================
+     * SI ENCONTRAMOS MEDIA
+     * =====================================================
      */
 
-    if (!mediaMessage) {
-      const q = m.quoted || m
+    let stiker = false
 
-      const mime =
-        q?.msg?.mimetype ||
-        q?.mimetype ||
-        q?.mediaType ||
-        ''
+    if (media) {
+      console.log('\n✅ [AUTOSTICKER] MULTIMEDIA DETECTADA')
+      console.log('📌 Tipo:', media.type)
+      console.log('📌 Ruta:', media.path)
 
-      if (/webp/i.test(mime)) {
-        return true
+      /*
+       * =================================================
+       * MÉTODO 1
+       * download() DEL WRAPPER DE TU BOT
+       * =================================================
+       */
+
+      const q =
+        m.quoted ||
+        m
+
+      try {
+        if (typeof q.download === 'function') {
+          console.log(
+            '⬇️ [AUTOSTICKER] Intentando q.download()...'
+          )
+
+          const buffer = await q.download()
+
+          if (buffer?.length) {
+            console.log(
+              '✅ [AUTOSTICKER] q.download() OK:',
+              buffer.length,
+              'bytes'
+            )
+
+            stiker = await sticker(
+              buffer,
+              false,
+              `${m.pushName || ''}`
+            )
+          }
+        }
+      } catch (e) {
+        console.log(
+          '⚠️ [AUTOSTICKER] q.download() falló:',
+          e.message
+        )
       }
 
-      if (/image/i.test(mime)) {
-        mediaType = 'image'
-      }
+      /*
+       * =================================================
+       * MÉTODO 2
+       * BAILEYS downloadContentFromMessage
+       * =================================================
+       */
 
-      else if (/video/i.test(mime)) {
-        mediaType = 'video'
-      }
-
-      if (mediaType) {
+      if (!stiker) {
         try {
-          const buffer = await q.download?.()
+          console.log(
+            '⬇️ [AUTOSTICKER] Intentando Baileys downloadContentFromMessage()...'
+          )
 
-          if (buffer) {
+          const stream =
+            await downloadContentFromMessage(
+              media.message,
+              media.type
+            )
+
+          const chunks = []
+
+          for await (const chunk of stream) {
+            chunks.push(chunk)
+          }
+
+          const buffer =
+            Buffer.concat(chunks)
+
+          console.log(
+            '📦 [AUTOSTICKER] Baileys descargó:',
+            buffer.length,
+            'bytes'
+          )
+
+          if (buffer.length) {
             stiker = await sticker(
               buffer,
               false,
@@ -159,59 +425,69 @@ handler.all = async function (m) {
             )
           }
         } catch (e) {
-          console.error('[AUTOSTICKER]', e)
-        }
-      }
-    }
-
-    /*
-     * ==========================================
-     * DESCARGA DIRECTA CON BAILEYS
-     * ==========================================
-     *
-     * Esto sirve cuando m.download() no consigue
-     * resolver correctamente mensajes envueltos.
-     */
-
-    if (!stiker && mediaMessage && mediaType) {
-      try {
-        const stream = await downloadContentFromMessage(
-          mediaMessage,
-          mediaType
-        )
-
-        const chunks = []
-
-        for await (const chunk of stream) {
-          chunks.push(chunk)
-        }
-
-        const buffer = Buffer.concat(chunks)
-
-        if (buffer.length) {
-          stiker = await sticker(
-            buffer,
-            false,
-            `${m.pushName || ''}`
+          console.log(
+            '❌ [AUTOSTICKER] Baileys download falló:',
+            e.message
           )
         }
-      } catch (e) {
-        console.error('[AUTOSTICKER BAILEYS]', e)
+      }
+
+      /*
+       * =================================================
+       * RESULTADO DE CONVERSIÓN
+       * =================================================
+       */
+
+      if (stiker) {
+        console.log(
+          '🎉 [AUTOSTICKER] STICKER GENERADO CORRECTAMENTE'
+        )
+
+        try {
+          await conn.sendMessage(
+            m.chat,
+            {
+              sticker: stiker
+            },
+            {
+              quoted: null
+            }
+          )
+
+          console.log(
+            '📤 [AUTOSTICKER] Sticker enviado.'
+          )
+        } catch (e) {
+          console.log(
+            '❌ [AUTOSTICKER] Error enviando sticker:',
+            e.message
+          )
+        }
+      } else {
+        console.log(
+          '❌ [AUTOSTICKER] Se detectó la multimedia pero no se pudo generar el sticker.'
+        )
       }
     }
 
     /*
-     * ==========================================
+     * =====================================================
      * URL DIRECTA
-     * ==========================================
+     * =====================================================
      */
 
     if (!stiker && m.text) {
-      const url = m.text
-        .trim()
-        .split(/\s+/)[0]
+      const url =
+        m.text
+          .trim()
+          .split(/\s+/)[0]
 
       if (isUrl(url)) {
+        console.log(
+          '🌐 [AUTOSTICKER] URL multimedia detectada:',
+          url
+        )
+
         try {
           stiker = await sticker(
             false,
@@ -219,32 +495,63 @@ handler.all = async function (m) {
             packname,
             author
           )
+
+          if (stiker) {
+            await conn.sendMessage(
+              m.chat,
+              {
+                sticker: stiker
+              },
+              {
+                quoted: null
+              }
+            )
+
+            console.log(
+              '📤 [AUTOSTICKER] Sticker de URL enviado.'
+            )
+          }
         } catch (e) {
-          console.error('[AUTOSTICKER URL]', e)
+          console.log(
+            '❌ [AUTOSTICKER] Error procesando URL:',
+            e.message
+          )
         }
       }
     }
 
     /*
-     * ==========================================
-     * ENVIAR STICKER
-     * ==========================================
+     * =====================================================
+     * NO ENCONTRÓ NADA
+     * =====================================================
      */
 
-    if (stiker) {
-      await conn.sendMessage(
-        m.chat,
-        {
-          sticker: stiker
-        },
-        {
-          quoted: null
-        }
+    if (!media && !isUrl(m.text || '')) {
+      console.log(
+        'ℹ️ [AUTOSTICKER] No se encontró imagen/video en este mensaje.'
+      )
+
+      console.log(
+        'ℹ️ [AUTOSTICKER] mtype:',
+        m.mtype
+      )
+
+      console.log(
+        'ℹ️ [AUTOSTICKER] mediaType:',
+        m.mediaType
+      )
+
+      console.log(
+        'ℹ️ [AUTOSTICKER] MIME:',
+        directMime || '(vacío)'
       )
     }
 
   } catch (e) {
-    console.error('[AUTOSTICKER]', e)
+    console.error(
+      '💥 [AUTOSTICKER] ERROR GENERAL:',
+      e
+    )
   }
 
   return true
@@ -252,14 +559,8 @@ handler.all = async function (m) {
 
 export default handler
 
-/*
- * ==========================================
- * DETECTOR DE URL
- * ==========================================
- */
-
 const isUrl = text => {
   if (!text) return false
 
-  return /^https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b[-a-zA-Z0-9()@:%_+.~#?&/=]*(?:jpe?g|png|gif|webp|mp4)(?:\?.*)?$/i.test(text)
+  return /^https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b[-a-zA-Z0-9()@:%_+.~#?&/=]*(?:jpe?g|png|gif|webp|mp4|mov|webm)(?:\?.*)?$/i.test(text)
 }
