@@ -266,13 +266,20 @@ export async function handler(chatUpdate) {
   if (!chatUpdate.messages?.length) {
     return
   }
+  const messages = chatUpdate.messages.filter(Boolean)
+  if (!messages.length) return
 
-  this.pushMessage(chatUpdate.messages)
-    .catch(console.error)
+  for (const message of messages) {
+    try {
+      await processMessage.call(this, message, chatUpdate)
+    } catch (error) {
+      console.error('[HANDLER] Error procesando mensaje:', error?.stack || error)
+    }
+  }
+}
 
-  let m = chatUpdate.messages.at(-1)
-
-  if (!m) return
+async function processMessage(m, chatUpdate) {
+  this.pushMessage([m]).catch(console.error)
 
   if (!global.db.data) {
     await global.loadDatabase()
@@ -281,8 +288,14 @@ export async function handler(chatUpdate) {
   m = smsg(this, m) || m
 
   if (!m) return
-
-  await print(m, this)
+  try {
+    await Promise.race([
+      print(m, this),
+      new Promise(resolve => setTimeout(resolve, 5000))
+    ])
+  } catch (error) {
+    console.error('[PRINT] Error:', error?.message || error)
+  }
 
   m.exp = 0
   m.limit = false
