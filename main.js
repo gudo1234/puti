@@ -180,14 +180,25 @@ let conn = null
 let handler = null
 let isInit = false
 let restarting = false
+let connectionGeneration = 0
+let lastSocketActivity = Date.now()
+let lastMessageActivity = Date.now()
+let watchdogTimer = null
 
 async function createConnection() {
-  if (conn) {
-    try { conn.ev.removeAllListeners() } catch {}
-    try { conn.ws?.close() } catch {}
+  const previous = conn
+
+  if (previous) {
+    try { previous.ev.removeAllListeners() } catch {}
+    try { previous.ws?.close() } catch {}
+    try { previous.end?.(new Error('Reiniciando conexión')) } catch {}
   }
 
+  const generation = ++connectionGeneration
   conn = global.conn = makeWASocket(connectionOptions)
+  conn.__generation = generation
+  conn.__createdAt = Date.now()
+  lastSocketActivity = Date.now()
   conn.isInit = false
   conn.well = false
 
@@ -200,10 +211,6 @@ async function createConnection() {
     if (!conn.requestPairingCode) {
       throw new Error('Esta versión de Baileys no soporta código de vinculación.')
     }
-
-    // Baileys necesita unos instantes para abrir el WebSocket antes de
-    // solicitar el código de vinculación. Pedirlo inmediatamente puede
-    // producir: "Error: Connection Closed".
     await new Promise(resolve => setTimeout(resolve, 3000))
 
     let code
@@ -224,19 +231,27 @@ async function createConnection() {
 async function connectionUpdate(update) {
   const { connection, lastDisconnect, isNewLogin } = update || {}
 
+  lastSocketActivity = Date.now()
+  if (this !== conn || this?.__generation !== connectionGeneration) return
+
   if (isNewLogin) conn.isInit = true
 
   if (connection === 'open') {
     global.botStartTime = Math.floor(Date.now() / 1000)
+    lastSocketActivity = Date.now()
+    lastMessageActivity = Date.now()
+    conn.isInit = true
     console.log(chalk.green('✅ Conectado correctamente.'))
+    console.log(chalk.gray(`📡 WebSocket activo · generación ${connectionGeneration}`))
     return
   }
 
-  if (connection !== 'close' || restarting) return
+  if (connection !== 'close') return
 
   const code =
     lastDisconnect?.error?.output?.statusCode ??
-    lastDisconnect?.error?.output?.payload?.statusCode
+    lastDisconnect?.error?.output?.payload?.statusCode ??
+    lastDisconnect?.error?.statusCode
 
   if (code === DisconnectReason?.loggedOut) {
     console.error(chalk.red('❌ Sesión cerrada. Borra la carpeta sessions y vuelve a vincularla si quieres cambiar de cuenta.'))
@@ -244,7 +259,6 @@ async function connectionUpdate(update) {
   }
 
   console.warn(chalk.yellow(`⚠️ Conexión cerrada${code ? ` (código ${code})` : ''}. Reconectando...`))
-
   await restartConnection()
 }
 
@@ -256,8 +270,10 @@ async function restartConnection() {
     await new Promise(resolve => setTimeout(resolve, 2000))
     await createConnection()
     await attachHandlers()
+    lastSocketActivity = Date.now()
+    lastMessageActivity = Date.now()
   } catch (error) {
-    console.error('[RESTART]', error)
+    console.error('[RESTART]', error?.stack || error)
     setTimeout(() => restartConnection().catch(console.error), 5000)
   } finally {
     restarting = false
@@ -266,14 +282,53 @@ async function restartConnection() {
 
 async function attachHandlers() {
   if (!handler) handler = await import('./handler.js')
+  try {
+    if (conn.__handlersAttached) return
+  } catch {}
 
-  conn.handler = handler.handler.bind(conn)
-  conn.connectionUpdate = connectionUpdate.bind(conn)
-  conn.credsUpdate = saveCreds
+  const currentConn = conn
+  const currentGeneration = connectionGeneration
 
-  conn.ev.on('messages.upsert', conn.handler)
-  conn.ev.on('connection.update', conn.connectionUpdate)
-  conn.ev.on('creds.update', conn.credsUpdate)
+  currentConn.handler = async update => {
+    if (
+      currentConn !== conn ||
+      currentGeneration !== connectionGeneration
+    ) return
+
+    lastMessageActivity = Date.now()
+    lastSocketActivity = Date.now()
+
+    try {
+      await handler.handler.call(currentConn, update)
+    } catch (error) {
+      console.error(
+        chalk.red('❌ Error procesando messages.upsert:'),
+        error?.stack || error
+      )
+    }
+  }
+
+  currentConn.connectionUpdate = connectionUpdate.bind(currentConn)
+  currentConn.credsUpdate = saveCreds
+
+  currentConn.ev.on('messages.upsert', currentConn.handler)
+  currentConn.ev.on('connection.update', currentConn.connectionUpdate)
+  currentConn.ev.on('creds.update', currentConn.credsUpdate)
+  currentConn.ev.on('groups.update', updates => {
+    try {
+      for (const update of Array.isArray(updates) ? updates : []) {
+        if (update?.id) global.groupMetadataCache?.del(update.id)
+      }
+    } catch {}
+  })
+
+  currentConn.ev.on('group-participants.update', update => {
+    try {
+      if (update?.id) global.groupMetadataCache?.del(update.id)
+    } catch {}
+  })
+
+  currentConn.__handlersAttached = true
   isInit = true
 }
 
@@ -295,11 +350,41 @@ global.reloadHandler = async function (restart = false) {
     conn.ev.off('messages.upsert', conn.handler)
     conn.ev.off('connection.update', conn.connectionUpdate)
     conn.ev.off('creds.update', conn.credsUpdate)
+    try { conn.ev.removeAllListeners('groups.update') } catch {}
+    try { conn.ev.removeAllListeners('group-participants.update') } catch {}
+    conn.__handlersAttached = false
     await attachHandlers()
   }
 
   return true
 }
+watchdogTimer = setInterval(() => {
+  if (restarting || !conn) return
+
+  const ws = conn.ws
+  const readyState = ws?.readyState
+  if (ws && typeof readyState === 'number' && readyState !== 1) {
+    console.warn(chalk.yellow(`⚠️ Watchdog: WebSocket no está abierto (estado ${readyState}). Reiniciando...`))
+    restartConnection().catch(error =>
+      console.error('[WATCHDOG]', error?.stack || error)
+    )
+    return
+  }
+  if (
+    ws &&
+    typeof ws.readyState === 'number' &&
+    readyState === 1 &&
+    Date.now() - lastSocketActivity > 10 * 60 * 1000
+  ) {
+    console.log(chalk.gray('🩺 Watchdog: conexión abierta sin eventos durante 10 min; verificando actividad.'))
+    lastSocketActivity = Date.now()
+    try {
+      if (typeof conn.sendPresenceUpdate === 'function') {
+        conn.sendPresenceUpdate('available').catch(() => {})
+      }
+    } catch {}
+  }
+}, 60 * 1000)
 
 const pluginFolder = join(__dirname, './plugins')
 const pluginFilter = filename => /\.js$/.test(filename)
