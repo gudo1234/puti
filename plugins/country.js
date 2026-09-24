@@ -2531,7 +2531,7 @@ export async function before(m, { conn }) {
    * Cada 103 mensajes se genera una nueva pregunta.
    * Para probarlo puedes cambiar 103 por 1.
    */
-  if (userMessageCount[m.chat].count % 103 === 0) {
+  if (userMessageCount[m.chat].count % 5 === 0) {
     const randomFlag =
       flags[Math.floor(Math.random() * flags.length)]
 
