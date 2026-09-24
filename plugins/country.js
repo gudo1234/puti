@@ -1,3 +1,4 @@
+import axios from 'axios'
 import moment from 'moment-timezone';
 let userMessageCount = {};
 let flags = [
@@ -2356,154 +2357,162 @@ let flags = [
 ];
 
 async function getImageBuffer(url) {
-  const response = await fetch(url, {
-    redirect: 'follow',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
+  console.log(`🌐 Descargando bandera: ${url}`)
+
+  const headers = {
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36',
+    'Accept':
+      'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+  }
+
+  const response = await axios.get(url, {
+    responseType: 'arraybuffer',
+    headers,
+    maxRedirects: 10,
+    validateStatus: () => true
+  })
+
+  const contentType = response.headers['content-type'] || ''
+
+  console.log(`📦 Respuesta: ${response.status} | ${contentType}`)
+
+  // Si el enlace ya devuelve una imagen
+  if (contentType.startsWith('image/')) {
+    console.log(`✅ Imagen obtenida directamente`)
+    return Buffer.from(response.data)
+  }
+
+  // Si qu.ax devuelve una página HTML
+  if (contentType.includes('text/html')) {
+    const html = Buffer.from(response.data).toString('utf8')
+
+    console.log(`🌐 qu.ax devolvió HTML, buscando imagen...`)
+
+    let imageUrl = null
+    let match = null
+
+    // Buscar og:image
+    match =
+      html.match(
+        /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
+      ) ||
+      html.match(
+        /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
+      )
+
+    if (match?.[1]) {
+      imageUrl = match[1]
+      console.log(`🖼️ og:image encontrado: ${imageUrl}`)
     }
-  });
 
-  if (!response.ok) {
-    throw new Error(`Error HTTP: ${response.status}`);
-  }
+    // Buscar twitter:image
+    if (!imageUrl) {
+      match =
+        html.match(
+          /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i
+        ) ||
+        html.match(
+          /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i
+        )
 
-  const contentType = response.headers.get('content-type') || '';
-
-  // Si la URL ya devuelve una imagen
-  if (contentType.toLowerCase().startsWith('image/')) {
-    return Buffer.from(await response.arrayBuffer());
-  }
-
-  // qu.ax devuelve una página HTML
-  const html = await response.text();
-
-  console.log('🌐 qu.ax respondió HTML, buscando enlace de descarga...');
-
-  let downloadUrl = null;
-
-  /*
-   * qu.ax muestra un enlace "Download".
-   * Buscamos primero cualquier href que contenga
-   * download/download.php/file/etc.
-   */
-  const links = [
-    ...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)
-  ];
-
-  for (const match of links) {
-    const href = match[1];
-    const text = match[2]
-      .replace(/<[^>]+>/g, '')
-      .trim()
-      .toLowerCase();
-
-    if (
-      text.includes('download') ||
-      text.includes('descargar') ||
-      /download/i.test(href)
-    ) {
-      downloadUrl = href;
-      break;
-    }
-  }
-
-  /*
-   * Buscar imágenes declaradas en og:image
-   */
-  if (!downloadUrl) {
-    const ogImage =
-      html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
-      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
-
-    if (ogImage?.[1]) {
-      downloadUrl = ogImage[1];
-    }
-  }
-
-  /*
-   * Buscar cualquier enlace a un archivo de imagen.
-   */
-  if (!downloadUrl) {
-    for (const match of links) {
-      const href = match[1];
-
-      if (
-        /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(href)
-      ) {
-        downloadUrl = href;
-        break;
+      if (match?.[1]) {
+        imageUrl = match[1]
+        console.log(`🖼️ twitter:image encontrado: ${imageUrl}`)
       }
     }
-  }
 
-  /*
-   * Último intento: buscar URLs de imagen
-   * directamente dentro del HTML.
-   */
-  if (!downloadUrl) {
-    const imageMatch = html.match(
-      /https?:\/\/[^"'<> ]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^"'<> ]*)?/i
-    );
+    // Buscar enlaces de descarga o imágenes
+    if (!imageUrl) {
+      const links = [
+        ...html.matchAll(
+          /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi
+        )
+      ]
 
-    if (imageMatch?.[0]) {
-      downloadUrl = imageMatch[0];
+      for (const [, href, text] of links) {
+        const cleanText = text
+          .replace(/<[^>]+>/g, '')
+          .trim()
+          .toLowerCase()
+
+        if (
+          cleanText.includes('download') ||
+          cleanText.includes('descargar') ||
+          /download/i.test(href) ||
+          /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(href)
+        ) {
+          imageUrl = href
+
+          console.log(`🔗 Enlace encontrado: ${imageUrl}`)
+
+          break
+        }
+      }
     }
-  }
 
-  if (!downloadUrl) {
-    console.error('❌ No se encontró el enlace de descarga de qu.ax');
-    console.error(html.slice(0, 5000));
+    // Buscar cualquier URL de imagen dentro del HTML
+    if (!imageUrl) {
+      match = html.match(
+        /https?:\/\/[^"'<>\\ ]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^"'<>\\ ]*)?/i
+      )
 
-    throw new Error('No se encontró el enlace real de descarga en qu.ax');
-  }
+      if (match?.[0]) {
+        imageUrl = match[0]
 
-  // Convertir enlace relativo en absoluto
-  downloadUrl = new URL(downloadUrl, response.url).href;
-
-  console.log(`🔗 Enlace encontrado: ${downloadUrl}`);
-
-  const imageResponse = await fetch(downloadUrl, {
-    redirect: 'follow',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36',
-      'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+        console.log(`🔎 URL de imagen encontrada: ${imageUrl}`)
+      }
     }
-  });
 
-  if (!imageResponse.ok) {
-    throw new Error(
-      `Error descargando archivo: ${imageResponse.status}`
-    );
+    if (!imageUrl) {
+      throw new Error(
+        'No se encontró ninguna imagen dentro de la página de qu.ax'
+      )
+    }
+
+    // Convertir enlaces relativos en enlaces completos
+    imageUrl = new URL(
+      imageUrl,
+      response.request?.res?.responseUrl || url
+    ).href
+
+    console.log(`⬇️ Descargando imagen real: ${imageUrl}`)
+
+    const imageResponse = await axios.get(imageUrl, {
+      responseType: 'arraybuffer',
+      headers,
+      maxRedirects: 10,
+      validateStatus: () => true
+    })
+
+    const imageType =
+      imageResponse.headers['content-type'] || ''
+
+    console.log(
+      `📦 Imagen recibida: ${imageResponse.status} | ${imageType}`
+    )
+
+    if (!imageType.startsWith('image/')) {
+      throw new Error(
+        `El enlace encontrado tampoco es una imagen: ${imageType}`
+      )
+    }
+
+    const buffer = Buffer.from(imageResponse.data)
+
+    console.log(`✅ Imagen descargada correctamente: ${buffer.length} bytes`)
+
+    return buffer
   }
 
-  const imageType =
-    imageResponse.headers.get('content-type') || '';
-
-  console.log(`📦 Tipo recibido: ${imageType}`);
-
-  if (!imageType.toLowerCase().startsWith('image/')) {
-    throw new Error(
-      `El enlace de descarga no devolvió una imagen: ${imageType}`
-    );
-  }
-
-  const buffer = Buffer.from(
-    await imageResponse.arrayBuffer()
-  );
-
-  if (!buffer.length) {
-    throw new Error('La imagen descargada está vacía');
-  }
-
-  return buffer;
+  throw new Error(`Contenido no compatible: ${contentType}`)
 }
 
-export async function before(m, { conn, args, usedPrefix, command }) {
-  let chat = db.data.chats[m.chat];
+export async function before(m, { conn }) {
+  let chat = db.data.chats[m.chat]
 
-  if (!chat.autoband || !m.isGroup) return !0;
-  if (!m.message) return !0;
+  if (!chat.autoband || !m.isGroup) return !0
+  if (!m.message) return !0
 
   if (!userMessageCount[m.chat]) {
     userMessageCount[m.chat] = {
@@ -2513,39 +2522,30 @@ export async function before(m, { conn, args, usedPrefix, command }) {
       currentFlag3: null,
       questionMessage: null,
       timestamp: null
-    };
+    }
   }
 
-  userMessageCount[m.chat].count += 1;
+  userMessageCount[m.chat].count += 1
 
-  if (userMessageCount[m.chat].count % 5 === 0) {
+  /*
+   * Cada 103 mensajes se genera una nueva pregunta.
+   * Para probarlo puedes cambiar 103 por 1.
+   */
+  if (userMessageCount[m.chat].count % 103 === 0) {
     const randomFlag =
-      flags[Math.floor(Math.random() * flags.length)];
+      flags[Math.floor(Math.random() * flags.length)]
 
-    userMessageCount[m.chat].currentFlag =
-      randomFlag.name;
-
-    userMessageCount[m.chat].currentFlag2 =
-      randomFlag.emoji;
-
+    userMessageCount[m.chat].currentFlag = randomFlag.name
+    userMessageCount[m.chat].currentFlag2 = randomFlag.emoji
     userMessageCount[m.chat].currentFlag3 =
-      randomFlag.dialCodes || "DESCONOCIDO";
+      randomFlag.dialCodes || "DESCONOCIDO"
 
-    let txt =
-      `💣 *¿A qué país pertenece la bandera que se muestra? ${userMessageCount[m.chat].currentFlag2}*\n` +
-      `_🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo de *3 minutos*._`;
+    const txt = `💣 *¿A qué país pertenece la bandera que se muestra? ${userMessageCount[m.chat].currentFlag2}*
+
+_🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo de *3 minutos*._`
 
     try {
-      console.log(
-        `🌐 Descargando bandera: ${randomFlag.image}`
-      );
-
-      const buffer =
-        await getImageBuffer(randomFlag.image);
-
-      console.log(
-        `✅ Bandera obtenida correctamente: ${buffer.length} bytes`
-      );
+      const buffer = await getImageBuffer(randomFlag.image)
 
       userMessageCount[m.chat].questionMessage =
         await conn.sendMessage(
@@ -2557,152 +2557,158 @@ export async function before(m, { conn, args, usedPrefix, command }) {
           {
             quoted: m
           }
-        );
+        )
 
-      userMessageCount[m.chat].timestamp =
-        Date.now();
+      userMessageCount[m.chat].timestamp = Date.now()
 
-      console.log(
-        `✅ Bandera enviada en: ${m.chat}`
-      );
+      console.log(`✅ Bandera enviada correctamente en: ${m.chat}`)
 
     } catch (error) {
       console.error(
-        "❌ Error al descargar/enviar la bandera:",
+        '❌ Error al descargar/enviar la bandera:',
         error
-      );
+      )
 
-      userMessageCount[m.chat].currentFlag = null;
-      userMessageCount[m.chat].currentFlag2 = null;
-      userMessageCount[m.chat].currentFlag3 = null;
-      userMessageCount[m.chat].questionMessage = null;
-      userMessageCount[m.chat].timestamp = null;
+      userMessageCount[m.chat].currentFlag = null
+      userMessageCount[m.chat].currentFlag2 = null
+      userMessageCount[m.chat].currentFlag3 = null
+      userMessageCount[m.chat].questionMessage = null
+      userMessageCount[m.chat].timestamp = null
 
-      return !0;
+      return !0
     }
 
+    // Eliminar la pregunta después de 3 minutos
     setTimeout(async () => {
       try {
-        if (
-          userMessageCount[m.chat]?.questionMessage
-        ) {
+        if (userMessageCount[m.chat]?.questionMessage) {
           const messageId =
-            userMessageCount[m.chat]
-              .questionMessage.key?.id ||
-            userMessageCount[m.chat]
-              .questionMessage.id;
+            userMessageCount[m.chat].questionMessage?.key?.id ||
+            userMessageCount[m.chat].questionMessage?.id
 
           if (messageId) {
-            await conn.sendMessage(
-              m.chat,
-              {
-                delete: {
-                  remoteJid: m.chat,
-                  id: messageId,
-                  fromMe: true
-                }
+            await conn.sendMessage(m.chat, {
+              delete: {
+                remoteJid: m.chat,
+                id: messageId,
+                fromMe: true
               }
-            );
+            })
+
+            console.log(`🗑️ Pregunta eliminada: ${messageId}`)
           }
         }
       } catch (error) {
         console.error(
-          "Error al eliminar el mensaje:",
+          '❌ Error al eliminar el mensaje:',
           error
-        );
+        )
       }
 
       if (userMessageCount[m.chat]) {
-        userMessageCount[m.chat].currentFlag = null;
-        userMessageCount[m.chat].currentFlag2 = null;
-        userMessageCount[m.chat].currentFlag3 = null;
-        userMessageCount[m.chat].questionMessage = null;
-        userMessageCount[m.chat].timestamp = null;
+        userMessageCount[m.chat].currentFlag = null
+        userMessageCount[m.chat].currentFlag2 = null
+        userMessageCount[m.chat].currentFlag3 = null
+        userMessageCount[m.chat].questionMessage = null
+        userMessageCount[m.chat].timestamp = null
       }
-    }, 180000);
+    }, 180000)
   }
 
-  if (!userMessageCount[m.chat].timestamp)
-    return !0;
+  if (!userMessageCount[m.chat].timestamp) return !0
 
   const timeElapsed =
-    Date.now() -
-    userMessageCount[m.chat].timestamp;
+    Date.now() - userMessageCount[m.chat].timestamp
 
   if (timeElapsed > 180000) {
-    return;
+    return !0
   }
 
   const questionId =
-    userMessageCount[m.chat]
-      .questionMessage?.key?.id ||
-    userMessageCount[m.chat]
-      .questionMessage?.id;
+    userMessageCount[m.chat].questionMessage?.key?.id ||
+    userMessageCount[m.chat].questionMessage?.id
 
+  /*
+   * Respuesta correcta
+   */
   if (
     m.quoted &&
     questionId &&
     m.quoted.id === questionId &&
-    m.text?.toLowerCase() ===
-      userMessageCount[m.chat]
-        .currentFlag?.toLowerCase()
+    m.text?.trim().toLowerCase() ===
+      userMessageCount[m.chat].currentFlag?.toLowerCase()
   ) {
-    m.react('🎉');
+    await m.react('🎉')
 
     await conn.reply(
       m.chat,
-      `*¡Correcto, ${m.pushName}!* 🎉 La bandera es de *${userMessageCount[m.chat].currentFlag}* ${userMessageCount[m.chat].currentFlag2} y su código es: *${userMessageCount[m.chat].currentFlag3}*.\n\n🏆 *¡Has completado correctamente el desafío!*`,
+      `*¡Correcto, ${m.pushName}!* 🎉
+
+La bandera es de *${userMessageCount[m.chat].currentFlag}* ${userMessageCount[m.chat].currentFlag2} y su código es: *${userMessageCount[m.chat].currentFlag3}*.
+
+🏆 *¡Has completado correctamente el desafío!*`,
       m
-    );
+    )
 
     try {
       if (questionId) {
-        await conn.sendMessage(
-          m.chat,
-          {
-            delete: {
-              remoteJid: m.chat,
-              id: questionId,
-              fromMe: true
-            }
+        await conn.sendMessage(m.chat, {
+          delete: {
+            remoteJid: m.chat,
+            id: questionId,
+            fromMe: true
           }
-        );
+        })
       }
     } catch (error) {
       console.error(
-        "Error al eliminar el mensaje:",
+        '❌ Error al eliminar la pregunta:',
         error
-      );
+      )
     }
 
-    userMessageCount[m.chat].currentFlag = null;
-    userMessageCount[m.chat].currentFlag2 = null;
-    userMessageCount[m.chat].currentFlag3 = null;
-    userMessageCount[m.chat].questionMessage = null;
-    userMessageCount[m.chat].timestamp = null;
+    userMessageCount[m.chat].currentFlag = null
+    userMessageCount[m.chat].currentFlag2 = null
+    userMessageCount[m.chat].currentFlag3 = null
+    userMessageCount[m.chat].questionMessage = null
+    userMessageCount[m.chat].timestamp = null
 
-  } else if (
+    return !0
+  }
+
+  /*
+   * Respuesta incorrecta
+   */
+  if (
     m.quoted &&
     questionId &&
     m.quoted.id === questionId
   ) {
-    const timeRemaining =
-      Math.max(0, 180000 - timeElapsed);
+    const timeRemaining = Math.max(
+      0,
+      180000 - timeElapsed
+    )
 
     const minutesRemaining =
-      Math.floor(timeRemaining / 60000);
+      Math.floor(timeRemaining / 60000)
 
     const secondsRemaining =
-      Math.floor(
-        (timeRemaining % 60000) / 1000
-      );
+      Math.floor((timeRemaining % 60000) / 1000)
 
-    m.react('✖️');
+    await m.react('✖️')
 
     await conn.reply(
       m.chat,
-      `*¡Respuesta Incorrecta!*\n> vuelve a intentar\n🧩 _*Pista:* Su código de área es *${userMessageCount[m.chat].currentFlag3}* ${userMessageCount[m.chat].currentFlag2}_\n⏳ *Tiempo restante:* _${minutesRemaining} minutos y ${secondsRemaining} segundos._`,
+      `*¡Respuesta Incorrecta!*
+
+> Vuelve a intentar.
+
+🧩 _*Pista:* Su código de área es *${userMessageCount[m.chat].currentFlag3}* ${userMessageCount[m.chat].currentFlag2}_
+
+⏳ *Tiempo restante:* _${minutesRemaining} minutos y ${secondsRemaining} segundos._`,
       m
-    );
+    )
   }
+
+  return !0
     }
