@@ -705,13 +705,14 @@ _🤖 Por favor, responda a este mensaje con la respuesta correcta en un plazo d
         )
 
       const questionMessage =
-        await conn.sendMessage(
+       /*await conn.sendMessage(
           m.chat,
           {
             image: buffer,
             caption: txt
           }
-        )
+        )*/
+      await conn.sendFile(m.chat, buffer, 'img.jpg', txt, m, null, rcanal);
 
       const questionId =
         questionMessage
