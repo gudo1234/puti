@@ -41,11 +41,11 @@ const result = await conn.relayMessage(m.chat,
           "forwardingScore": 1,
           "isForwarded": true,
           "forwardedAiBotMessageInfo": {
-            "botJid": "867051314767696@bot"
+            "botJid": "86705131476769@bot"
           },
           "forwardOrigin": 4,
           "stanzaId": "ACE467BFB73B1AD59177C70C177C01EA",
-          "participant": "47185299271806@lid",
+          "participant": "76803058192389@lid",
           "quotedType": 0,
           "quotedMessage": {
             "conversation": ".dino",
