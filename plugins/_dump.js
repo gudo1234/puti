@@ -13,14 +13,24 @@ let handler = async (m, { conn }) => {
             (current.pollCreationMessageV4 && current.pollCreationMessageV4.message) ||
             (current.pollCreationMessageV5 && current.pollCreationMessageV5.message)
         ) {
-            if (current.ephemeralMessage) current = current.ephemeralMessage.message || {}
-            else if (current.viewOnceMessage) current = current.viewOnceMessage.message || {}
-            else if (current.viewOnceMessageV2) current = current.viewOnceMessageV2.message || {}
-            else if (current.viewOnceMessageV2Extension) current = current.viewOnceMessageV2Extension.message || {}
-            else if (current.documentWithCaptionMessage) current = current.documentWithCaptionMessage.message || {}
-            else if (current.editedMessage) current = current.editedMessage.message?.protocolMessage?.editedMessage || {}
-            else if (current.pollCreationMessageV4?.message) current = current.pollCreationMessageV4.message
-            else if (current.pollCreationMessageV5?.message) current = current.pollCreationMessageV5.message
+            if (current.ephemeralMessage) {
+                current = current.ephemeralMessage.message || {}
+            } else if (current.viewOnceMessage) {
+                current = current.viewOnceMessage.message || {}
+            } else if (current.viewOnceMessageV2) {
+                current = current.viewOnceMessageV2.message || {}
+            } else if (current.viewOnceMessageV2Extension) {
+                current = current.viewOnceMessageV2Extension.message || {}
+            } else if (current.documentWithCaptionMessage) {
+                current = current.documentWithCaptionMessage.message || {}
+            } else if (current.editedMessage) {
+                current =
+                    current.editedMessage.message?.protocolMessage?.editedMessage || {}
+            } else if (current.pollCreationMessageV4?.message) {
+                current = current.pollCreationMessageV4.message
+            } else if (current.pollCreationMessageV5?.message) {
+                current = current.pollCreationMessageV5.message
+            }
         }
 
         return current
@@ -30,23 +40,29 @@ let handler = async (m, { conn }) => {
         const msg = rawMsg?.message || rawMsg || {}
         const unwrapped = unwrapMessage(msg)
 
-        return msg.messageContextInfo?.messageAssociation
-            || msg.ephemeralMessage?.message?.messageContextInfo?.messageAssociation
-            || unwrapped.messageContextInfo?.messageAssociation
-            || unwrapped.imageMessage?.contextInfo?.messageAssociation
-            || unwrapped.videoMessage?.contextInfo?.messageAssociation
-            || unwrapped.pollCreationOptionImageMessage?.messageContextInfo?.messageAssociation
-            || null
+        return (
+            msg.messageContextInfo?.messageAssociation ||
+            msg.ephemeralMessage?.message?.messageContextInfo?.messageAssociation ||
+            unwrapped.messageContextInfo?.messageAssociation ||
+            unwrapped.imageMessage?.contextInfo?.messageAssociation ||
+            unwrapped.videoMessage?.contextInfo?.messageAssociation ||
+            unwrapped.pollCreationOptionImageMessage?.messageContextInfo?.messageAssociation ||
+            null
+        )
     }
 
     function detectAdditionalNodes(obj) {
-        const rawJson = typeof obj === 'string'
-            ? obj
-            : JSON.stringify(obj)
+        const rawJson =
+            typeof obj === 'string'
+                ? obj
+                : JSON.stringify(obj)
 
         const has = (s) => rawJson.includes(s)
 
-        if (has('"pollCreationOptionImageMessage"') || has('"media_poll"')) {
+        if (
+            has('"pollCreationOptionImageMessage"') ||
+            has('"media_poll"')
+        ) {
             return {
                 additionalNodes: [
                     {
@@ -75,7 +91,9 @@ let handler = async (m, { conn }) => {
                         tag: 'meta',
                         attrs: {
                             polltype: 'creation',
-                            ...(isImagePoll ? { contenttype: 'image' } : {})
+                            ...(isImagePoll
+                                ? { contenttype: 'image' }
+                                : {})
                         }
                     }
                 ]
@@ -90,14 +108,14 @@ let handler = async (m, { conn }) => {
             return {
                 additionalNodes: [
                     {
+                        tag: 'bot',
                         attrs: {
                             biz_bot: '1'
-                        },
-                        tag: 'bot'
+                        }
                     },
                     {
-                        attrs: {},
-                        tag: 'biz'
+                        tag: 'biz',
+                        attrs: {}
                     }
                 ]
             }
@@ -194,13 +212,18 @@ let handler = async (m, { conn }) => {
     }
 
     function cleanPOJO(obj) {
-        if (obj === null || obj === undefined) return obj
+        if (obj === null || obj === undefined) {
+            return obj
+        }
 
         if (Buffer.isBuffer(obj) || obj instanceof Uint8Array) {
             return `__BUFFER_START__${Buffer.from(obj).toString('base64')}__BUFFER_END__`
         }
 
-        if (obj.type === 'Buffer' && Array.isArray(obj.data)) {
+        if (
+            obj.type === 'Buffer' &&
+            Array.isArray(obj.data)
+        ) {
             return `__BUFFER_START__${Buffer.from(obj.data).toString('base64')}__BUFFER_END__`
         }
 
@@ -209,9 +232,13 @@ let handler = async (m, { conn }) => {
         }
 
         if (typeof obj === 'object') {
+
             if (
                 typeof obj.toNumber === 'function' ||
-                (obj.low !== undefined && obj.high !== undefined)
+                (
+                    obj.low !== undefined &&
+                    obj.high !== undefined
+                )
             ) {
                 return obj.toString()
             }
@@ -219,11 +246,14 @@ let handler = async (m, { conn }) => {
             const res = {}
 
             for (const key of Object.keys(obj)) {
+
                 if (
                     typeof obj[key] === 'function' ||
                     key === 'toJSON' ||
                     key === 'constructor'
-                ) continue
+                ) {
+                    continue
+                }
 
                 res[key] = cleanPOJO(obj[key])
             }
@@ -235,7 +265,11 @@ let handler = async (m, { conn }) => {
     }
 
     function formatJsonCode(obj) {
-        let str = JSON.stringify(cleanPOJO(obj), null, 2)
+        let str = JSON.stringify(
+            cleanPOJO(obj),
+            null,
+            2
+        )
 
         str = str.replace(
             /"__BUFFER_START__(.*?)__BUFFER_END__"/g,
@@ -246,67 +280,50 @@ let handler = async (m, { conn }) => {
     }
 
     if (!m.quoted) {
-        return m.reply('ⓘ Cita el mensaje que deseas destripar.')
+        return m.reply(
+            'ⓘ Cita el mensaje que deseas destripar.'
+        )
     }
 
     await m.react('wait')
 
     try {
-        const quotedId = m.quoted.id
-        const chatJid = m.chat
 
-        const chatIndex = await global.db.open('@history/' + chatJid)
+        /*
+         * Obtener directamente el mensaje citado.
+         * Ya no se utiliza global.db.open()
+         */
 
-        const senders = [
-            ...new Set(Object.values(chatIndex || {}))
-        ]
+        const quotedRaw =
+            m.quoted.raw ||
+            m.quoted
 
-        let allChatMessages = []
+        const quotedId =
+            m.quoted.id ||
+            quotedRaw?.key?.id ||
+            'unknown'
 
-        for (const sender of senders) {
-            const hist = await global.db.open(
-                '@history/' + chatJid + '/' + sender
-            )
+        const association =
+            getMessageAssociation(quotedRaw)
 
-            if (Array.isArray(hist.data)) {
-                allChatMessages.push(...hist.data)
-            }
-        }
-
-        const directAssoc = getMessageAssociation(
-            m.quoted.raw || m.quoted
-        )
-
-        let rootParentId =
-            directAssoc?.parentMessageKey?.id || quotedId
-
-        let parentMsgRaw =
-            allChatMessages.find(
-                msg => msg.key?.id === rootParentId
-            ) ||
-            (
-                rootParentId === quotedId
-                    ? m.quoted.raw
-                    : null
-            )
-
-        const childMsgs = allChatMessages.filter(msg => {
-            const assoc = getMessageAssociation(msg)
-
-            return (
-                assoc?.parentMessageKey?.id === rootParentId
-            )
-        })
+        const rootParentId =
+            association?.parentMessageKey?.id ||
+            quotedId
 
         let rawParentContent =
-            parentMsgRaw?.message ||
-            m.quoted.raw?.message ||
+            quotedRaw?.message ||
             m.quoted.message ||
             {}
 
-        let parentPayload = unwrapMessage(rawParentContent)
+        let parentPayload =
+            unwrapMessage(rawParentContent)
+
+        /*
+         * Mantener messageContextInfo para polls
+         */
 
         if (parentPayload.pollCreationMessageV3) {
+
             parentPayload = {
                 ...(rawParentContent.messageContextInfo
                     ? {
@@ -314,177 +331,23 @@ let handler = async (m, { conn }) => {
                             rawParentContent.messageContextInfo
                     }
                     : {}),
+
                 pollCreationMessageV3:
                     parentPayload.pollCreationMessageV3
             }
         }
 
-        if (childMsgs.length > 0) {
-
-            const parentType =
-                Object.keys(parentPayload || {})[0] ||
-                'pollCreationMessageV3'
-
-            const parentNodes =
-                detectAdditionalNodes(parentPayload)
-
-            const parentJson =
-                formatJsonCode(parentPayload)
-
-            let jsScript =
-                `// Aethero Engine - Multi-part Packet Dump\n`
-
-            jsScript +=
-                `// Tipo Padre  : ${parentType}\n`
-
-            jsScript +=
-                `// Elementos   : ${childMsgs.length} opciones/fotos enlazadas\n`
-
-            jsScript +=
-                `// ID Padre    : ${rootParentId}\n`
-
-            jsScript +=
-                `// Timestamp   : ${new Date().toLocaleString('es-ES', {
-                    timeZone: 'America/Tegucigalpa'
-                })}\n\n`
-
-            jsScript +=
-                `const newParentId = await conn.relayMessage(\n` +
-                `  m.chat,\n` +
-                `  ${parentJson},\n` +
-                `  ${JSON.stringify(parentNodes, null, 2)}\n` +
-                `);\n\n`
-
-            childMsgs.forEach((child, index) => {
-
-                const unwrappedChild =
-                    unwrapMessage(
-                        child.message || child
-                    )
-
-                const childAssoc =
-                    getMessageAssociation(child)
-
-                const childNodes =
-                    detectAdditionalNodes(
-                        unwrappedChild
-                    )
-
-                let childStructure = {}
-
-                if (
-                    unwrappedChild.pollCreationOptionImageMessage
-                ) {
-                    childStructure = {
-                        messageContextInfo: {
-                            messageAssociation: {
-                                associationType:
-                                    childAssoc?.associationType || 7,
-
-                                parentMessageKey: {
-                                    remoteJid: '__CHAT_VAR__',
-                                    fromMe: true,
-                                    id: '__PARENT_VAR__'
-                                }
-                            }
-                        },
-
-                        pollCreationOptionImageMessage:
-                            unwrappedChild.pollCreationOptionImageMessage
-                    }
-
-                } else if (
-                    unwrappedChild.imageMessage ||
-                    unwrappedChild.videoMessage
-                ) {
-
-                    const mediaType =
-                        unwrappedChild.imageMessage
-                            ? 'imageMessage'
-                            : 'videoMessage'
-
-                    childStructure = {
-                        [mediaType]:
-                            unwrappedChild[mediaType],
-
-                        messageContextInfo: {
-                            messageAssociation: {
-                                associationType:
-                                    childAssoc?.associationType || 1,
-
-                                parentMessageKey: {
-                                    remoteJid: '__CHAT_VAR__',
-                                    fromMe: true,
-                                    id: '__PARENT_VAR__'
-                                }
-                            }
-                        }
-                    }
-
-                } else {
-                    childStructure = unwrappedChild
-                }
-
-                let childJson =
-                    formatJsonCode(childStructure)
-
-                childJson = childJson.replace(
-                    /"__PARENT_VAR__"/g,
-                    'newParentId'
-                )
-
-                childJson = childJson.replace(
-                    /"__CHAT_VAR__"/g,
-                    'm.chat'
-                )
-
-                jsScript +=
-                    `const id_${index} = await conn.relayMessage(\n` +
-                    `  m.chat,\n` +
-                    `  ${childJson},\n` +
-                    `  ${JSON.stringify(childNodes, null, 2)}\n` +
-                    `);\n\n`
-            })
-
-            jsScript += `return newParentId;\n`
-
-            const fileBuffer =
-                Buffer.from(jsScript, 'utf-8')
-
-            const fileName =
-                `dump_${parentType}_multipack_${Date.now()}.js`
-
-            await conn.sendMessage(
-                m.chat,
-                {
-                    document: fileBuffer,
-                    fileName,
-                    mimetype: 'application/javascript',
-
-                    caption:
-                        `- *Tipo:* ${parentType} (Multi-Part)\n` +
-                        `- *Opciones con imagen:* ${childMsgs.length}\n` +
-                        `- *ID:* \`${rootParentId}\`\n` +
-                        `- *Archivo:* \`${fileName}\``
-                },
-                {
-                    quoted: m
-                }
-            )
-
-            return await m.react('done')
-        }
-
-        const singlePayload =
-            parentPayload
+        /*
+         * Detectar el tipo principal
+         */
 
         const typeName =
-            Object.keys(singlePayload || {})
-                .find(k =>
+            Object.keys(parentPayload || {})
+                .find(key =>
                     ![
                         'messageContextInfo',
                         'senderKeyDistributionMessage'
-                    ].includes(k)
+                    ].includes(key)
                 ) ||
             m.quoted.type ||
             'unknown'
@@ -492,31 +355,45 @@ let handler = async (m, { conn }) => {
         const senderName =
             m.quoted.sender?.name ||
             m.quoted.sender?.number ||
+            m.sender ||
             'Desconocido'
 
-        const singleNodes =
-            detectAdditionalNodes(singlePayload)
+        /*
+         * Detectar nodos especiales
+         */
 
-        const singleJson =
-            formatJsonCode(singlePayload)
+        const additionalNodes =
+            detectAdditionalNodes(parentPayload)
+
+        /*
+         * Convertir paquete a código JS
+         */
+
+        const packetJson =
+            formatJsonCode(parentPayload)
 
         const jsContent =
-            `// Aethero Engine - Packet Dump\n` +
-            `// Tipo      : ${typeName}\n` +
-            `// Emisor    : ${senderName}\n` +
-            `// ID        : ${m.quoted.id}\n` +
-            `// Timestamp : ${new Date().toLocaleString('es-ES', {
-                timeZone: 'America/Tegucigalpa'
-            })}\n\n` +
+`// Aethero Engine - Packet Dump
+// Tipo      : ${typeName}
+// Emisor    : ${senderName}
+// ID        : ${quotedId}
+// Parent ID : ${rootParentId}
+// Timestamp : ${new Date().toLocaleString('es-ES', {
+    timeZone: 'America/Tegucigalpa'
+})}
 
-            `await conn.relayMessage(\n` +
-            `  m.chat,\n` +
-            `  ${singleJson},\n` +
-            `  ${JSON.stringify(singleNodes, null, 2)}\n` +
-            `)`
+await conn.relayMessage(
+  m.chat,
+  ${packetJson},
+  ${JSON.stringify(additionalNodes, null, 2)}
+)
+`
 
         const fileBuffer =
-            Buffer.from(jsContent, 'utf-8')
+            Buffer.from(
+                jsContent,
+                'utf-8'
+            )
 
         const fileName =
             `dump_${typeName}_${Date.now()}.js`
@@ -531,7 +408,7 @@ let handler = async (m, { conn }) => {
                 caption:
                     `- *Tipo:* ${typeName}\n` +
                     `- *Emisor:* ${senderName}\n` +
-                    `- *ID:* \`${m.quoted.id}\`\n` +
+                    `- *ID:* \`${quotedId}\`\n` +
                     `- *Archivo:* \`${fileName}\``
             },
             {
@@ -543,7 +420,10 @@ let handler = async (m, { conn }) => {
 
     } catch (e) {
 
-        console.error('Dump Error:', e)
+        console.error(
+            'Dump Error:',
+            e
+        )
 
         await m.react('error')
 
@@ -553,7 +433,10 @@ let handler = async (m, { conn }) => {
     }
 }
 
-handler.command = ['dump', 'json', 'crm']
-handler.help = ["owner"]
-handler.tags = ["info"]
+handler.command = [
+    'dump',
+    'json',
+    'crm'
+]
+
 export default handler
