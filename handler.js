@@ -209,7 +209,7 @@ global.dfail = (type, m, conn) => {
     owner: 'Solo dueños.',
     mods: 'Solo moderadores.',
     premium: 'Solo usuarios premium.',
-    group: 'Usar en grupo.',
+    group: null,
     private: 'Usar en privado.',
     admin: 'Requiere admin.',
     botAdmin: 'El bot necesita admin.',
