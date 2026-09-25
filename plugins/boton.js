@@ -66,9 +66,7 @@ let handler = async (m, { conn }) => {
     }
   }, {})
 
-  await conn.relayMessage(m.chat, msg.message, {
-    additionalNodes: (await import('../lib/simple.js')).ButtonsType(msg)
-  })
+  await conn.relayMessage(m.chat, msg.message, {})
 }
 
 handler.help = ['testbutton']
