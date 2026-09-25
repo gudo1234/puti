@@ -28,6 +28,13 @@ handler.tags = [
 handler.group = true
 handler.owner = true
 
+/*
+ * IMPORTANTE:
+ * No ponemos handler.command.
+ *
+ * Tu handler.js solamente ejecuta `before`
+ * automáticamente cuando el plugin NO tiene command.
+ */
 handler.before = async function (m, { conn }) {
     try {
         if (!m?.isGroup) {
@@ -48,15 +55,27 @@ handler.before = async function (m, { conn }) {
             return true
         }
 
+        const messageId =
+            m?.key?.id ||
+            m?.id ||
+            ""
+
         if (
             wasRawHandled(
                 conn,
-                m?.key?.id || m?.id
+                messageId
             )
         ) {
             return true
         }
 
+        /*
+         * PRIMERO comprobamos si el usuario
+         * está respondiendo a una notificación
+         * anterior del bot.
+         *
+         * Así NO volvemos a enviar la ViewOnce.
+         */
         if (
             await processNoticeReply(
                 m,
@@ -65,7 +84,7 @@ handler.before = async function (m, { conn }) {
         ) {
             markRawHandled(
                 conn,
-                m?.key?.id || m?.id
+                messageId
             )
 
             return true
@@ -78,6 +97,10 @@ handler.before = async function (m, { conn }) {
             return true
         }
 
+        /*
+         * Fallback por si el Main/raw listener
+         * no consiguió detectar el mensaje.
+         */
         const event =
             await detectViewOnce(m)
 
@@ -87,8 +110,7 @@ handler.before = async function (m, { conn }) {
 
         const originalId =
             event.id ||
-            m?.key?.id ||
-            m?.id ||
+            messageId ||
             ""
 
         if (!originalId) {
@@ -109,7 +131,7 @@ handler.before = async function (m, { conn }) {
 
         markRawHandled(
             conn,
-            m?.key?.id || m?.id
+            messageId
         )
 
         await sendViewOnce(
@@ -132,10 +154,20 @@ handler.before = async function (m, { conn }) {
 
 export default handler
 
-if (typeof global !== "undefined") {
+/*
+ * El Main.js llama automáticamente
+ * a esta función desde messages.upsert.
+ */
+if (
+    typeof global !== "undefined"
+) {
     global.__autoviewRawHandler =
         processRawMessage
 }
+
+/* =========================================================
+ * DETECCIÓN RAW
+ * ========================================================= */
 
 async function processRawMessage(
     conn,
@@ -147,14 +179,16 @@ async function processRawMessage(
         }
 
         const key =
-            message.key || {}
+            message.key ||
+            {}
 
         if (key.fromMe) {
             return
         }
 
         const chat =
-            key.remoteJid || ""
+            key.remoteJid ||
+            ""
 
         if (
             !chat.endsWith("@g.us")
@@ -170,7 +204,8 @@ async function processRawMessage(
         }
 
         const messageId =
-            key.id || ""
+            key.id ||
+            ""
 
         if (
             wasRawHandled(
@@ -181,6 +216,10 @@ async function processRawMessage(
             return
         }
 
+        /*
+         * PRIMERO respuestas a las
+         * notificaciones guardadas.
+         */
         const noticeReply =
             findNoticeReplyRaw(
                 conn,
@@ -202,6 +241,9 @@ async function processRawMessage(
             return
         }
 
+        /*
+         * Después buscamos una ViewOnce.
+         */
         const event =
             detectRawViewOnce(
                 message
@@ -253,6 +295,10 @@ async function processRawMessage(
     }
 }
 
+/* =========================================================
+ * DETECTAR VIEWONCE RAW
+ * ========================================================= */
+
 function detectRawViewOnce(
     message,
     depth = 0
@@ -276,6 +322,9 @@ function detectRawViewOnce(
         return null
     }
 
+    /*
+     * ViewOnce normales.
+     */
     for (
         const wrapper of [
             "viewOnceMessage",
@@ -299,13 +348,19 @@ function detectRawViewOnce(
                     message?.participant ||
                     "",
                 type:
-                    detectMediaType(inner),
+                    detectMediaType(
+                        inner
+                    ),
                 webMessage:
                     message
             }
         }
     }
 
+    /*
+     * Algunos mensajes llegan
+     * directamente marcados como ViewOnce.
+     */
     for (
         const type of [
             "imageMessage",
@@ -342,6 +397,9 @@ function detectRawViewOnce(
         }
     }
 
+    /*
+     * Wrappers adicionales.
+     */
     for (
         const wrapper of [
             "ephemeralMessage",
@@ -373,6 +431,9 @@ function detectRawViewOnce(
         }
     }
 
+    /*
+     * ViewOnce citado.
+     */
     const context =
         findContextInfoRaw(
             content
@@ -383,13 +444,18 @@ function detectRawViewOnce(
 
     if (
         quoted &&
-        isViewOnceMessage(quoted)
+        isViewOnceMessage(
+            quoted
+        )
     ) {
         return {
             place: "citado",
-            wrapper: "quotedMessage",
-            raw: quoted,
-            quotedRaw: quoted,
+            wrapper:
+                "quotedMessage",
+            raw:
+                quoted,
+            quotedRaw:
+                quoted,
             id:
                 context?.stanzaId ||
                 message?.key?.id ||
@@ -406,15 +472,26 @@ function detectRawViewOnce(
                 message,
             context,
             text:
-                getRawText(message)
+                getRawText(
+                    message
+                )
         }
     }
 
     return null
 }
 
+/* =========================================================
+ * DETECTAR VIEWONCE SERIALIZADO
+ * ========================================================= */
+
 async function detectViewOnce(m) {
+
+    /*
+     * ViewOnce citado.
+     */
     if (m?.quoted) {
+
         const q =
             m.quoted
 
@@ -460,7 +537,8 @@ async function detectViewOnce(m) {
             return {
                 place: "citado",
                 quoted: q,
-                raw: quotedRaw,
+                raw:
+                    quotedRaw,
                 id:
                     q?.id ||
                     q?.key?.id ||
@@ -484,7 +562,9 @@ async function detectViewOnce(m) {
 
         if (
             q?.mtype &&
-            isViewOnceNode(q?.msg)
+            isViewOnceNode(
+                q?.msg
+            )
         ) {
             return {
                 place: "citado",
@@ -526,7 +606,8 @@ async function detectViewOnce(m) {
             return {
                 place: "citado",
                 quoted: q,
-                raw: quotedMessage,
+                raw:
+                    quotedMessage,
                 id:
                     context?.stanzaId ||
                     q?.id ||
@@ -549,6 +630,9 @@ async function detectViewOnce(m) {
         }
     }
 
+    /*
+     * ViewOnce automático.
+     */
     if (
         m?.key?.isViewOnce
     ) {
@@ -664,6 +748,10 @@ async function detectViewOnce(m) {
     return null
 }
 
+/* =========================================================
+ * COMPROBAR VIEWONCE
+ * ========================================================= */
+
 function isViewOnceMessage(
     message,
     depth = 0
@@ -753,6 +841,10 @@ function isViewOnceNode(node) {
     )
 }
 
+/* =========================================================
+ * ENVIAR VIEWONCE
+ * ========================================================= */
+
 async function sendViewOnce(
     conn,
     chat,
@@ -828,8 +920,10 @@ async function sendViewOnce(
         const target of targets
     ) {
         try {
-            let mediaSent = null
 
+            /*
+             * Recuperamos el contenido UNA SOLA VEZ.
+             */
             const recovered =
                 await recoverViewOnce(
                     conn,
@@ -837,15 +931,28 @@ async function sendViewOnce(
                     message
                 )
 
+            /*
+             * Si copyNForward consiguió
+             * mandar/copiar el contenido,
+             * lo usamos como referencia.
+             */
+            let mediaSent = null
+
             if (
                 recovered?.forwarded &&
                 recovered?.source
             ) {
                 mediaSent =
                     recovered.source
-            } else if (
+            }
+
+            /*
+             * Si conseguimos buffer,
+             * enviamos el multimedia.
+             */
+            else if (
                 recovered?.ok &&
-                recovered.buffer
+                recovered?.buffer
             ) {
                 mediaSent =
                     await sendRecovered(
@@ -857,6 +964,10 @@ async function sendViewOnce(
                     )
             }
 
+            /*
+             * Finalmente enviamos la
+             * notificación textual.
+             */
             const sent =
                 await conn.sendMessage(
                     target,
@@ -874,6 +985,10 @@ async function sendViewOnce(
                         : {}
                 )
 
+            /*
+             * Guardamos EXACTAMENTE el mensaje
+             * que acaba de enviar el bot.
+             */
             rememberNotice(
                 conn,
                 sent,
@@ -889,7 +1004,9 @@ async function sendViewOnce(
                         mention
                 }
             )
+
         } catch (e) {
+
             console.error(
                 "[AUTOVIEW:SEND]",
                 target,
@@ -898,7 +1015,13 @@ async function sendViewOnce(
                 e
             )
 
+            /*
+             * Aunque falle la recuperación
+             * multimedia, no perdemos la
+             * notificación.
+             */
             try {
+
                 const sent =
                     await conn.sendMessage(
                         target,
@@ -925,16 +1048,26 @@ async function sendViewOnce(
                             mention
                     }
                 )
+
             } catch {}
         }
     }
 }
+
+/* =========================================================
+ * RECUPERAR MULTIMEDIA
+ * ========================================================= */
 
 async function recoverViewOnce(
     conn,
     event,
     message
 ) {
+
+    /*
+     * 1. Si es citado y el serializer
+     * tiene download().
+     */
     if (
         event?.place === "citado" &&
         event?.quoted &&
@@ -942,6 +1075,7 @@ async function recoverViewOnce(
             "function"
     ) {
         try {
+
             const buffer =
                 await event.quoted.download(
                     false
@@ -960,20 +1094,27 @@ async function recoverViewOnce(
                         "quoted.download"
                 }
             }
+
         } catch (e) {
+
             console.error(
                 "[AUTOVIEW:DOWNLOAD:QUOTED]",
-                e?.message || e
+                e?.message ||
+                e
             )
         }
     }
 
+    /*
+     * 2. Descarga directa.
+     */
     if (
         event?.place === "automático" &&
         typeof message?.download ===
             "function"
     ) {
         try {
+
             const buffer =
                 await message.download(
                     false
@@ -992,14 +1133,20 @@ async function recoverViewOnce(
                         "message.download"
                 }
             }
+
         } catch (e) {
+
             console.error(
                 "[AUTOVIEW:DOWNLOAD:MESSAGE]",
-                e?.message || e
+                e?.message ||
+                e
             )
         }
     }
 
+    /*
+     * 3. downloadContentFromMessage.
+     */
     const raw =
         unwrapMessage(
             event?.raw
@@ -1013,6 +1160,7 @@ async function recoverViewOnce(
 
     if (media) {
         try {
+
             const stream =
                 await downloadContentFromMessage(
                     media,
@@ -1048,14 +1196,20 @@ async function recoverViewOnce(
                         "downloadContentFromMessage"
                 }
             }
+
         } catch (e) {
+
             console.error(
                 "[AUTOVIEW:DOWNLOAD:CONTENT]",
-                e?.message || e
+                e?.message ||
+                e
             )
         }
     }
 
+    /*
+     * 4. downloadMediaMessage.
+     */
     const sources = []
 
     if (
@@ -1083,7 +1237,9 @@ async function recoverViewOnce(
     }
 
     if (message) {
-        sources.push(message)
+        sources.push(
+            message
+        )
     }
 
     for (
@@ -1091,10 +1247,12 @@ async function recoverViewOnce(
         uniqueObjects(sources)
     ) {
         try {
+
             if (
                 typeof downloadMediaMessage ===
                     "function"
             ) {
+
                 const buffer =
                     await downloadMediaMessage(
                         source,
@@ -1105,6 +1263,7 @@ async function recoverViewOnce(
                                 console,
                             reuploadRequest:
                                 async msg => {
+
                                     if (
                                         typeof conn.updateMediaMessage ===
                                             "function"
@@ -1134,23 +1293,32 @@ async function recoverViewOnce(
                     }
                 }
             }
+
         } catch (e) {
+
             console.error(
                 "[AUTOVIEW:DOWNLOAD:MEDIA]",
-                e?.message || e
+                e?.message ||
+                e
             )
         }
     }
 
+    /*
+     * 5. Último recurso:
+     * copyNForward con readViewOnce.
+     */
     for (
         const source of
         uniqueObjects(sources)
     ) {
         try {
+
             if (
                 typeof conn.copyNForward ===
                     "function"
             ) {
+
                 const copied =
                     await conn.copyNForward(
                         getNotifyTargets()[0],
@@ -1176,10 +1344,13 @@ async function recoverViewOnce(
                     }
                 }
             }
+
         } catch (e) {
+
             console.error(
                 "[AUTOVIEW:DOWNLOAD:FORWARD]",
-                e?.message || e
+                e?.message ||
+                e
             )
         }
     }
@@ -1193,6 +1364,10 @@ async function recoverViewOnce(
         method: ""
     }
 }
+
+/* =========================================================
+ * ENVIAR MULTIMEDIA RECUPERADO
+ * ========================================================= */
 
 async function sendRecovered(
     conn,
@@ -1213,6 +1388,7 @@ async function sendRecovered(
         )
 
     try {
+
         if (
             mediaType ===
             "imageMessage"
@@ -1247,6 +1423,7 @@ async function sendRecovered(
             mediaType ===
             "audioMessage"
         ) {
+
             const node =
                 source?.audioMessage ||
                 source
@@ -1287,7 +1464,9 @@ async function sendRecovered(
                 }
             )
         }
+
     } catch (e) {
+
         console.error(
             "[AUTOVIEW:MEDIA:SEND]",
             e?.message ||
@@ -1297,6 +1476,10 @@ async function sendRecovered(
 
     return null
 }
+
+/* =========================================================
+ * RESPUESTAS A LA NOTIFICACIÓN
+ * ========================================================= */
 
 function findNoticeReplyRaw(
     conn,
@@ -1354,7 +1537,9 @@ async function sendNoticeReplyRaw(
     notice
 ) {
     const text =
-        getRawText(message)
+        getRawText(
+            message
+        )
 
     if (!text) {
         return
@@ -1383,6 +1568,11 @@ async function sendNoticeReplyRaw(
                     : []
         },
         {
+            /*
+             * IMPORTANTE:
+             * citamos la notificación del bot,
+             * no la ViewOnce original.
+             */
             quoted:
                 notice.message
         }
@@ -1439,6 +1629,11 @@ async function processNoticeReply(
     const response =
         getMessageText(m)
 
+    /*
+     * Si es una respuesta multimedia
+     * sin texto, no intentamos tratarla
+     * como otra ViewOnce aquí.
+     */
     if (!response) {
         return true
     }
@@ -1472,6 +1667,10 @@ async function processNoticeReply(
 
     return true
 }
+
+/* =========================================================
+ * GUARDAR NOTIFICACIÓN
+ * ========================================================= */
 
 function rememberNotice(
     conn,
@@ -1523,6 +1722,10 @@ function rememberNotice(
         )
     }
 }
+
+/* =========================================================
+ * CONTEXT INFO
+ * ========================================================= */
 
 function getContextInfo(m) {
     return (
@@ -1601,6 +1804,10 @@ function findContextInfoRaw(
     return null
 }
 
+/* =========================================================
+ * TEXTOS
+ * ========================================================= */
+
 function getRawText(message) {
     const content =
         message?.message ||
@@ -1630,6 +1837,10 @@ function getMessageText(m) {
         ""
     ).trim()
 }
+
+/* =========================================================
+ * UNWRAP
+ * ========================================================= */
 
 function unwrapMessage(
     message
@@ -1687,6 +1898,10 @@ function unwrapMessage(
     return current
 }
 
+/* =========================================================
+ * MEDIA
+ * ========================================================= */
+
 function getMediaNode(
     message,
     type
@@ -1721,7 +1936,9 @@ function getMediaNode(
         if (
             message?.[name]
         ) {
-            return message[name]
+            return message[
+                name
+            ]
         }
     }
 
@@ -1765,25 +1982,29 @@ function normalizeDownloadType(
         normalizeType(type)
 
     if (
-        value === "imageMessage"
+        value ===
+        "imageMessage"
     ) {
         return "image"
     }
 
     if (
-        value === "videoMessage"
+        value ===
+        "videoMessage"
     ) {
         return "video"
     }
 
     if (
-        value === "audioMessage"
+        value ===
+        "audioMessage"
     ) {
         return "audio"
     }
 
     if (
-        value === "documentMessage"
+        value ===
+        "documentMessage"
     ) {
         return "document"
     }
@@ -1791,7 +2012,9 @@ function normalizeDownloadType(
     return value
 }
 
-function normalizeType(type) {
+function normalizeType(
+    type
+) {
     const value =
         String(type || "")
 
@@ -1837,12 +2060,17 @@ function getQuotedType(q) {
     )
 }
 
+/* =========================================================
+ * NÚMERO / PAÍS
+ * ========================================================= */
+
 async function getRealPhone(
     conn,
     chat,
     sender
 ) {
     try {
+
         if (!sender) {
             return {
                 number: "",
@@ -1856,6 +2084,7 @@ async function getRealPhone(
         let participants = []
 
         try {
+
             const metadata =
                 await conn.groupMetadata(
                     chat
@@ -1864,6 +2093,7 @@ async function getRealPhone(
             participants =
                 metadata?.participants ||
                 []
+
         } catch {}
 
         const participant =
@@ -1913,11 +2143,17 @@ async function getRealPhone(
             number:
                 "+" + number,
             country:
-                getCountry(region),
+                getCountry(
+                    region
+                ),
             flag:
-                getFlag(region)
+                getFlag(
+                    region
+                )
         }
+
     } catch {
+
         return {
             number: "",
             country:
@@ -1928,12 +2164,15 @@ async function getRealPhone(
     }
 }
 
-function getCountry(code) {
+function getCountry(
+    code
+) {
     if (!code) {
         return "Desconocido"
     }
 
     try {
+
         const names =
             new Intl.DisplayNames(
                 ["es"],
@@ -1947,12 +2186,16 @@ function getCountry(code) {
             names.of(code) ||
             "Desconocido"
         )
+
     } catch {
+
         return "Desconocido"
     }
 }
 
-function getFlag(code) {
+function getFlag(
+    code
+) {
     if (
         !code ||
         code.length !== 2
@@ -1974,7 +2217,13 @@ function getFlag(code) {
         .join("")
 }
 
-function normalizeMention(value) {
+/* =========================================================
+ * JID
+ * ========================================================= */
+
+function normalizeMention(
+    value
+) {
     const raw =
         String(value || "")
             .trim()
@@ -1999,6 +2248,10 @@ function normalizeMention(value) {
         ? `${number}@s.whatsapp.net`
         : ""
 }
+
+/* =========================================================
+ * CACHE VIEWONCE
+ * ========================================================= */
 
 function alreadySeen(
     conn,
@@ -2028,7 +2281,9 @@ function alreadySeen(
             now - time >
             SEEN_TTL
         ) {
-            cache.delete(id)
+            cache.delete(
+                id
+            )
         }
     }
 
@@ -2056,11 +2311,17 @@ function alreadySeen(
             break
         }
 
-        cache.delete(first)
+        cache.delete(
+            first
+        )
     }
 
     return false
 }
+
+/* =========================================================
+ * RAW HANDLED
+ * ========================================================= */
 
 function markRawHandled(
     conn,
@@ -2093,7 +2354,9 @@ function markRawHandled(
             time >
             SEEN_TTL
         ) {
-            cache.delete(key)
+            cache.delete(
+                key
+            )
         }
     }
 
@@ -2110,7 +2373,9 @@ function markRawHandled(
             break
         }
 
-        cache.delete(first)
+        cache.delete(
+            first
+        )
     }
 }
 
@@ -2130,7 +2395,9 @@ function wasRawHandled(
     }
 
     const time =
-        cache.get(id)
+        cache.get(
+            id
+        )
 
     if (!time) {
         return false
@@ -2141,12 +2408,19 @@ function wasRawHandled(
         time >
         SEEN_TTL
     ) {
-        cache.delete(id)
+        cache.delete(
+            id
+        )
+
         return false
     }
 
     return true
 }
+
+/* =========================================================
+ * DESTINOS
+ * ========================================================= */
 
 function getNotifyTargets() {
     const configured =
@@ -2189,7 +2463,9 @@ function getNotifyTargets() {
     ]
 }
 
-function normalizeJid(value) {
+function normalizeJid(
+    value
+) {
     const raw =
         String(value || "")
             .trim()
@@ -2215,7 +2491,13 @@ function normalizeJid(value) {
         : ""
 }
 
-function uniqueObjects(values) {
+/* =========================================================
+ * UTILIDADES
+ * ========================================================= */
+
+function uniqueObjects(
+    values
+) {
     const result = []
 
     for (
@@ -2226,18 +2508,24 @@ function uniqueObjects(values) {
         }
 
         if (
-            result.includes(value)
+            result.includes(
+                value
+            )
         ) {
             continue
         }
 
-        result.push(value)
+        result.push(
+            value
+        )
     }
 
     return result
 }
 
-function getCaption(source) {
+function getCaption(
+    source
+) {
     if (!source) {
         return ""
     }
