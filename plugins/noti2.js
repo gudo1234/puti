@@ -173,304 +173,312 @@ async function descargarMedia(conn, source) {
         "No se pudo descargar el multimedia."
     )
 }
-let handler = async (m, { conn }) => {
 
+let handler = async (
+    m,
+    {
+        conn,
+        text,
+        usedPrefix,
+        command
+    }
+) => {
 
-        if (!text?.trim())
-            return m.reply(
-                `${m.e.warn} Usa:\n${prefijo + cmd} <link grupo> | <texto> | <botón> | <número> | <texto WhatsApp>\n\nDebes responder a una imagen, video o GIF.`
+    if (!text?.trim())
+        return m.reply(
+            `${e} Usa:\n${usedPrefix + command} <link grupo> | <texto> | <botón> | <número> | <texto WhatsApp>\n\nDebes responder a una imagen, video o GIF.`
+        )
+
+    const partes =
+        text
+            .split("|")
+            .map(x => x.trim())
+
+    const link =
+        partes[0]
+
+    const texto =
+        partes[1]
+
+    const displayText =
+        partes[2]
+
+    const numero =
+        partes[3]
+
+    const textoWhatsApp =
+        partes
+            .slice(4)
+            .join("|")
+            .trim()
+
+    if (!texto)
+        return m.reply(
+            `${e} Debes colocar el texto de la notificación.`
+        )
+
+    if (!displayText)
+        return m.reply(
+            `${e} Debes colocar el texto del botón.`
+        )
+
+    if (!numero)
+        return m.reply(
+            `${e} Debes colocar el número de WhatsApp.`
+        )
+
+    if (!textoWhatsApp)
+        return m.reply(
+            `${e} Debes colocar el texto que abrirá WhatsApp.`
+        )
+
+    const match =
+        link?.match(
+            /(?:https?:\/\/)?chat\.whatsapp\.com\/([0-9A-Za-z]+)/
+        )
+
+    if (!match)
+        return m.reply(
+            `${e} Debes colocar un enlace de grupo válido.`
+        )
+
+    const groupCode =
+        match[1]
+
+    const numeroLimpio =
+        numero.replace(/\D/g, "")
+
+    if (!numeroLimpio)
+        return m.reply(
+            `${e} El número de WhatsApp no es válido.`
+        )
+
+    const urlBoton =
+        `https://wa.me/${numeroLimpio}?text=${encodeURIComponent(textoWhatsApp).replace(/%20/g, "+")}`
+
+    let targetChat = null
+
+    try {
+
+        const info =
+            await conn.groupGetInviteInfo(
+                groupCode
             )
 
-        const partes =
-            text
-                .split("|")
-                .map(x => x.trim())
+        if (info?.id)
+            targetChat =
+                info.id
 
-        const link =
-            partes[0]
+    } catch {}
 
-        const texto =
-            partes[1]
-
-        const displayText =
-            partes[2]
-
-        const numero =
-            partes[3]
-
-        const textoWhatsApp =
-            partes
-                .slice(4)
-                .join("|")
-                .trim()
-
-        if (!texto)
-            return m.reply(
-                `${m.e.warn} Debes colocar el texto de la notificación.`
-            )
-
-        if (!displayText)
-            return m.reply(
-                `${m.e.warn} Debes colocar el texto del botón.`
-            )
-
-        if (!numero)
-            return m.reply(
-                `${m.e.warn} Debes colocar el número de WhatsApp.`
-            )
-
-        if (!textoWhatsApp)
-            return m.reply(
-                `${m.e.warn} Debes colocar el texto que abrirá WhatsApp.`
-            )
-
-        const match =
-            link?.match(
-                /(?:https?:\/\/)?chat\.whatsapp\.com\/([0-9A-Za-z]+)/
-            )
-
-        if (!match)
-            return m.reply(
-                "❌ Debes colocar un enlace de grupo válido."
-            )
-
-        const groupCode =
-            match[1]
-
-        const numeroLimpio =
-            numero.replace(/\D/g, "")
-
-        if (!numeroLimpio)
-            return m.reply(
-                "❌ El número de WhatsApp no es válido."
-            )
-
-        const urlBoton =
-            `https://wa.me/${numeroLimpio}?text=${encodeURIComponent(textoWhatsApp).replace(/%20/g, "+")}`
-
-        let targetChat = null
+    if (!targetChat) {
 
         try {
 
-            const info =
-                await conn.groupGetInviteInfo(
+            const joined =
+                await conn.groupAcceptInvite(
                     groupCode
                 )
 
-            if (info?.id)
+            if (
+                typeof joined === "string" &&
+                joined.includes("@g.us")
+            )
                 targetChat =
-                    info.id
+                    joined
 
         } catch {}
+    }
 
-        if (!targetChat) {
+    if (!targetChat)
+        return m.reply(
+            `${e} No pude identificar el grupo. El enlace puede estar vencido, ser inválido o el bot no puede acceder al grupo.`
+        )
 
-            try {
+    const metadata =
+        await conn
+            .groupMetadata(targetChat)
+            .catch(() => null)
 
-                const joined =
-                    await conn.groupAcceptInvite(
-                        groupCode
-                    )
+    if (!metadata)
+        return m.reply(
+            `${e} No pude obtener la información del grupo.`
+        )
 
-                if (
-                    typeof joined === "string" &&
-                    joined.includes("@g.us")
-                )
-                    targetChat =
-                        joined
+    const botJid =
+        conn.user?.id ||
+        conn.user?.jid
 
-            } catch {}
-        }
-
-        if (!targetChat)
-            return m.reply(
-                "❌ No pude identificar el grupo. El enlace puede estar vencido, ser inválido o el bot no puede acceder al grupo."
+    const users =
+        metadata.participants
+            .map(u => u.id)
+            .filter(
+                id =>
+                    id &&
+                    id !== botJid
             )
 
-        const metadata =
-            await conn
-                .groupMetadata(targetChat)
-                .catch(() => null)
+    if (!users.length)
+        return m.reply(
+            `${e} No encontré participantes para mencionar.`
+        )
 
-        if (!metadata)
-            return m.reply(
-                "❌ No pude obtener la información del grupo."
-            )
+    let actual =
+        encontrarMedia(
+            m.message || {}
+        )
 
-        const botJid =
-            conn.user?.id ||
-            conn.user?.jid
+    let mediaSource =
+        actual
+            ? m
+            : null
 
-        const users =
-            metadata.participants
-                .map(u => u.id)
-                .filter(
-                    id =>
-                        id &&
-                        id !== botJid
-                )
+    if (!actual && m.quoted) {
 
-        if (!users.length)
-            return m.reply(
-                "❌ No encontré participantes para mencionar."
-            )
-
-        let actual =
+        actual =
             encontrarMedia(
-                m.message || {}
+                m.quoted.message ||
+                m.quoted.msg ||
+                {}
             )
 
-        let mediaSource =
-            actual ?
-                m :
-                null
+        if (actual)
+            mediaSource =
+                m.quoted
+    }
 
-        if (!actual && m.quoted) {
+    if (!actual)
+        return m.reply(
+            `${e} Debes responder a una imagen, video o GIF.`
+        )
 
-            actual =
-                encontrarMedia(
-                    m.quoted.message ||
-                    m.quoted.msg ||
-                    {}
-                )
+    try {
 
-            if (actual)
-                mediaSource =
-                    m.quoted
-        }
+        await m.react("🕒")
 
-        if (!actual)
-            return m.reply(
-                "❌ Debes responder a una imagen, video o GIF."
+        const buffer =
+            await descargarMedia(
+                conn,
+                mediaSource
             )
 
-        try {
-
-            await m.react("🕒")
-
-            const buffer =
-                await descargarMedia(
-                    conn,
-                    mediaSource
-                )
-
-            if (
-                !Buffer.isBuffer(buffer) ||
-                !buffer.length
+        if (
+            !Buffer.isBuffer(buffer) ||
+            !buffer.length
+        )
+            throw new Error(
+                "El multimedia está vacío."
             )
-                throw new Error(
-                    "El multimedia está vacío."
-                )
 
-            const tipo =
-                actual.type === "imageMessage" ?
-                    "image" :
-                    "video"
+        const tipo =
+            actual.type === "imageMessage"
+                ? "image"
+                : "video"
 
-            const contenido =
-                tipo === "image" ?
-                    {
-                        image: buffer
-                    } :
-                    {
-                        video: buffer
-                    }
+        const contenido =
+            tipo === "image"
+                ? {
+                    image: buffer
+                }
+                : {
+                    video: buffer
+                }
 
-            const media =
-                await prepareWAMessageMedia(
-                    contenido,
-                    {
-                        upload:
-                            conn.waUploadToServer
-                    }
-                )
-
-            const header =
-                tipo === "image" ?
-                    {
-                        title: "",
-                        hasMediaAttachment: true,
-                        imageMessage:
-                            media.imageMessage
-                    } :
-                    {
-                        title: "",
-                        hasMediaAttachment: true,
-                        videoMessage:
-                            media.videoMessage
-                    }
-
-            const mensaje =
-                generateWAMessageFromContent(
-                    targetChat,
-                    {
-                        interactiveMessage: {
-
-                            header,
-
-                            body: {
-                                text: ""
-                            },
-
-                            footer: {
-                                text: texto
-                            },
-
-                            nativeFlowMessage: {
-
-                                buttons: [
-                                    {
-                                        name: "cta_url",
-
-                                        buttonParamsJson:
-                                            JSON.stringify({
-                                                display_text:
-                                                    displayText,
-                                                url:
-                                                    urlBoton
-                                            })
-                                    }
-                                ]
-                            },
-
-                            contextInfo: {
-                                mentionedJid:
-                                    users
-                            }
-                        }
-                    },
-                    {
-                        userJid:
-                            conn.user.id,
-                        quoted: null
-                    }
-                )
-
-            await conn.relayMessage(
-                targetChat,
-                mensaje.message,
+        const media =
+            await prepareWAMessageMedia(
+                contenido,
                 {
-                    messageId:
-                        mensaje.key.id
+                    upload:
+                        conn.waUploadToServer
                 }
             )
 
-            await m.react("✅")
+        const header =
+            tipo === "image"
+                ? {
+                    title: "",
+                    hasMediaAttachment: true,
+                    imageMessage:
+                        media.imageMessage
+                }
+                : {
+                    title: "",
+                    hasMediaAttachment: true,
+                    videoMessage:
+                        media.videoMessage
+                }
 
-        } catch (error) {
+        const mensaje =
+            generateWAMessageFromContent(
+                targetChat,
+                {
+                    interactiveMessage: {
 
-            console.error(
-                "❌ Error en noti2:",
-                error
+                        header,
+
+                        body: {
+                            text: ""
+                        },
+
+                        footer: {
+                            text: texto
+                        },
+
+                        nativeFlowMessage: {
+
+                            buttons: [
+                                {
+                                    name: "cta_url",
+
+                                    buttonParamsJson:
+                                        JSON.stringify({
+                                            display_text:
+                                                displayText,
+                                            url:
+                                                urlBoton
+                                        })
+                                }
+                            ]
+                        },
+
+                        contextInfo: {
+                            mentionedJid:
+                                users
+                        }
+                    }
+                },
+                {
+                    userJid:
+                        conn.user.id,
+                    quoted: null
+                }
             )
 
-            await m.react("❌")
-                .catch(() => {})
+        await conn.relayMessage(
+            targetChat,
+            mensaje.message,
+            {
+                messageId:
+                    mensaje.key.id
+            }
+        )
 
-            return m.reply(
-                `❌ No se pudo enviar la notificación.\n\n${error?.message || "Error desconocido."}`
-            )
-        }
+        await m.react("✅")
+
+    } catch (error) {
+
+        console.error(
+            "❌ Error en noti2:",
+            error
+        )
+
+        await m.react("❌")
+            .catch(() => {})
+
+        return m.reply(
+            `${e} No se pudo enviar la notificación.\n\n${error?.message || "Error desconocido."}`
+        )
+    }
 }
 
 handler.help = ["noti2"]
