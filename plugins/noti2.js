@@ -79,10 +79,8 @@ async function descargarMedia(conn, source) {
     ) {
 
         try {
-
             buffer =
                 await source.download()
-
         } catch {}
     }
 
@@ -97,12 +95,10 @@ async function descargarMedia(conn, source) {
     ) {
 
         try {
-
             buffer =
                 await conn.downloadMediaMessage(
                     source
                 )
-
         } catch {}
     }
 
@@ -174,6 +170,85 @@ async function descargarMedia(conn, source) {
     )
 }
 
+function obtenerTextoOriginal(m) {
+
+    const msg =
+        m?.message
+
+    if (!msg)
+        return ""
+
+    if (
+        typeof msg.conversation === "string"
+    )
+        return msg.conversation
+
+    if (
+        typeof msg.extendedTextMessage?.text === "string"
+    )
+        return msg.extendedTextMessage.text
+
+    if (
+        typeof msg.imageMessage?.caption === "string"
+    )
+        return msg.imageMessage.caption
+
+    if (
+        typeof msg.videoMessage?.caption === "string"
+    )
+        return msg.videoMessage.caption
+
+    return ""
+}
+
+function quitarComando(
+    texto,
+    usedPrefix,
+    command
+) {
+
+    const inicio =
+        `${usedPrefix}${command}`
+
+    if (
+        texto.startsWith(inicio)
+    ) {
+        return texto
+            .slice(inicio.length)
+            .trimStart()
+    }
+
+    return texto
+}
+
+function separarCampos(texto) {
+
+    const partes = []
+    let inicio = 0
+
+    for (let i = 0; i < texto.length; i++) {
+
+        if (texto[i] === "|") {
+
+            partes.push(
+                texto
+                    .slice(inicio, i)
+                    .trim()
+            )
+
+            inicio = i + 1
+        }
+    }
+
+    partes.push(
+        texto
+            .slice(inicio)
+            .trim()
+    )
+
+    return partes
+}
+
 let handler = async (
     m,
     {
@@ -184,15 +259,25 @@ let handler = async (
     }
 ) => {
 
-    if (!text?.trim())
+    const textoOriginal =
+        obtenerTextoOriginal(m)
+
+    const contenido =
+        textoOriginal
+            ? quitarComando(
+                textoOriginal,
+                usedPrefix,
+                command
+            )
+            : text || ""
+
+    if (!contenido.trim())
         return m.reply(
             `${e} Usa:\n${usedPrefix + command} <link grupo> | <texto> | <botón> | <número> | <texto WhatsApp>\n\nDebes responder a una imagen, video o GIF.`
         )
 
     const partes =
-        text
-            .split("|")
-            .map(x => x.trim())
+        separarCampos(contenido)
 
     const link =
         partes[0]
@@ -375,7 +460,7 @@ let handler = async (
                 ? "image"
                 : "video"
 
-        const contenido =
+        const contenidoMedia =
             tipo === "image"
                 ? {
                     image: buffer
@@ -386,7 +471,7 @@ let handler = async (
 
         const media =
             await prepareWAMessageMedia(
-                contenido,
+                contenidoMedia,
                 {
                     upload:
                         conn.waUploadToServer
@@ -450,7 +535,9 @@ let handler = async (
                 {
                     userJid:
                         conn.user.id,
-                    quoted: null
+
+                    quoted:
+                        null
                 }
             )
 
