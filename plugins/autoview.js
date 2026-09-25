@@ -3,7 +3,7 @@ import PhoneNumber from "awesome-phonenumber"
 const WATCH_GROUPS = new Set([])
 
 const NOTIFY_JIDS = [
-    "120363407073055516@g.us"
+    "120363428593802799@g.us"
 ]
 
 const SEND_VIEWONCE_CONTENT = true
