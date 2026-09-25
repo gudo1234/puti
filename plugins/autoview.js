@@ -216,20 +216,7 @@ async function sendMedia(conn, buffer, view) {
 }
 
 let handler = async (m, { conn }) => {
-
-  /*
-   * Este before se ejecuta para todos los mensajes,
-   * pero solamente continúa si hay una cita.
-   */
-
   if (!m.isGroup) return
-
-  /*
-   * IMPORTANTE:
-   * Si empieza con cualquier prefijo,
-   * dejamos que el comando correspondiente
-   * siga su funcionamiento normal.
-   */
 
   const body =
     m.text ||
@@ -243,11 +230,6 @@ let handler = async (m, { conn }) => {
   ) {
     return
   }
-
-  /*
-   * Si el mensaje cita uno de nuestros avisos,
-   * solamente registramos la respuesta.
-   */
 
   if (
     m.chat === NOTIFY_GROUP &&
@@ -270,7 +252,7 @@ let handler = async (m, { conn }) => {
 `👤 *Remitente:* ${mention}
 📱 *Número:* ${info.number}
 🌎 *País:* ${info.country} ${info.flag}
-🍁 *Respuesta:* ${response}`
+ッ *Respuesta:* ${response}`
 
     await conn.sendMessage(
       NOTIFY_GROUP,
@@ -286,16 +268,7 @@ let handler = async (m, { conn }) => {
     return
   }
 
-  /*
-   * A partir de aquí solamente interesan
-   * mensajes que estén CITANDO algo.
-   */
-
   if (!m.quoted) return
-
-  /*
-   * Comprobar si lo citado es View Once.
-   */
 
   const quoted = {
     message: m.quoted.message
@@ -317,16 +290,8 @@ let handler = async (m, { conn }) => {
 
   const mention = `@${sender.split('@')[0]}`
 
-  /*
-   * Descargar View Once.
-   */
-
   const buffer =
     await downloadViewOnce(m, view)
-
-  /*
-   * Enviar contenido recuperado.
-   */
 
   if (buffer) {
     await sendMedia(
@@ -335,11 +300,6 @@ let handler = async (m, { conn }) => {
       view
     )
   }
-
-  /*
-   * Texto que escribió el usuario
-   * al citar la Vista Una Vez.
-   */
 
   const response =
     body.trim() ||
@@ -351,7 +311,7 @@ let handler = async (m, { conn }) => {
 👤 *Remitente:* ${mention}
 📱 *Número:* ${info.number}
 🌎 *País:* ${info.country} ${info.flag}
-🍁 *Respuesta:* ${response}`
+ッ *Respuesta:* ${response}`
 
   const sent =
     await conn.sendMessage(
@@ -365,21 +325,12 @@ let handler = async (m, { conn }) => {
       }
     )
 
-  /*
-   * Guardamos únicamente el ID del aviso
-   * que acaba de enviar el bot.
-   */
-
   if (sent?.key?.id) {
     notices.set(
       sent.key.id,
       true
     )
   }
-
-  /*
-   * Limitar memoria.
-   */
 
   if (notices.size > 300) {
     const first =
