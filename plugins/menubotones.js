@@ -278,9 +278,7 @@ conn.relayMessage(
 
 handler.help = ["m"]
 handler.tags = ["game"]
-handler.command = ["m"]
+handler.command = ["m1"]
 handler.group = true
-handler.botAdmin = false
-handler.register = false
 
 export default handler
