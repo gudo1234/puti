@@ -3,393 +3,276 @@ import PhoneNumber from "awesome-phonenumber"
 const WATCH_GROUPS = new Set([])
 
 const NOTIFY_JIDS = [
-    "120363407073055516@g.us"
+    "120363428593802799@g.us"
 ]
 
-const SEEN_TTL_MS = 10 * 60 * 1000
+const SEEN_TTL = 10 * 60 * 1000
 const SEEN_LIMIT = 250
 
-let handler = async () => {}
+const NOTICE_TTL = 60 * 60 * 1000
 
-handler.help = ["viewoncewatch"]
-handler.tags = ["owner"]
+let handler = m => m
+
+handler.help = [
+    "viewoncewatch",
+    "vowatch"
+]
+
+handler.tags = [
+    "owner"
+]
+
 handler.group = true
 handler.owner = true
 
-handler.before = async (m, { conn }) => {
+handler.before = async function (m, { conn }) {
+
     try {
-        if (!m?.isGroup) return false
-        if (m?.fromMe) return false
+
+        installRawWatcher(conn)
+
+        if (!m?.isGroup) {
+            return true
+        }
 
         if (
             WATCH_GROUPS.size &&
             !WATCH_GROUPS.has(m.chat)
         ) {
-            return false
+            return true
         }
 
-        const targets = getNotifyTargets()
-
-        if (!targets.length) {
-            return false
+        if (
+            m?.key?.fromMe ||
+            m?.fromMe
+        ) {
+            return true
         }
 
         if (
             await processNoticeReply(
                 m,
-                conn,
-                targets
+                conn
             )
         ) {
-            return false
+            return true
         }
 
-        const event = getViewOnceEvent(m)
-
-        if (!event) {
-            return false
+        if (
+            !m?.message &&
+            !m?.msg
+        ) {
+            return true
         }
 
-        const originalId =
-            getOriginalViewOnceId(
-                event,
+        const event =
+            await detectViewOnce(
                 m
             )
 
-        if (!originalId) {
-            return false
+        if (!event) {
+            return true
         }
 
-        const seenKey =
-            `${m.chat}:${originalId}:${event.place}`
-
-        if (
-            wasSeen(
-                conn,
-                seenKey
-            )
-        ) {
-            return false
-        }
-
-        const originalSender =
-            await getOriginalSender(
-                conn,
-                m,
+        await sendViewOnceNotice(
+            conn,
+            {
+                chat:
+                    m.chat,
+                message:
+                    m,
                 event
-            )
-
-        if (!originalSender) {
-            return false
-        }
-
-        const phone =
-            await getRealPhoneNumber(
-                conn,
-                m.chat,
-                originalSender
-            )
-
-        const name =
-            await safeName(
-                conn,
-                originalSender
-            )
-
-        const mention =
-            cleanMentionJid(
-                originalSender
-            )
-
-        const displayNumber =
-            phone.number ||
-            mention.split("@")[0] ||
-            "No disponible"
-
-        const country =
-            phone.country ||
-            "Desconocido"
-
-        const flag =
-            phone.flag ||
-            "🌐"
-
-        const type =
-            event.place === "cita"
-                ? "citado"
-                : "automático"
-
-        const text =
-            `👁️ *VIEW ONCE DETECTADO*\n\n` +
-            `👤 *Remitente:* @${mention.split("@")[0]}\n` +
-            `📱 *Número:* ${displayNumber}\n` +
-            `🌎 *País:* ${country} ${flag}\n\n` +
-            `📦 *Tipo:* ${type}\n` +
-            `Lo cito: @${mention.split("@")[0]}`
-
-        for (const target of targets) {
-            try {
-                const sent =
-                    await conn.sendMessage(
-                        target,
-                        {
-                            text,
-                            mentions: [
-                                mention
-                            ]
-                        }
-                    )
-
-                rememberNotice(
-                    conn,
-                    target,
-                    sent,
-                    {
-                        sourceChat:
-                            m.chat,
-                        viewOnceId:
-                            originalId,
-                        sender:
-                            mention,
-                        name
-                    }
-                )
-            } catch (error) {
-                console.error(
-                    "[viewonce-monitor:send]",
-                    target,
-                    error?.message ||
-                    error
-                )
             }
-        }
-    } catch (error) {
+        )
+
+    } catch (e) {
+
         console.error(
-            "[viewonce-monitor]",
-            error?.message ||
-            error
+            "[AUTOVIEW]",
+            e?.stack ||
+            e?.message ||
+            e
         )
     }
 
-    return false
+    return true
 }
 
 export default handler
 
-function getNotifyTargets() {
-    const configured =
-        NOTIFY_JIDS
-            .map(
-                normalizeTargetJid
-            )
-            .filter(Boolean)
 
-    if (configured.length) {
-        return unique(
-            configured
-        )
-    }
+function installRawWatcher(conn) {
 
-    const owners =
-        Array.isArray(
-            global.owner
-        )
-            ? global.owner
-            : []
-
-    return unique(
-        owners
-            .map(entry =>
-                normalizeTargetJid(
-                    Array.isArray(entry)
-                        ? entry[0]
-                        : entry
-                )
-            )
-            .filter(Boolean)
-    )
-}
-
-function normalizeTargetJid(value) {
-    const raw =
-        String(
-            value || ""
-        ).trim()
-
-    if (!raw) return ""
-
-    if (raw.includes("@")) {
-        return raw
-    }
-
-    const number =
-        raw.replace(
-            /\D/g,
-            ""
-        )
-
-    return number
-        ? `${number}@s.whatsapp.net`
-        : ""
-}
-
-function cleanMentionJid(value) {
-    const raw =
-        String(
-            value || ""
-        ).trim()
-
-    if (!raw) return ""
-
-    if (raw.includes("@")) {
-        return raw
-    }
-
-    const number =
-        raw.replace(
-            /\D/g,
-            ""
-        )
-
-    return number
-        ? `${number}@s.whatsapp.net`
-        : ""
-}
-
-function unique(list) {
-    return [
-        ...new Set(list)
-    ]
-}
-
-function getViewOnceEvent(m) {
-    const direct =
-        detectViewOnceMessage(
-            m?.message
-        )
-
-    if (direct) {
-        return {
-            ...direct,
-            place: "mensaje",
-            quotedId: "",
-            webMessage:
-                getWebMessage(m),
-            serialized: m
-        }
+    if (!conn) {
+        return
     }
 
     if (
-        m?.key?.isViewOnce
+        conn._autoviewRawWatcherInstalled
     ) {
-        return {
-            wrapper:
-                "key.isViewOnce",
-            mediaType:
-                getMediaType(
-                    normalizeInnerMessage(
-                        m?.message
+        return
+    }
+
+    if (
+        !conn.ev ||
+        typeof conn.ev.on !== "function"
+    ) {
+        return
+    }
+
+    conn._autoviewRawWatcherInstalled = true
+
+    conn.ev.on(
+        "messages.upsert",
+        async update => {
+
+            try {
+
+                const messages =
+                    Array.isArray(
+                        update?.messages
                     )
-                ),
-            innerMessage:
-                normalizeInnerMessage(
-                    m?.message
-                ),
-            place: "mensaje",
-            quotedId: "",
-            webMessage:
-                getWebMessage(m),
-            serialized: m
+                        ? update.messages
+                        : []
+
+                if (!messages.length) {
+                    return
+                }
+
+                for (
+                    const message of
+                    messages
+                ) {
+
+                    await processRawMessage(
+                        conn,
+                        message
+                    )
+                }
+
+            } catch (e) {
+
+                console.error(
+                    "[AUTOVIEW:RAW]",
+                    e?.stack ||
+                    e?.message ||
+                    e
+                )
+            }
         }
-    }
-
-    const contextInfo =
-        getContextInfo(m)
-
-    const q =
-        m?.quoted
-
-    const quotedWebMessage =
-        q?.vM ||
-        q?.fakeObj ||
-        null
-
-    const quotedMessage =
-        contextInfo?.quotedMessage ||
-        quotedWebMessage?.message ||
-        q?.message ||
-        makeMessageFromSerialized(q)
-
-    const quotedInfo =
-        detectViewOnceMessage(
-            quotedMessage
-        )
-
-    if (!quotedInfo) {
-        return null
-    }
-
-    return {
-        ...quotedInfo,
-        place: "cita",
-        quotedId:
-            contextInfo?.stanzaId ||
-            q?.id ||
-            q?.key?.id ||
-            "",
-        webMessage:
-            quotedWebMessage ||
-            buildQuotedWebMessage(
-                m,
-                contextInfo,
-                quotedMessage,
-                q
-            ),
-        serialized:
-            q || null
-    }
-}
-
-function getOriginalViewOnceId(
-    event,
-    m
-) {
-    const webKey =
-        event?.webMessage?.key ||
-        {}
-
-    const serializedKey =
-        event?.serialized?.key ||
-        {}
-
-    if (
-        event?.place === "cita"
-    ) {
-        return (
-            event?.quotedId ||
-            webKey.id ||
-            serializedKey.id ||
-            ""
-        )
-    }
-
-    return (
-        webKey.id ||
-        serializedKey.id ||
-        m?.key?.id ||
-        m?.id ||
-        ""
     )
 }
 
-function detectViewOnceMessage(
+
+async function processRawMessage(
+    conn,
+    message
+) {
+
+    try {
+
+        if (!message) {
+            return
+        }
+
+        const key =
+            message.key ||
+            {}
+
+        if (
+            key.fromMe
+        ) {
+            return
+        }
+
+        const chat =
+            key.remoteJid ||
+            ""
+
+        if (
+            !chat.endsWith("@g.us")
+        ) {
+            return
+        }
+
+        if (
+            WATCH_GROUPS.size &&
+            !WATCH_GROUPS.has(chat)
+        ) {
+            return
+        }
+
+        const event =
+            detectRawViewOnce(
+                message
+            )
+
+        if (!event) {
+            return
+        }
+
+        const originalId =
+            key.id ||
+            event.id ||
+            ""
+
+        if (!originalId) {
+            return
+        }
+
+        const seenKey =
+            `${chat}:${originalId}`
+
+        if (
+            alreadySeen(
+                conn,
+                seenKey
+            )
+        ) {
+            return
+        }
+
+        await sendViewOnceNotice(
+            conn,
+            {
+                chat,
+                message,
+                event
+            }
+        )
+
+    } catch (e) {
+
+        console.error(
+            "[AUTOVIEW:RAW:PROCESS]",
+            e?.stack ||
+            e?.message ||
+            e
+        )
+    }
+}
+
+
+function detectRawViewOnce(
     message,
     depth = 0
 ) {
+
     if (
         !message ||
         typeof message !== "object" ||
-        depth > 15
+        depth > 20
+    ) {
+        return null
+    }
+
+    const content =
+        message.message ||
+        message
+
+    if (
+        !content ||
+        typeof content !== "object"
     ) {
         return null
     }
@@ -401,21 +284,67 @@ function detectViewOnceMessage(
             "viewOnceMessageV2Extension"
         ]
     ) {
+
         const inner =
-            message?.[wrapper]?.message
+            content?.[wrapper]?.message
 
         if (
-            inner &&
-            typeof inner === "object"
+            inner
         ) {
+
             return {
-                wrapper,
-                mediaType:
-                    getMediaType(
+                place:
+                    "automático",
+                type:
+                    detectMediaType(
                         inner
                     ),
-                innerMessage:
-                    inner
+                raw:
+                    inner,
+                id:
+                    message?.key?.id ||
+                    "",
+                sender:
+                    message?.key?.participant ||
+                    message?.participant ||
+                    ""
+            }
+        }
+    }
+
+    for (
+        const type of [
+            "imageMessage",
+            "videoMessage",
+            "audioMessage",
+            "documentMessage"
+        ]
+    ) {
+
+        const node =
+            content?.[type]
+
+        if (
+            node &&
+            (
+                node.viewOnce === true ||
+                node.isViewOnce === true
+            )
+        ) {
+
+            return {
+                place:
+                    "automático",
+                type,
+                raw:
+                    content,
+                id:
+                    message?.key?.id ||
+                    "",
+                sender:
+                    message?.key?.participant ||
+                    message?.participant ||
+                    ""
             }
         }
     }
@@ -430,58 +359,331 @@ function detectViewOnceMessage(
             "associatedChildMessage"
         ]
     ) {
+
         const inner =
-            message?.[wrapper]?.message
+            content?.[wrapper]?.message
 
-        const found =
-            detectViewOnceMessage(
-                inner,
-                depth + 1
-            )
+        if (
+            inner
+        ) {
 
-        if (found) {
-            return found
+            const fakeMessage = {
+                ...message,
+                message:
+                    inner
+            }
+
+            const found =
+                detectRawViewOnce(
+                    fakeMessage,
+                    depth + 1
+                )
+
+            if (found) {
+                return found
+            }
         }
     }
 
     return null
 }
 
-function getMediaType(message) {
+
+async function detectViewOnce(m) {
+
     if (
-        !message ||
-        typeof message !== "object"
+        m?.quoted
     ) {
-        return ""
+
+        const q =
+            m.quoted
+
+        if (
+            q?.viewOnce
+        ) {
+
+            return {
+                place:
+                    "citado",
+                quoted:
+                    q,
+                id:
+                    q?.id ||
+                    q?.key?.id ||
+                    "",
+                sender:
+                    q?.sender ||
+                    q?.participant ||
+                    "",
+                type:
+                    getQuotedType(q)
+            }
+        }
+
+        const quotedRaw =
+            q?.vM?.message ||
+            q?.fakeObj?.message ||
+            q?.message ||
+            null
+
+        if (
+            isViewOnceMessage(
+                quotedRaw
+            )
+        ) {
+
+            return {
+                place:
+                    "citado",
+                quoted:
+                    q,
+                raw:
+                    quotedRaw,
+                id:
+                    q?.id ||
+                    q?.key?.id ||
+                    "",
+                sender:
+                    q?.sender ||
+                    q?.participant ||
+                    "",
+                type:
+                    detectMediaType(
+                        quotedRaw
+                    )
+            }
+        }
+
+        if (
+            q?.mtype &&
+            isViewOnceNode(
+                q?.msg
+            )
+        ) {
+
+            return {
+                place:
+                    "citado",
+                quoted:
+                    q,
+                id:
+                    q?.id ||
+                    "",
+                sender:
+                    q?.sender ||
+                    "",
+                type:
+                    normalizeType(
+                        q.mtype
+                    )
+            }
+        }
+
+        const context =
+            getContextInfo(m)
+
+        const quotedMessage =
+            context?.quotedMessage
+
+        if (
+            isViewOnceMessage(
+                quotedMessage
+            )
+        ) {
+
+            return {
+                place:
+                    "citado",
+                quoted:
+                    q,
+                raw:
+                    quotedMessage,
+                id:
+                    context?.stanzaId ||
+                    q?.id ||
+                    "",
+                sender:
+                    context?.participant ||
+                    q?.sender ||
+                    "",
+                type:
+                    detectMediaType(
+                        quotedMessage
+                    )
+            }
+        }
     }
 
-    if (message.imageMessage) {
-        return "image"
+    if (
+        m?.key?.isViewOnce
+    ) {
+
+        return {
+            place:
+                "automático",
+            direct:
+                true,
+            raw:
+                m?.message,
+            id:
+                m?.key?.id ||
+                m?.id ||
+                "",
+            sender:
+                m?.sender ||
+                m?.key?.participant ||
+                "",
+            type:
+                detectMediaType(
+                    m?.message
+                ) ||
+                normalizeType(
+                    m?.mtype
+                )
+        }
     }
 
-    if (message.videoMessage) {
-        return "video"
+    if (
+        isViewOnceMessage(
+            m?.message
+        )
+    ) {
+
+        return {
+            place:
+                "automático",
+            direct:
+                true,
+            raw:
+                m?.message,
+            id:
+                m?.key?.id ||
+                m?.id ||
+                "",
+            sender:
+                m?.sender ||
+                m?.key?.participant ||
+                "",
+            type:
+                detectMediaType(
+                    m?.message
+                )
+        }
     }
 
-    if (message.audioMessage) {
-        return "audio"
+    if (
+        isViewOnceMessage(
+            m?.msg
+        )
+    ) {
+
+        return {
+            place:
+                "automático",
+            direct:
+                true,
+            raw:
+                m?.msg,
+            id:
+                m?.key?.id ||
+                m?.id ||
+                "",
+            sender:
+                m?.sender ||
+                m?.key?.participant ||
+                "",
+            type:
+                detectMediaType(
+                    m?.msg
+                )
+        }
     }
 
-    if (message.documentMessage) {
-        return "document"
+    if (
+        isViewOnceNode(
+            m?.msg
+        )
+    ) {
+
+        return {
+            place:
+                "automático",
+            direct:
+                true,
+            raw:
+                m?.message ||
+                {
+                    [m?.mtype]:
+                        m?.msg
+                },
+            id:
+                m?.key?.id ||
+                m?.id ||
+                "",
+            sender:
+                m?.sender ||
+                m?.key?.participant ||
+                "",
+            type:
+                normalizeType(
+                    m?.mtype
+                )
+        }
     }
 
-    return ""
+    return null
 }
 
-function normalizeInnerMessage(
-    message
+
+function isViewOnceMessage(
+    message,
+    depth = 0
 ) {
+
     if (
         !message ||
-        typeof message !== "object"
+        typeof message !== "object" ||
+        depth > 20
     ) {
-        return null
+        return false
+    }
+
+    for (
+        const wrapper of [
+            "viewOnceMessage",
+            "viewOnceMessageV2",
+            "viewOnceMessageV2Extension"
+        ]
+    ) {
+
+        if (
+            message?.[wrapper]?.message
+        ) {
+            return true
+        }
+    }
+
+    for (
+        const type of [
+            "imageMessage",
+            "videoMessage",
+            "audioMessage",
+            "documentMessage"
+        ]
+    ) {
+
+        const node =
+            message?.[type]
+
+        if (
+            node &&
+            (
+                node.viewOnce === true ||
+                node.isViewOnce === true
+            )
+        ) {
+            return true
+        }
     }
 
     for (
@@ -494,34 +696,376 @@ function normalizeInnerMessage(
             "associatedChildMessage"
         ]
     ) {
-        if (
+
+        const inner =
             message?.[wrapper]?.message
-        ) {
-            return normalizeInnerMessage(
-                message[wrapper].message
+
+        if (
+            inner &&
+            isViewOnceMessage(
+                inner,
+                depth + 1
             )
+        ) {
+            return true
         }
     }
 
-    return message
+    return false
 }
 
-function getContextInfo(m) {
+
+function isViewOnceNode(node) {
+
     if (
-        m?.msg?.contextInfo
+        !node ||
+        typeof node !== "object"
     ) {
-        return m.msg.contextInfo
+        return false
     }
 
-    return findContextInfo(
-        m?.message
+    return Boolean(
+        node.viewOnce ||
+        node.isViewOnce
     )
 }
+
+
+async function sendViewOnceNotice(
+    conn,
+    data
+) {
+
+    const {
+        chat,
+        message,
+        event
+    } = data
+
+    if (!chat) {
+        return
+    }
+
+    const originalId =
+        event?.id ||
+        message?.key?.id ||
+        message?.id ||
+        ""
+
+    if (!originalId) {
+        return
+    }
+
+    const seenKey =
+        `${chat}:${originalId}`
+
+    if (
+        alreadySeen(
+            conn,
+            seenKey
+        )
+    ) {
+        return
+    }
+
+    const targets =
+        getNotifyTargets()
+
+    if (!targets.length) {
+        return
+    }
+
+    const originalSender =
+        event?.sender ||
+        message?.sender ||
+        message?.key?.participant ||
+        ""
+
+    if (!originalSender) {
+        return
+    }
+
+    const phone =
+        await getRealPhone(
+            conn,
+            chat,
+            originalSender
+        )
+
+    const mention =
+        normalizeMention(
+            originalSender
+        )
+
+    const number =
+        phone.number ||
+        (
+            mention
+                .split("@")[0]
+        ) ||
+        "No disponible"
+
+    const country =
+        phone.country ||
+        "Desconocido"
+
+    const flag =
+        phone.flag ||
+        "🌐"
+
+    const type =
+        event?.place === "citado"
+            ? "citado"
+            : "automático"
+
+    const text =
+        `👁️ *VIEW ONCE DETECTADO*\n\n` +
+        `👤 *Remitente:* @${mention.split("@")[0]}\n` +
+        `📱 *Número:* ${number}\n` +
+        `🌎 *País:* ${country} ${flag}\n\n` +
+        `📦 *Tipo:* ${type}\n` +
+        `Lo cito: @${mention.split("@")[0]}`
+
+    for (
+        const target of targets
+    ) {
+
+        try {
+
+            const sent =
+                await conn.sendMessage(
+                    target,
+                    {
+                        text,
+                        mentions: [
+                            mention
+                        ]
+                    }
+                )
+
+            rememberNotice(
+                conn,
+                sent,
+                {
+                    target,
+                    sourceChat:
+                        chat,
+                    viewOnceId:
+                        originalId,
+                    sender:
+                        mention
+                }
+            )
+
+        } catch (e) {
+
+            console.error(
+                "[AUTOVIEW:SEND]",
+                target,
+                e?.message ||
+                e
+            )
+        }
+    }
+}
+
+
+async function processNoticeReply(
+    m,
+    conn
+) {
+
+    const cache =
+        conn._autoviewNotices
+
+    if (
+        !cache ||
+        !cache.size
+    ) {
+        return false
+    }
+
+    const now =
+        Date.now()
+
+    for (
+        const [
+            id,
+            data
+        ] of cache
+    ) {
+
+        if (
+            now - data.time >
+            NOTICE_TTL
+        ) {
+
+            cache.delete(id)
+        }
+    }
+
+    const context =
+        getContextInfo(m)
+
+    const quotedId =
+        context?.stanzaId ||
+        m?.quoted?.id ||
+        m?.quoted?.key?.id ||
+        ""
+
+    if (!quotedId) {
+        return false
+    }
+
+    const notice =
+        cache.get(
+            quotedId
+        )
+
+    if (!notice) {
+        return false
+    }
+
+    const response =
+        getMessageText(m)
+
+    if (!response) {
+        return true
+    }
+
+    const sender =
+        normalizeMention(
+            m?.sender ||
+            m?.key?.participant ||
+            ""
+        )
+
+    const text =
+        sender
+            ? `💬 @${sender.split("@")[0]}: ${response}`
+            : `💬 ${response}`
+
+    const mentions =
+        sender
+            ? [sender]
+            : []
+
+    try {
+
+        await conn.sendMessage(
+            notice.target,
+            {
+                text,
+                mentions
+            },
+            {
+                quoted:
+                    notice.message
+            }
+        )
+
+    } catch (e) {
+
+        console.error(
+            "[AUTOVIEW:REPLY]",
+            e?.message ||
+            e
+        )
+    }
+
+    return true
+}
+
+
+function rememberNotice(
+    conn,
+    sent,
+    data
+) {
+
+    const id =
+        sent?.key?.id
+
+    if (!id) {
+        return
+    }
+
+    if (
+        !conn._autoviewNotices
+    ) {
+        conn._autoviewNotices =
+            new Map()
+    }
+
+    conn._autoviewNotices.set(
+        id,
+        {
+            id,
+            message:
+                sent,
+            time:
+                Date.now(),
+            ...data
+        }
+    )
+
+    while (
+        conn._autoviewNotices.size >
+        SEEN_LIMIT
+    ) {
+
+        const first =
+            conn._autoviewNotices
+                .keys()
+                .next()
+                .value
+
+        if (!first) {
+            break
+        }
+
+        conn._autoviewNotices.delete(
+            first
+        )
+    }
+}
+
+
+function getMessageText(m) {
+
+    return (
+        m?.text ||
+        m?.body ||
+        m?.message?.conversation ||
+        m?.message?.extendedTextMessage?.text ||
+        m?.message?.imageMessage?.caption ||
+        m?.message?.videoMessage?.caption ||
+        m?.message?.documentMessage?.caption ||
+        ""
+    ).trim()
+}
+
+
+function getContextInfo(m) {
+
+    return (
+        m?.msg?.contextInfo ||
+        m?.message?.extendedTextMessage?.contextInfo ||
+        m?.message?.imageMessage?.contextInfo ||
+        m?.message?.videoMessage?.contextInfo ||
+        m?.message?.documentMessage?.contextInfo ||
+        findContextInfo(
+            m?.message
+        )
+    )
+}
+
 
 function findContextInfo(
     message,
     depth = 0
 ) {
+
     if (
         !message ||
         typeof message !== "object" ||
@@ -539,12 +1083,11 @@ function findContextInfo(
             "extendedTextMessage"
         ]
     ) {
+
         if (
             message?.[type]?.contextInfo
         ) {
-            return message[
-                type
-            ].contextInfo
+            return message[type].contextInfo
         }
     }
 
@@ -558,6 +1101,7 @@ function findContextInfo(
             "associatedChildMessage"
         ]
     ) {
+
         const found =
             findContextInfo(
                 message?.[wrapper]?.message,
@@ -572,171 +1116,114 @@ function findContextInfo(
     return null
 }
 
-function getWebMessage(m) {
-    return (
-        m?.vM ||
-        m?.fakeObj ||
-        m ||
-        null
-    )
-}
 
-function buildQuotedWebMessage(
-    m,
-    contextInfo,
-    quotedMessage,
-    q
+function detectMediaType(
+    message
 ) {
-    if (!quotedMessage) {
-        return null
-    }
-
-    const participant =
-        contextInfo?.participant ||
-        q?.sender ||
-        ""
-
-    const key = {
-        remoteJid:
-            m?.chat,
-        fromMe:
-            Boolean(
-                q?.fromMe
-            ),
-        id:
-            contextInfo?.stanzaId ||
-            q?.id ||
-            q?.key?.id ||
-            `QUOTED-${Date.now()}`
-    }
-
-    if (participant) {
-        key.participant =
-            participant
-    }
-
-    return {
-        key,
-        message:
-            quotedMessage,
-        ...(participant
-            ? {
-                participant
-            }
-            : {})
-    }
-}
-
-function makeMessageFromSerialized(q) {
-    if (
-        !q ||
-        typeof q !== "object"
-    ) {
-        return null
-    }
 
     if (
-        q.mtype &&
-        q.msg
+        !message ||
+        typeof message !== "object"
     ) {
-        return {
-            [q.mtype]:
-                q.msg
-        }
-    }
-
-    if (
-        q.mediaType &&
-        q.msg
-    ) {
-        return {
-            [q.mediaType]:
-                q.msg
-        }
-    }
-
-    return null
-}
-
-async function getOriginalSender(
-    conn,
-    m,
-    event
-) {
-    const web =
-        event?.webMessage
-
-    const key =
-        web?.key || {}
-
-    const possible = [
-        key.participant,
-        web?.participant,
-        event?.serialized?.participant,
-        event?.serialized?.sender,
-        m?.quoted?.sender,
-        m?.quoted?.participant,
-        m?.sender
-    ].filter(Boolean)
-
-    if (!possible.length) {
         return ""
     }
 
-    try {
-        const metadata =
-            await conn.groupMetadata(
-                m.chat
-            )
+    for (
+        const type of [
+            "imageMessage",
+            "videoMessage",
+            "audioMessage",
+            "documentMessage"
+        ]
+    ) {
 
-        const participants =
-            metadata?.participants ||
-            []
-
-        for (
-            const candidate of possible
+        if (
+            message?.[type]
         ) {
-            const found =
-                participants.find(
-                    user =>
-                        user?.id === candidate ||
-                        user?.jid === candidate ||
-                        user?.lid === candidate ||
-                        user?.phoneNumber === candidate
-                )
-
-            if (found) {
-                return (
-                    found.phoneNumber ||
-                    found.jid ||
-                    found.id ||
-                    candidate
-                )
-            }
+            return type
         }
-    } catch {}
+    }
 
-    return possible[0]
+    return ""
 }
 
-async function getRealPhoneNumber(
+
+function getQuotedType(q) {
+
+    return normalizeType(
+        q?.mediaType ||
+        q?.mtype ||
+        detectMediaType(
+            q?.message
+        ) ||
+        ""
+    )
+}
+
+
+function normalizeType(type) {
+
+    const value =
+        String(
+            type ||
+            ""
+        )
+
+    if (
+        value === "image" ||
+        value === "imageMessage"
+    ) {
+        return "imageMessage"
+    }
+
+    if (
+        value === "video" ||
+        value === "videoMessage"
+    ) {
+        return "videoMessage"
+    }
+
+    if (
+        value === "audio" ||
+        value === "audioMessage"
+    ) {
+        return "audioMessage"
+    }
+
+    if (
+        value === "document" ||
+        value === "documentMessage"
+    ) {
+        return "documentMessage"
+    }
+
+    return value
+}
+
+
+async function getRealPhone(
     conn,
     chat,
     sender
 ) {
+
     try {
+
         if (!sender) {
+
             return {
                 number: "",
                 country:
                     "Desconocido",
-                flag: "🌐"
+                flag:
+                    "🌐"
             }
         }
 
         let participants = []
 
         try {
+
             const metadata =
                 await conn.groupMetadata(
                     chat
@@ -745,25 +1232,25 @@ async function getRealPhoneNumber(
             participants =
                 metadata?.participants ||
                 []
+
         } catch {}
 
         const participant =
             participants.find(
-                user =>
-                    user?.id === sender ||
-                    user?.jid === sender ||
-                    user?.lid === sender ||
-                    user?.phoneNumber === sender
+                p =>
+                    p?.id === sender ||
+                    p?.jid === sender ||
+                    p?.lid === sender ||
+                    p?.phoneNumber === sender
             )
 
         const raw =
             participant?.phoneNumber ||
             participant?.jid ||
             participant?.id ||
-            sender ||
-            ""
+            sender
 
-        const id =
+        const number =
             String(raw)
                 .split("@")[0]
                 .split(":")[0]
@@ -772,73 +1259,79 @@ async function getRealPhoneNumber(
                     ""
                 )
 
-        if (!id) {
+        if (!number) {
+
             return {
                 number: "",
                 country:
                     "Desconocido",
-                flag: "🌐"
+                flag:
+                    "🌐"
             }
         }
 
-        const pn =
+        const parsed =
             new PhoneNumber(
-                "+" + id
+                "+" + number
             )
 
-        const code =
-            pn.getRegionCode() ||
-            "??"
+        const region =
+            parsed.getRegionCode() ||
+            ""
 
         return {
             number:
-                "+" + id,
+                "+" + number,
             country:
-                getCountryName(
-                    code
-                ),
+                getCountry(region),
             flag:
-                getFlagEmoji(
-                    code
-                )
+                getFlag(region)
         }
+
     } catch {
+
         return {
             number: "",
             country:
                 "Desconocido",
-            flag: "🌐"
+            flag:
+                "🌐"
         }
     }
 }
 
-function getCountryName(code) {
-    if (
-        !code ||
-        code === "??"
-    ) {
+
+function getCountry(code) {
+
+    if (!code) {
         return "Desconocido"
     }
 
     try {
-        const regionNames =
+
+        const names =
             new Intl.DisplayNames(
                 ["es"],
                 {
-                    type: "region"
+                    type:
+                        "region"
                 }
             )
 
         return (
-            regionNames.of(code) ||
+            names.of(code) ||
             "Desconocido"
         )
+
     } catch {
+
         return "Desconocido"
     }
 }
 
-function getFlagEmoji(code) {
+
+function getFlag(code) {
+
     if (
         !code ||
         code.length !== 2
@@ -860,29 +1353,65 @@ function getFlagEmoji(code) {
         .join("")
 }
 
-function wasSeen(
+
+function normalizeMention(value) {
+
+    const raw =
+        String(
+            value ||
+            ""
+        ).trim()
+
+    if (!raw) {
+        return ""
+    }
+
+    if (
+        raw.includes("@")
+    ) {
+        return raw
+    }
+
+    const number =
+        raw.replace(
+            /\D/g,
+            ""
+        )
+
+    return number
+        ? `${number}@s.whatsapp.net`
+        : ""
+}
+
+
+function alreadySeen(
     conn,
     key
 ) {
-    const cache =
-        getSeenCache(conn)
 
     const now =
         Date.now()
 
+    const cache =
+        conn._autoviewSeen ||
+        (
+            conn._autoviewSeen =
+                new Map()
+        )
+
     for (
         const [
-            item,
+            id,
             time
         ] of cache
     ) {
+
         if (
             now - time >
-            SEEN_TTL_MS
+            SEEN_TTL
         ) {
-            cache.delete(
-                item
-            )
+
+            cache.delete(id)
         }
     }
 
@@ -901,6 +1430,7 @@ function wasSeen(
         cache.size >
         SEEN_LIMIT
     ) {
+
         const first =
             cache.keys()
                 .next()
@@ -910,213 +1440,84 @@ function wasSeen(
             break
         }
 
-        cache.delete(
-            first
-        )
+        cache.delete(first)
     }
 
     return false
 }
 
-function getSeenCache(conn) {
+
+function getNotifyTargets() {
+
+    const configured =
+        NOTIFY_JIDS
+            .map(
+                normalizeJid
+            )
+            .filter(
+                Boolean
+            )
+
     if (
-        !conn._viewOnceSeen
+        configured.length
     ) {
-        conn._viewOnceSeen =
-            new Map()
+
+        return [
+            ...new Set(
+                configured
+            )
+        ]
     }
 
-    return conn._viewOnceSeen
+    const owners =
+        Array.isArray(
+            global.owner
+        )
+            ? global.owner
+            : []
+
+    return [
+        ...new Set(
+            owners
+                .map(
+                    entry =>
+                        normalizeJid(
+                            Array.isArray(entry)
+                                ? entry[0]
+                                : entry
+                        )
+                )
+                .filter(Boolean)
+        )
+    ]
 }
 
-function rememberNotice(
-    conn,
-    target,
-    sent,
-    meta = {}
-) {
-    const id =
-        sent?.key?.id
 
-    if (!id) {
-        return
+function normalizeJid(value) {
+
+    const raw =
+        String(
+            value ||
+            ""
+        ).trim()
+
+    if (!raw) {
+        return ""
     }
 
     if (
-        !conn._viewOnceNotices
+        raw.includes("@")
     ) {
-        conn._viewOnceNotices =
-            new Map()
+        return raw
     }
 
-    conn._viewOnceNotices.set(
-        id,
-        {
-            id,
-            target,
-            message: sent,
-            at: Date.now(),
-            ...meta
-        }
-    )
-
-    while (
-        conn._viewOnceNotices.size >
-        SEEN_LIMIT
-    ) {
-        const first =
-            conn._viewOnceNotices
-                .keys()
-                .next()
-                .value
-
-        if (!first) {
-            break
-        }
-
-        conn._viewOnceNotices.delete(
-            first
-        )
-    }
-}
-
-async function processNoticeReply(
-    m,
-    conn,
-    targets
-) {
-    const cache =
-        conn._viewOnceNotices
-
-    if (
-        !cache?.size
-    ) {
-        return false
-    }
-
-    const now =
-        Date.now()
-
-    for (
-        const [
-            id,
-            data
-        ] of cache
-    ) {
-        if (
-            now - data.at >
-            60 * 60 * 1000
-        ) {
-            cache.delete(id)
-        }
-    }
-
-    const contextInfo =
-        getContextInfo(m)
-
-    const quotedId =
-        contextInfo?.stanzaId ||
-        m?.quoted?.id ||
-        m?.quoted?.key?.id ||
-        ""
-
-    if (!quotedId) {
-        return false
-    }
-
-    const notice =
-        cache.get(
-            quotedId
-        )
-
-    if (!notice) {
-        return false
-    }
-
-    const responseText =
-        getMessageText(m)
-
-    if (!responseText) {
-        return true
-    }
-
-    const sender =
-        cleanMentionJid(
-            m?.sender ||
-            m?.key?.participant ||
-            m?.participant ||
+    const number =
+        raw.replace(
+            /\D/g,
             ""
         )
 
-    const mentions =
-        sender
-            ? [sender]
-            : []
-
-    const response =
-        sender
-            ? `💬 @${sender.split("@")[0]}: ${responseText}`
-            : `💬 ${responseText}`
-
-    for (
-        const target of targets
-    ) {
-        try {
-            await conn.sendMessage(
-                target,
-                {
-                    text:
-                        response,
-                    mentions
-                },
-                {
-                    quoted:
-                        notice.message
-                }
-            )
-        } catch (error) {
-            console.error(
-                "[viewonce-monitor:reply]",
-                target,
-                error?.message ||
-                error
-            )
-        }
-    }
-
-    return true
-}
-
-function getMessageText(m) {
-    return (
-        m?.text ||
-        m?.body ||
-        m?.message?.conversation ||
-        m?.message?.extendedTextMessage?.text ||
-        m?.message?.imageMessage?.caption ||
-        m?.message?.videoMessage?.caption ||
-        m?.message?.documentMessage?.caption ||
-        ""
-    ).trim()
-}
-
-async function safeName(
-    conn,
-    jid
-) {
-    try {
-        if (
-            typeof conn?.getName ===
-            "function"
-        ) {
-            return await conn.getName(
-                jid
-            )
-        }
-    } catch {}
-
-    return (
-        jid?.split("@")[0] ||
-        "Desconocido"
-    )
+    return number
+        ? `${number}@s.whatsapp.net`
+        : ""
 }
