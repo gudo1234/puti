@@ -29,9 +29,7 @@ handler.group = true
 handler.owner = true
 
 handler.before = async function (m, { conn }) {
-
     try {
-
         if (!m?.isGroup) {
             return true
         }
@@ -120,9 +118,7 @@ handler.before = async function (m, { conn }) {
             m,
             event
         )
-
     } catch (e) {
-
         console.error(
             "[AUTOVIEW]",
             e?.stack ||
@@ -137,16 +133,15 @@ handler.before = async function (m, { conn }) {
 export default handler
 
 if (typeof global !== "undefined") {
-    global.__autoviewRawHandler = processRawMessage
+    global.__autoviewRawHandler =
+        processRawMessage
 }
 
 async function processRawMessage(
     conn,
     message
 ) {
-
     try {
-
         if (!message) {
             return
         }
@@ -154,9 +149,7 @@ async function processRawMessage(
         const key =
             message.key || {}
 
-        if (
-            key.fromMe
-        ) {
+        if (key.fromMe) {
             return
         }
 
@@ -195,7 +188,6 @@ async function processRawMessage(
             )
 
         if (noticeReply) {
-
             markRawHandled(
                 conn,
                 messageId
@@ -251,9 +243,7 @@ async function processRawMessage(
             message,
             event
         )
-
     } catch (e) {
-
         console.error(
             "[AUTOVIEW:RAW]",
             e?.stack ||
@@ -267,7 +257,6 @@ function detectRawViewOnce(
     message,
     depth = 0
 ) {
-
     if (
         !message ||
         typeof message !== "object" ||
@@ -294,12 +283,10 @@ function detectRawViewOnce(
             "viewOnceMessageV2Extension"
         ]
     ) {
-
         const inner =
             content?.[wrapper]?.message
 
         if (inner) {
-
             return {
                 place: "automático",
                 wrapper,
@@ -327,7 +314,6 @@ function detectRawViewOnce(
             "documentMessage"
         ]
     ) {
-
         const node =
             content?.[type]
 
@@ -338,7 +324,6 @@ function detectRawViewOnce(
                 node.isViewOnce === true
             )
         ) {
-
             return {
                 place: "automático",
                 wrapper: type,
@@ -367,12 +352,10 @@ function detectRawViewOnce(
             "associatedChildMessage"
         ]
     ) {
-
         const inner =
             content?.[wrapper]?.message
 
         if (inner) {
-
             const nested = {
                 ...message,
                 message: inner
@@ -402,7 +385,6 @@ function detectRawViewOnce(
         quoted &&
         isViewOnceMessage(quoted)
     ) {
-
         return {
             place: "citado",
             wrapper: "quotedMessage",
@@ -417,7 +399,9 @@ function detectRawViewOnce(
                 message?.key?.participant ||
                 "",
             type:
-                detectMediaType(quoted),
+                detectMediaType(
+                    quoted
+                ),
             webMessage:
                 message,
             context,
@@ -430,14 +414,11 @@ function detectRawViewOnce(
 }
 
 async function detectViewOnce(m) {
-
     if (m?.quoted) {
-
         const q =
             m.quoted
 
         if (q?.viewOnce) {
-
             return {
                 place: "citado",
                 quoted: q,
@@ -476,7 +457,6 @@ async function detectViewOnce(m) {
                 quotedRaw
             )
         ) {
-
             return {
                 place: "citado",
                 quoted: q,
@@ -506,7 +486,6 @@ async function detectViewOnce(m) {
             q?.mtype &&
             isViewOnceNode(q?.msg)
         ) {
-
             return {
                 place: "citado",
                 quoted: q,
@@ -544,7 +523,6 @@ async function detectViewOnce(m) {
                 quotedMessage
             )
         ) {
-
             return {
                 place: "citado",
                 quoted: q,
@@ -574,7 +552,6 @@ async function detectViewOnce(m) {
     if (
         m?.key?.isViewOnce
     ) {
-
         return {
             place: "automático",
             raw:
@@ -603,7 +580,6 @@ async function detectViewOnce(m) {
             m?.message
         )
     ) {
-
         return {
             place: "automático",
             raw:
@@ -632,7 +608,6 @@ async function detectViewOnce(m) {
             m?.msg
         )
     ) {
-
         return {
             place: "automático",
             raw:
@@ -661,7 +636,6 @@ async function detectViewOnce(m) {
             m?.msg
         )
     ) {
-
         return {
             place: "automático",
             raw: {
@@ -694,7 +668,6 @@ function isViewOnceMessage(
     message,
     depth = 0
 ) {
-
     if (
         !message ||
         typeof message !== "object" ||
@@ -710,7 +683,6 @@ function isViewOnceMessage(
             "viewOnceMessageV2Extension"
         ]
     ) {
-
         if (
             message?.[wrapper]?.message
         ) {
@@ -726,7 +698,6 @@ function isViewOnceMessage(
             "documentMessage"
         ]
     ) {
-
         const node =
             message?.[type]
 
@@ -751,7 +722,6 @@ function isViewOnceMessage(
             "associatedChildMessage"
         ]
     ) {
-
         const inner =
             message?.[wrapper]?.message
 
@@ -770,7 +740,6 @@ function isViewOnceMessage(
 }
 
 function isViewOnceNode(node) {
-
     if (
         !node ||
         typeof node !== "object"
@@ -790,7 +759,6 @@ async function sendViewOnce(
     message,
     event
 ) {
-
     const targets =
         getNotifyTargets()
 
@@ -859,9 +827,7 @@ async function sendViewOnce(
     for (
         const target of targets
     ) {
-
         try {
-
             let mediaSent = null
 
             const recovered =
@@ -875,15 +841,12 @@ async function sendViewOnce(
                 recovered?.forwarded &&
                 recovered?.source
             ) {
-
                 mediaSent =
                     recovered.source
-
             } else if (
                 recovered?.ok &&
                 recovered.buffer
             ) {
-
                 mediaSent =
                     await sendRecovered(
                         conn,
@@ -926,9 +889,7 @@ async function sendViewOnce(
                         mention
                 }
             )
-
         } catch (e) {
-
             console.error(
                 "[AUTOVIEW:SEND]",
                 target,
@@ -938,7 +899,6 @@ async function sendViewOnce(
             )
 
             try {
-
                 const sent =
                     await conn.sendMessage(
                         target,
@@ -965,7 +925,6 @@ async function sendViewOnce(
                             mention
                     }
                 )
-
             } catch {}
         }
     }
@@ -976,16 +935,13 @@ async function recoverViewOnce(
     event,
     message
 ) {
-
     if (
         event?.place === "citado" &&
         event?.quoted &&
         typeof event.quoted.download ===
             "function"
     ) {
-
         try {
-
             const buffer =
                 await event.quoted.download(
                     false
@@ -995,7 +951,6 @@ async function recoverViewOnce(
                 buffer &&
                 buffer.length
             ) {
-
                 return {
                     ok: true,
                     buffer,
@@ -1005,9 +960,7 @@ async function recoverViewOnce(
                         "quoted.download"
                 }
             }
-
         } catch (e) {
-
             console.error(
                 "[AUTOVIEW:DOWNLOAD:QUOTED]",
                 e?.message || e
@@ -1020,9 +973,7 @@ async function recoverViewOnce(
         typeof message?.download ===
             "function"
     ) {
-
         try {
-
             const buffer =
                 await message.download(
                     false
@@ -1032,7 +983,6 @@ async function recoverViewOnce(
                 buffer &&
                 buffer.length
             ) {
-
                 return {
                     ok: true,
                     buffer,
@@ -1042,9 +992,7 @@ async function recoverViewOnce(
                         "message.download"
                 }
             }
-
         } catch (e) {
-
             console.error(
                 "[AUTOVIEW:DOWNLOAD:MESSAGE]",
                 e?.message || e
@@ -1064,9 +1012,7 @@ async function recoverViewOnce(
         )
 
     if (media) {
-
         try {
-
             const stream =
                 await downloadContentFromMessage(
                     media,
@@ -1093,7 +1039,6 @@ async function recoverViewOnce(
             if (
                 buffer.length
             ) {
-
                 return {
                     ok: true,
                     buffer,
@@ -1103,9 +1048,7 @@ async function recoverViewOnce(
                         "downloadContentFromMessage"
                 }
             }
-
         } catch (e) {
-
             console.error(
                 "[AUTOVIEW:DOWNLOAD:CONTENT]",
                 e?.message || e
@@ -1147,14 +1090,11 @@ async function recoverViewOnce(
         const source of
         uniqueObjects(sources)
     ) {
-
         try {
-
             if (
                 typeof downloadMediaMessage ===
                     "function"
             ) {
-
                 const buffer =
                     await downloadMediaMessage(
                         source,
@@ -1165,12 +1105,10 @@ async function recoverViewOnce(
                                 console,
                             reuploadRequest:
                                 async msg => {
-
                                     if (
                                         typeof conn.updateMediaMessage ===
                                             "function"
                                     ) {
-
                                         return conn.updateMediaMessage(
                                             msg
                                         )
@@ -1185,7 +1123,6 @@ async function recoverViewOnce(
                     buffer &&
                     buffer.length
                 ) {
-
                     return {
                         ok: true,
                         buffer,
@@ -1197,9 +1134,7 @@ async function recoverViewOnce(
                     }
                 }
             }
-
         } catch (e) {
-
             console.error(
                 "[AUTOVIEW:DOWNLOAD:MEDIA]",
                 e?.message || e
@@ -1211,14 +1146,11 @@ async function recoverViewOnce(
         const source of
         uniqueObjects(sources)
     ) {
-
         try {
-
             if (
                 typeof conn.copyNForward ===
                     "function"
             ) {
-
                 const copied =
                     await conn.copyNForward(
                         getNotifyTargets()[0],
@@ -1231,7 +1163,6 @@ async function recoverViewOnce(
                     )
 
                 if (copied) {
-
                     return {
                         ok: true,
                         buffer:
@@ -1245,9 +1176,7 @@ async function recoverViewOnce(
                     }
                 }
             }
-
         } catch (e) {
-
             console.error(
                 "[AUTOVIEW:DOWNLOAD:FORWARD]",
                 e?.message || e
@@ -1272,7 +1201,6 @@ async function sendRecovered(
     type,
     source
 ) {
-
     if (!buffer) {
         return null
     }
@@ -1285,12 +1213,10 @@ async function sendRecovered(
         )
 
     try {
-
         if (
             mediaType ===
-                "imageMessage"
+            "imageMessage"
         ) {
-
             return await conn.sendMessage(
                 target,
                 {
@@ -1304,9 +1230,8 @@ async function sendRecovered(
 
         if (
             mediaType ===
-                "videoMessage"
+            "videoMessage"
         ) {
-
             return await conn.sendMessage(
                 target,
                 {
@@ -1320,9 +1245,8 @@ async function sendRecovered(
 
         if (
             mediaType ===
-                "audioMessage"
+            "audioMessage"
         ) {
-
             const node =
                 source?.audioMessage ||
                 source
@@ -1345,9 +1269,8 @@ async function sendRecovered(
 
         if (
             mediaType ===
-                "documentMessage"
+            "documentMessage"
         ) {
-
             return await conn.sendMessage(
                 target,
                 {
@@ -1364,9 +1287,7 @@ async function sendRecovered(
                 }
             )
         }
-
     } catch (e) {
-
         console.error(
             "[AUTOVIEW:MEDIA:SEND]",
             e?.message ||
@@ -1381,7 +1302,6 @@ function findNoticeReplyRaw(
     conn,
     message
 ) {
-
     const cache =
         conn._autoviewNotices
 
@@ -1418,7 +1338,6 @@ function findNoticeReplyRaw(
         notice.time >
         NOTICE_TTL
     ) {
-
         cache.delete(
             quotedId
         )
@@ -1434,7 +1353,6 @@ async function sendNoticeReplyRaw(
     message,
     notice
 ) {
-
     const text =
         getRawText(message)
 
@@ -1475,7 +1393,6 @@ async function processNoticeReply(
     m,
     conn
 ) {
-
     const cache =
         conn._autoviewNotices
 
@@ -1512,7 +1429,6 @@ async function processNoticeReply(
         notice.time >
         NOTICE_TTL
     ) {
-
         cache.delete(
             quotedId
         )
@@ -1562,7 +1478,6 @@ function rememberNotice(
     sent,
     data
 ) {
-
     const id =
         sent?.key?.id
 
@@ -1593,7 +1508,6 @@ function rememberNotice(
         conn._autoviewNotices.size >
         SEEN_LIMIT
     ) {
-
         const first =
             conn._autoviewNotices
                 .keys()
@@ -1611,7 +1525,6 @@ function rememberNotice(
 }
 
 function getContextInfo(m) {
-
     return (
         m?.msg?.contextInfo ||
         m?.message?.extendedTextMessage?.contextInfo ||
@@ -1629,7 +1542,6 @@ function findContextInfoRaw(
     message,
     depth = 0
 ) {
-
     if (
         !message ||
         typeof message !== "object" ||
@@ -1653,7 +1565,6 @@ function findContextInfoRaw(
             "extendedTextMessage"
         ]
     ) {
-
         if (
             message?.[type]?.contextInfo
         ) {
@@ -1676,7 +1587,6 @@ function findContextInfoRaw(
             "viewOnceMessageV2Extension"
         ]
     ) {
-
         const found =
             findContextInfoRaw(
                 message?.[wrapper]?.message,
@@ -1692,7 +1602,6 @@ function findContextInfoRaw(
 }
 
 function getRawText(message) {
-
     const content =
         message?.message ||
         message ||
@@ -1710,7 +1619,6 @@ function getRawText(message) {
 }
 
 function getMessageText(m) {
-
     return (
         m?.text ||
         m?.body ||
@@ -1726,7 +1634,6 @@ function getMessageText(m) {
 function unwrapMessage(
     message
 ) {
-
     if (
         !message ||
         typeof message !== "object"
@@ -1742,7 +1649,6 @@ function unwrapMessage(
         i < 30;
         i++
     ) {
-
         let changed =
             false
 
@@ -1759,12 +1665,10 @@ function unwrapMessage(
                 "associatedChildMessage"
             ]
         ) {
-
             const inner =
                 current?.[wrapper]?.message
 
             if (inner) {
-
                 current =
                     inner
 
@@ -1787,7 +1691,6 @@ function getMediaNode(
     message,
     type
 ) {
-
     if (
         !message ||
         typeof message !== "object"
@@ -1815,7 +1718,6 @@ function getMediaNode(
             "documentMessage"
         ]
     ) {
-
         if (
             message?.[name]
         ) {
@@ -1829,7 +1731,6 @@ function getMediaNode(
 function detectMediaType(
     message
 ) {
-
     const unwrapped =
         unwrapMessage(
             message
@@ -1847,7 +1748,6 @@ function detectMediaType(
             "documentMessage"
         ]
     ) {
-
         if (
             unwrapped?.[type]
         ) {
@@ -1861,7 +1761,6 @@ function detectMediaType(
 function normalizeDownloadType(
     type
 ) {
-
     const value =
         normalizeType(type)
 
@@ -1893,7 +1792,6 @@ function normalizeDownloadType(
 }
 
 function normalizeType(type) {
-
     const value =
         String(type || "")
 
@@ -1929,7 +1827,6 @@ function normalizeType(type) {
 }
 
 function getQuotedType(q) {
-
     return normalizeType(
         q?.mediaType ||
         q?.mtype ||
@@ -1945,11 +1842,8 @@ async function getRealPhone(
     chat,
     sender
 ) {
-
     try {
-
         if (!sender) {
-
             return {
                 number: "",
                 country:
@@ -1962,7 +1856,6 @@ async function getRealPhone(
         let participants = []
 
         try {
-
             const metadata =
                 await conn.groupMetadata(
                     chat
@@ -1971,7 +1864,6 @@ async function getRealPhone(
             participants =
                 metadata?.participants ||
                 []
-
         } catch {}
 
         const participant =
@@ -1999,7 +1891,6 @@ async function getRealPhone(
                 )
 
         if (!number) {
-
             return {
                 number: "",
                 country:
@@ -2026,9 +1917,7 @@ async function getRealPhone(
             flag:
                 getFlag(region)
         }
-
     } catch {
-
         return {
             number: "",
             country:
@@ -2040,13 +1929,11 @@ async function getRealPhone(
 }
 
 function getCountry(code) {
-
     if (!code) {
         return "Desconocido"
     }
 
     try {
-
         const names =
             new Intl.DisplayNames(
                 ["es"],
@@ -2060,15 +1947,12 @@ function getCountry(code) {
             names.of(code) ||
             "Desconocido"
         )
-
     } catch {
-
         return "Desconocido"
     }
 }
 
 function getFlag(code) {
-
     if (
         !code ||
         code.length !== 2
@@ -2091,7 +1975,6 @@ function getFlag(code) {
 }
 
 function normalizeMention(value) {
-
     const raw =
         String(value || "")
             .trim()
@@ -2121,7 +2004,6 @@ function alreadySeen(
     conn,
     key
 ) {
-
     if (!key) {
         return false
     }
@@ -2142,7 +2024,6 @@ function alreadySeen(
             time
         ] of cache
     ) {
-
         if (
             now - time >
             SEEN_TTL
@@ -2166,7 +2047,6 @@ function alreadySeen(
         cache.size >
         SEEN_LIMIT
     ) {
-
         const first =
             cache.keys()
                 .next()
@@ -2186,7 +2066,6 @@ function markRawHandled(
     conn,
     id
 ) {
-
     if (!id) {
         return
     }
@@ -2209,13 +2088,11 @@ function markRawHandled(
             time
         ] of cache
     ) {
-
         if (
             Date.now() -
             time >
             SEEN_TTL
         ) {
-
             cache.delete(key)
         }
     }
@@ -2224,7 +2101,6 @@ function markRawHandled(
         cache.size >
         SEEN_LIMIT
     ) {
-
         const first =
             cache.keys()
                 .next()
@@ -2242,7 +2118,6 @@ function wasRawHandled(
     conn,
     id
 ) {
-
     if (!id) {
         return false
     }
@@ -2266,7 +2141,6 @@ function wasRawHandled(
         time >
         SEEN_TTL
     ) {
-
         cache.delete(id)
         return false
     }
@@ -2274,61 +2148,7 @@ function wasRawHandled(
     return true
 }
 
-function rememberNotice(
-    conn,
-    sent,
-    data
-) {
-
-    const id =
-        sent?.key?.id
-
-    if (!id) {
-        return
-    }
-
-    if (
-        !conn._autoviewNotices
-    ) {
-        conn._autoviewNotices =
-            new Map()
-    }
-
-    conn._autoviewNotices.set(
-        id,
-        {
-            id,
-            message:
-                sent,
-            time:
-                Date.now(),
-            ...data
-        }
-    )
-
-    while (
-        conn._autoviewNotices.size >
-        SEEN_LIMIT
-    ) {
-
-        const first =
-            conn._autoviewNotices
-                .keys()
-                .next()
-                .value
-
-        if (!first) {
-            break
-        }
-
-        conn._autoviewNotices.delete(
-            first
-        )
-    }
-}
-
 function getNotifyTargets() {
-
     const configured =
         NOTIFY_JIDS
             .map(
@@ -2339,7 +2159,6 @@ function getNotifyTargets() {
     if (
         configured.length
     ) {
-
         return [
             ...new Set(
                 configured
@@ -2371,7 +2190,6 @@ function getNotifyTargets() {
 }
 
 function normalizeJid(value) {
-
     const raw =
         String(value || "")
             .trim()
@@ -2398,13 +2216,11 @@ function normalizeJid(value) {
 }
 
 function uniqueObjects(values) {
-
     const result = []
 
     for (
         const value of values
     ) {
-
         if (!value) {
             continue
         }
@@ -2422,7 +2238,6 @@ function uniqueObjects(values) {
 }
 
 function getCaption(source) {
-
     if (!source) {
         return ""
     }
