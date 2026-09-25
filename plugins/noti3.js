@@ -172,20 +172,128 @@ async function descargarMedia(conn, source) {
         "No se pudo descargar el multimedia."
     )
 }
+function obtenerTextoOriginal(m) {
 
-let handler = async (m, { conn, text, usedPrefix, command }) => {
+    const msg =
+        m?.message
 
-    if (!text?.trim())
+    if (!msg)
+        return ""
+
+    if (
+        typeof msg.conversation === "string"
+    )
+        return msg.conversation
+
+    if (
+        typeof msg.extendedTextMessage?.text === "string"
+    )
+        return msg.extendedTextMessage.text
+
+    if (
+        typeof msg.imageMessage?.caption === "string"
+    )
+        return msg.imageMessage.caption
+
+    if (
+        typeof msg.videoMessage?.caption === "string"
+    )
+        return msg.videoMessage.caption
+
+    return ""
+}
+function quitarComando(
+    texto,
+    usedPrefix,
+    command
+) {
+
+    const inicio =
+        `${usedPrefix}${command}`
+
+    if (
+        texto.startsWith(inicio)
+    ) {
+        return texto.slice(
+            inicio.length
+        ).trimStart()
+    }
+
+    return texto
+}
+function obtenerParte(
+    texto,
+    inicio,
+    fin = -1
+) {
+
+    if (fin === -1)
+        return texto.slice(inicio).trim()
+
+    return texto
+        .slice(inicio, fin)
+        .trim()
+}
+function separarCampos(texto) {
+
+    const partes = []
+    let inicio = 0
+
+    for (let i = 0; i < texto.length; i++) {
+
+        if (texto[i] === "|") {
+
+            partes.push(
+                obtenerParte(
+                    texto,
+                    inicio,
+                    i
+                )
+            )
+
+            inicio = i + 1
+        }
+    }
+
+    partes.push(
+        obtenerParte(
+            texto,
+            inicio
+        )
+    )
+
+    return partes
+}
+
+let handler = async (
+    m,
+    {
+        conn,
+        text,
+        usedPrefix,
+        command
+    }
+) => {
+    const textoOriginal =
+        obtenerTextoOriginal(m)
+
+    const contenido =
+        textoOriginal
+            ? quitarComando(
+                textoOriginal,
+                usedPrefix,
+                command
+            )
+            : text || ""
+
+    if (!contenido.trim())
         return m.reply(
             `${e} Usa:\n\n` +
             `${usedPrefix + command} <link grupo/canal> | <texto> | <botón> | <sitio web>\n` +
             `${usedPrefix + command} <texto> | <botón> | <sitio web>`
         )
-
     const partes =
-        text
-            .split("|")
-            .map(x => x.trim())
+        separarCampos(contenido)
 
     let targetChat = null
     let texto = ""
@@ -212,7 +320,6 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
 
         const channelCode =
             posibleCanal[1]
-
         texto =
             partes[1]
 
@@ -276,7 +383,6 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
 
             const groupCode =
                 posibleGrupo[1]
-
             texto =
                 partes[1]
 
@@ -343,7 +449,6 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
 
             targetChat =
                 m.chat
-
             texto =
                 partes[0]
 
@@ -432,9 +537,9 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
         )
 
     let mediaSource =
-        actual ?
-            m :
-            null
+        actual
+            ? m
+            : null
 
     if (!actual && m.quoted) {
 
@@ -527,7 +632,7 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
                 "El multimedia está vacío."
             )
 
-        const contenido =
+        const contenidoMedia =
             tipo === "image"
                 ? {
                     image: buffer
@@ -538,7 +643,7 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
 
         const media =
             await prepareWAMessageMedia(
-                contenido,
+                contenidoMedia,
                 {
                     upload:
                         conn.waUploadToServer
@@ -579,7 +684,6 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
                         body: {
                             text: ""
                         },
-
                         footer: {
                             text: texto
                         },
