@@ -2,8 +2,17 @@ let handler = async (m, { conn }) => {
   const baileys = await import('@whiskeysockets/baileys')
 
   const participants = global.db?.data?.chats?.[m.chat]?.participants || []
-
   const subject = conn.chats?.[m.chat]?.subject || 'Grupo'
+
+  const icon = typeof icono === 'function' ? icono() : icono
+
+  const response = await fetch(icon)
+
+  if (!response.ok) {
+    throw new Error(`No se pudo descargar el icono: ${response.status}`)
+  }
+
+  const jpegThumbnail = Buffer.from(await response.arrayBuffer())
 
   const msg = baileys.generateWAMessageFromContent(m.chat, {
     buttonsMessage: {
@@ -12,9 +21,7 @@ let handler = async (m, { conn }) => {
         degreesLongitude: 0,
         name: 'Hola',
         address: global.botname || 'Bot',
-        jpegThumbnail: await Func.createThumb(
-          'https://i.ibb.co/hJ2gNRzP/IMG-20260630-WA0100.jpg'
-        )
+        jpegThumbnail
       },
       contextInfo: {
         mentionedJid: participants.map(v => v.phoneNumber ?? v.id)
