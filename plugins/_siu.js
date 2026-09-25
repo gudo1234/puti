@@ -5,40 +5,61 @@ import path from "path"
 import crypto from "crypto"
 
 async function convertirNotaDeVoz(buffer, extension = "audio") {
+
     if (!Buffer.isBuffer(buffer) || !buffer.length)
         throw new Error("El audio recibido está vacío.")
 
-    const id = crypto.randomBytes(8).toString("hex")
+    const id =
+        crypto.randomBytes(8).toString("hex")
 
-    const dir = await fs.mkdtemp(
-        path.join(os.tmpdir(), `siu-${id}-`)
-    )
+    const dir =
+        await fs.mkdtemp(
+            path.join(
+                os.tmpdir(),
+                `siu-${id}-`
+            )
+        )
 
-    const input = path.join(
-        dir,
-        `input.${extension || "audio"}`
-    )
+    const input =
+        path.join(
+            dir,
+            `input.${extension || "audio"}`
+        )
 
-    const output = path.join(
-        dir,
-        "voice.ogg"
-    )
+    const output =
+        path.join(
+            dir,
+            "voice.ogg"
+        )
 
     try {
-        await fs.writeFile(input, buffer)
+
+        await fs.writeFile(
+            input,
+            buffer
+        )
 
         await new Promise((resolve, reject) => {
+
             let finished = false
 
             const fail = error => {
-                if (finished) return
+
+                if (finished)
+                    return
+
                 finished = true
+
                 reject(error)
             }
 
             const success = () => {
-                if (finished) return
+
+                if (finished)
+                    return
+
                 finished = true
+
                 resolve()
             }
 
@@ -63,35 +84,53 @@ async function convertirNotaDeVoz(buffer, extension = "audio") {
                     "-map_metadata", "-1"
                 ])
                 .format("ogg")
+
                 .on("start", () => {
-                    console.log("🎙️ FFmpeg iniciando conversión...")
+
+                    console.log(
+                        "🎙️ FFmpeg iniciando conversión..."
+                    )
+
                 })
+
                 .on("error", error => {
+
                     console.error(
                         "❌ FFmpeg:",
                         error?.message || error
                     )
+
                     fail(error)
                 })
+
                 .on("end", success)
                 .save(output)
         })
 
-        const result = await fs.readFile(output)
+        const result =
+            await fs.readFile(
+                output
+            )
 
         if (!result || !result.length)
-            throw new Error("FFmpeg produjo un archivo vacío.")
+            throw new Error(
+                "FFmpeg produjo un archivo vacío."
+            )
 
-        const firma = result
-            .subarray(0, 4)
-            .toString("ascii")
+        const firma =
+            result
+                .subarray(0, 4)
+                .toString("ascii")
 
         if (firma !== "OggS")
-            throw new Error("El archivo generado no es un OGG válido.")
+            throw new Error(
+                "El archivo generado no es un OGG válido."
+            )
 
         return result
 
     } finally {
+
         await fs.rm(
             dir,
             {
@@ -103,9 +142,14 @@ async function convertirNotaDeVoz(buffer, extension = "audio") {
 }
 
 function obtenerExtensionAudio(mimetype = "") {
-    const mime = String(mimetype).toLowerCase()
 
-    if (mime.includes("mpeg") || mime.includes("mp3"))
+    const mime =
+        String(mimetype).toLowerCase()
+
+    if (
+        mime.includes("mpeg") ||
+        mime.includes("mp3")
+    )
         return "mp3"
 
     if (
@@ -115,10 +159,15 @@ function obtenerExtensionAudio(mimetype = "") {
     )
         return "m4a"
 
-    if (mime.includes("wav") || mime.includes("wave"))
+    if (
+        mime.includes("wav") ||
+        mime.includes("wave")
+    )
         return "wav"
 
-    if (mime.includes("webm"))
+    if (
+        mime.includes("webm")
+    )
         return "webm"
 
     if (
@@ -127,10 +176,14 @@ function obtenerExtensionAudio(mimetype = "") {
     )
         return "ogg"
 
-    if (mime.includes("flac"))
+    if (
+        mime.includes("flac")
+    )
         return "flac"
 
-    if (mime.includes("amr"))
+    if (
+        mime.includes("amr")
+    )
         return "amr"
 
     return "audio"
@@ -169,6 +222,7 @@ function encontrarMedia(message = {}) {
         for (const tipo of tipos) {
 
             if (obj[tipo]) {
+
                 return {
                     type: tipo,
                     message: obj
@@ -209,11 +263,17 @@ async function descargarMedia(conn, source) {
 
     let buffer = null
 
-    if (typeof source.download === "function") {
+    if (
+        typeof source.download === "function"
+    ) {
 
         try {
-            buffer = await source.download()
+
+            buffer =
+                await source.download()
+
         } catch (error) {
+
             console.log(
                 "⚠️ download() falló:",
                 error?.message || error
@@ -221,15 +281,25 @@ async function descargarMedia(conn, source) {
         }
     }
 
-    if (Buffer.isBuffer(buffer) && buffer.length)
+    if (
+        Buffer.isBuffer(buffer) &&
+        buffer.length
+    )
         return buffer
 
-    if (typeof conn.downloadMediaMessage === "function") {
+    if (
+        typeof conn.downloadMediaMessage === "function"
+    ) {
 
         try {
+
             buffer =
-                await conn.downloadMediaMessage(source)
+                await conn.downloadMediaMessage(
+                    source
+                )
+
         } catch (error) {
+
             console.log(
                 "⚠️ downloadMediaMessage() falló:",
                 error?.message || error
@@ -237,7 +307,10 @@ async function descargarMedia(conn, source) {
         }
     }
 
-    if (Buffer.isBuffer(buffer) && buffer.length)
+    if (
+        Buffer.isBuffer(buffer) &&
+        buffer.length
+    )
         return buffer
 
     if (
@@ -273,7 +346,9 @@ async function descargarMedia(conn, source) {
                 saved || tempFile
 
             const data =
-                await fs.readFile(file)
+                await fs.readFile(
+                    file
+                )
 
             if (
                 Buffer.isBuffer(data) &&
@@ -291,6 +366,7 @@ async function descargarMedia(conn, source) {
         } finally {
 
             if (tempDir) {
+
                 await fs.rm(
                     tempDir,
                     {
@@ -307,23 +383,45 @@ async function descargarMedia(conn, source) {
     )
 }
 
-let handler = async (m, { conn, text, usedPrefix, command }) => {
+let handler = async (
+    m,
+    {
+        conn,
+        text,
+        usedPrefix,
+        command
+    }
+) => {
 
     if (!text?.trim())
         return m.reply(
             `${e} Usa:\n${usedPrefix + command} <link del grupo> | <texto>`
         )
 
-    const partes = text.split("|")
+    /*
+     * Se utiliza solamente el PRIMER "|"
+     * para separar el enlace del mensaje.
+     *
+     * Todo lo que venga después se conserva
+     * exactamente, incluidos saltos de línea.
+     */
+
+    const separador =
+        text.indexOf("|")
 
     const link =
-        partes[0]?.trim()
+        separador !== -1
+            ? text
+                .slice(0, separador)
+                .trim()
+            : text.trim()
 
     const caption =
-        partes
-            .slice(1)
-            .join("|")
-            .trim()
+        separador !== -1
+            ? text
+                .slice(separador + 1)
+                .trim()
+            : ""
 
     const match =
         link.match(
@@ -371,7 +469,9 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
                 typeof joined === "string" &&
                 joined.includes("@g.us")
             ) {
-                targetChat = joined
+
+                targetChat =
+                    joined
             }
 
         } catch {
@@ -456,6 +556,10 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
         }
     }
 
+    /*
+     * SIN MULTIMEDIA
+     */
+
     if (!mediaType) {
 
         if (!caption)
@@ -480,6 +584,10 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
 
         return
     }
+
+    /*
+     * CON MULTIMEDIA
+     */
 
     try {
 
@@ -520,21 +628,27 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
 
         let mediaCaption = ""
 
-        if (mediaType === "imageMessage") {
+        if (
+            mediaType === "imageMessage"
+        ) {
 
             mediaCaption =
                 mediaMsg
                     .imageMessage
                     ?.caption || ""
 
-        } else if (mediaType === "videoMessage") {
+        } else if (
+            mediaType === "videoMessage"
+        ) {
 
             mediaCaption =
                 mediaMsg
                     .videoMessage
                     ?.caption || ""
 
-        } else if (mediaType === "documentMessage") {
+        } else if (
+            mediaType === "documentMessage"
+        ) {
 
             mediaCaption =
                 mediaMsg
@@ -551,20 +665,24 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
 
             case "imageMessage": {
 
-                msg.image = media
+                msg.image =
+                    media
 
                 if (finalCaption)
-                    msg.caption = finalCaption
+                    msg.caption =
+                        finalCaption
 
                 break
             }
 
             case "videoMessage": {
 
-                msg.video = media
+                msg.video =
+                    media
 
                 if (finalCaption)
-                    msg.caption = finalCaption
+                    msg.caption =
+                        finalCaption
 
                 break
             }
@@ -617,8 +735,12 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
                     "bytes"
                 )
 
-                msg.audio = voice
-                msg.ptt = true
+                msg.audio =
+                    voice
+
+                msg.ptt =
+                    true
+
                 msg.mimetype =
                     "audio/ogg; codecs=opus"
 
@@ -631,14 +753,16 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
                     "🧩 Sticker detectado."
                 )
 
-                msg.sticker = media
+                msg.sticker =
+                    media
 
                 break
             }
 
             case "documentMessage": {
 
-                msg.document = media
+                msg.document =
+                    media
 
                 msg.fileName =
                     mediaMsg
@@ -655,7 +779,8 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
                     "application/octet-stream"
 
                 if (finalCaption)
-                    msg.caption = finalCaption
+                    msg.caption =
+                        finalCaption
 
                 break
             }
