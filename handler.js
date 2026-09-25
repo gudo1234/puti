@@ -261,21 +261,40 @@ function getParticipantKeys(conn, participant) {
 }
 
 export async function handler(chatUpdate) {
-  this.msgqueque ||= []
-
   if (!chatUpdate.messages?.length) {
     return
   }
   const messages = chatUpdate.messages.filter(Boolean)
   if (!messages.length) return
 
-  for (const message of messages) {
-    try {
-      await processMessage.call(this, message, chatUpdate)
-    } catch (error) {
-      console.error('[HANDLER] Error procesando mensaje:', error?.stack || error)
-    }
-  }
+  this._chatQueues ||= new Map()
+
+  const tasks = messages.map(message => {
+    const chatId = message?.key?.remoteJid || message?.remoteJid || 'unknown'
+    const previous = this._chatQueues.get(chatId) || Promise.resolve()
+
+    let release
+    const current = new Promise(resolve => {
+      release = resolve
+    })
+
+    this._chatQueues.set(chatId, current)
+
+    return previous
+      .catch(() => {})
+      .then(() => processMessage.call(this, message, chatUpdate))
+      .catch(error => {
+        console.error('[HANDLER] Error procesando mensaje:', error?.stack || error)
+      })
+      .finally(() => {
+        release()
+        if (this._chatQueues.get(chatId) === current) {
+          this._chatQueues.delete(chatId)
+        }
+      })
+  })
+
+  await Promise.allSettled(tasks)
 }
 
 async function processMessage(m, chatUpdate) {
@@ -541,30 +560,6 @@ async function processMessage(m, chatUpdate) {
       premiumNumbers.includes(number)
     ) ||
     _user.premium
-
-  if (
-    global.opts?.queque &&
-    m.text &&
-    !(isMods || isPrems)
-  ) {
-    const queue = this.msgqueque
-    const prev = queue.at(-1)
-
-    queue.push(
-      m.id || m.key.id
-    )
-
-    setInterval(
-      async function () {
-        if (!queue.includes(prev)) {
-          clearInterval(this)
-        }
-
-        await delay(5000)
-      },
-      5000
-    )
-  }
 
   for (
     const name of Object.keys(
