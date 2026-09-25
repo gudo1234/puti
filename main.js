@@ -49,9 +49,11 @@ global.opts = {}
 
 for (let i = 0; i < argv.length; i++) {
   const arg = argv[i]
+
   if (!arg.startsWith('--')) continue
 
   const key = arg.slice(2)
+
   if (!key) continue
 
   const next = argv[i + 1]
@@ -68,45 +70,87 @@ const prefixValue = global.opts.prefix || '‎z/#$%.\\-'
 
 global.prefix = new RegExp(
   '^[' +
-  String(prefixValue).replace(/[|\\{}()[\]^$+*?.\-\^]/g, '\\$&') +
+  String(prefixValue).replace(
+    /[|\\{}()[\]^$+*?.\-\^]/g,
+    '\\$&'
+  ) +
   ']'
 )
 
-const storageDir = join(__dirname, 'storage', 'databases')
+const storageDir = join(
+  __dirname,
+  'storage',
+  'databases'
+)
 
-mkdirSync(storageDir, { recursive: true })
+mkdirSync(
+  storageDir,
+  {
+    recursive: true
+  }
+)
 
-const dbFile = join(storageDir, 'database.json')
+const dbFile = join(
+  storageDir,
+  'database.json'
+)
 
-global.db = new Low(new JSONFile(dbFile))
+global.db = new Low(
+  new JSONFile(dbFile)
+)
+
 global.DATABASE = global.db
 
 global.loadDatabase = async function loadDatabase() {
+
   if (global.db.READ) {
+
     return new Promise(resolve => {
-      const timer = setInterval(() => {
-        if (!global.db.READ) {
-          clearInterval(timer)
-          resolve(global.db.data || global.loadDatabase())
-        }
-      }, 100)
+
+      const timer =
+        setInterval(() => {
+
+          if (!global.db.READ) {
+
+            clearInterval(timer)
+
+            resolve(
+              global.db.data ||
+              global.loadDatabase()
+            )
+          }
+
+        }, 100)
+
     })
   }
 
-  if (global.db.data !== null) return global.db.data
+  if (
+    global.db.data !== null
+  ) {
+    return global.db.data
+  }
 
   global.db.READ = true
 
   try {
+
     await global.db.read()
+
   } catch (error) {
-    if (error?.code !== 'ENOENT') {
+
+    if (
+      error?.code !== 'ENOENT'
+    ) {
+
       console.error(
         '[DB] Error leyendo database.json:',
         error
       )
     }
+
   } finally {
+
     global.db.READ = false
   }
 
@@ -120,90 +164,154 @@ global.loadDatabase = async function loadDatabase() {
     ...(global.db.data || {})
   }
 
-  global.db.chain = chain(global.db.data)
+  global.db.chain =
+    chain(
+      global.db.data
+    )
 
   return global.db.data
 }
 
 await global.loadDatabase()
 
-const sessionsDir = join(__dirname, 'sessions')
+const sessionsDir =
+  join(
+    __dirname,
+    'sessions'
+  )
 
-mkdirSync(sessionsDir, { recursive: true })
-
-const question = text => new Promise(resolve => {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  })
-
-  rl.question(text, answer => {
-    rl.close()
-    resolve(answer)
-  })
-})
-
-const { state, saveCreds } = await useMultiFileAuthState(sessionsDir)
-
-const msgRetryCounterCache = new NodeCache({
-  stdTTL: 0,
-  checkperiod: 0,
-  useClones: false
-})
-
-const userDevicesCache = new NodeCache({
-  stdTTL: 0,
-  checkperiod: 0,
-  useClones: false
-})
-
-const mediaCache = new NodeCache({
-  stdTTL: 0,
-  checkperiod: 0,
-  useClones: false
-})
-
-global.groupMetadataCache = new NodeCache({
-  stdTTL: 60,
-  checkperiod: 30,
-  useClones: false
-})
-
-global.cachedGroupMetadata = async function (jid) {
-  if (!jid?.endsWith('@g.us')) return {}
-
-  const cached = global.groupMetadataCache.get(jid)
-
-  if (cached) return cached
-
-  try {
-    const metadata = await global.conn.groupMetadata(jid)
-
-    global.groupMetadataCache.set(jid, metadata)
-
-    return metadata
-  } catch (error) {
-    console.error(
-      '[cachedGroupMetadata]',
-      error?.message || error
-    )
-
-    return {}
+mkdirSync(
+  sessionsDir,
+  {
+    recursive: true
   }
-}
+)
 
-const logger = pino({
-  level: process.env.LOG_LEVEL || 'silent'
-})
+const question =
+  text =>
+    new Promise(resolve => {
+
+      const rl =
+        readline.createInterface({
+          input: process.stdin,
+          output: process.stdout
+        })
+
+      rl.question(
+        text,
+        answer => {
+
+          rl.close()
+
+          resolve(answer)
+
+        }
+      )
+    })
+
+const {
+  state,
+  saveCreds
+} =
+  await useMultiFileAuthState(
+    sessionsDir
+  )
+
+const msgRetryCounterCache =
+  new NodeCache({
+    stdTTL: 0,
+    checkperiod: 0,
+    useClones: false
+  })
+
+const userDevicesCache =
+  new NodeCache({
+    stdTTL: 0,
+    checkperiod: 0,
+    useClones: false
+  })
+
+const mediaCache =
+  new NodeCache({
+    stdTTL: 0,
+    checkperiod: 0,
+    useClones: false
+  })
+
+global.groupMetadataCache =
+  new NodeCache({
+    stdTTL: 60,
+    checkperiod: 30,
+    useClones: false
+  })
+
+global.cachedGroupMetadata =
+  async function (jid) {
+
+    if (
+      !jid?.endsWith('@g.us')
+    ) {
+      return {}
+    }
+
+    const cached =
+      global.groupMetadataCache.get(
+        jid
+      )
+
+    if (cached) {
+      return cached
+    }
+
+    try {
+
+      const metadata =
+        await global.conn.groupMetadata(
+          jid
+        )
+
+      global.groupMetadataCache.set(
+        jid,
+        metadata
+      )
+
+      return metadata
+
+    } catch (error) {
+
+      console.error(
+        '[cachedGroupMetadata]',
+        error?.message || error
+      )
+
+      return {}
+    }
+  }
+
+const logger =
+  pino({
+    level:
+      process.env.LOG_LEVEL ||
+      'silent'
+  })
 
 let baileysVersion
 
 try {
-  if (fetchLatestBaileysVersion) {
-    const latest = await fetchLatestBaileysVersion()
-    baileysVersion = latest?.version
+
+  if (
+    fetchLatestBaileysVersion
+  ) {
+
+    const latest =
+      await fetchLatestBaileysVersion()
+
+    baileysVersion =
+      latest?.version
   }
+
 } catch (error) {
+
   console.warn(
     '[Baileys] No se pudo consultar la versión más reciente:',
     error?.message || error
@@ -211,35 +319,68 @@ try {
 }
 
 const connectionOptions = {
+
   logger,
-  printQRInTerminal: false,
-  mobile: false,
-  emitOwnEvents: true,
-  keepAliveIntervalMs: 20000,
+
+  printQRInTerminal:
+    false,
+
+  mobile:
+    false,
+
+  emitOwnEvents:
+    true,
+
+  keepAliveIntervalMs:
+    20000,
+
   mediaCache,
+
   msgRetryCounterCache,
+
   userDevicesCache,
 
   auth: {
-    creds: state.creds,
-    keys: makeCacheableSignalKeyStore(
-      state.keys,
-      logger
-    )
+    creds:
+      state.creds,
+
+    keys:
+      makeCacheableSignalKeyStore(
+        state.keys,
+        logger
+      )
   },
 
-  getMessage: async () => undefined,
+  getMessage:
+    async () =>
+      undefined,
 
-  generateHighQualityLinkPreview: true,
-  shouldSyncHistoryMessage: () => false,
-  syncFullHistory: false,
-  markOnlineOnConnect: false,
-  defaultQueryTimeoutMs: 60000,
-  connectTimeoutMs: 60000,
-  qrTimeout: 60000,
+  generateHighQualityLinkPreview:
+    true,
+
+  shouldSyncHistoryMessage:
+    () => false,
+
+  syncFullHistory:
+    false,
+
+  markOnlineOnConnect:
+    false,
+
+  defaultQueryTimeoutMs:
+    60000,
+
+  connectTimeoutMs:
+    60000,
+
+  qrTimeout:
+    60000,
 
   ...(baileysVersion
-    ? { version: baileysVersion }
+    ? {
+        version:
+          baileysVersion
+      }
     : {}),
 
   browser: [
@@ -266,7 +407,9 @@ let lastMessageActivity = Date.now()
 let watchdogTimer = null
 
 function getDisconnectCode(update = {}) {
-  const error = update?.lastDisconnect?.error
+
+  const error =
+    update?.lastDisconnect?.error
 
   return (
     error?.output?.statusCode ??
@@ -278,7 +421,10 @@ function getDisconnectCode(update = {}) {
 }
 
 function closeSocket(socket) {
-  if (!socket) return
+
+  if (!socket) {
+    return
+  }
 
   try {
     socket.ev?.removeAllListeners?.()
@@ -290,7 +436,9 @@ function closeSocket(socket) {
 
   try {
     socket.end?.(
-      new Error('Reinicio de conexión')
+      new Error(
+        'Reinicio de conexión'
+      )
     )
   } catch {}
 }
@@ -299,7 +447,10 @@ function scheduleReconnect(
   reason = 'desconocido',
   delay = null
 ) {
-  if (reconnectTimer) return
+
+  if (reconnectTimer) {
+    return
+  }
 
   reconnectPending = true
   reconnectAttempt++
@@ -308,7 +459,11 @@ function scheduleReconnect(
     delay ??
     Math.min(
       30000,
-      3000 * Math.min(reconnectAttempt, 5)
+      3000 *
+      Math.min(
+        reconnectAttempt,
+        5
+      )
     )
 
   console.warn(
@@ -317,50 +472,75 @@ function scheduleReconnect(
     )
   )
 
-  reconnectTimer = setTimeout(
-    async () => {
-      reconnectTimer = null
-      reconnectPending = false
+  reconnectTimer =
+    setTimeout(
+      async () => {
 
-      await restartConnection(reason)
-    },
-    wait
-  )
+        reconnectTimer = null
+        reconnectPending = false
+
+        await restartConnection(
+          reason
+        )
+
+      },
+      wait
+    )
 }
 
 async function createConnection() {
-  const previous = conn
+
+  const previous =
+    conn
 
   connectionGeneration++
 
-  const generation = connectionGeneration
+  const generation =
+    connectionGeneration
 
   if (previous) {
-    closeSocket(previous)
+    closeSocket(
+      previous
+    )
   }
 
-  conn = global.conn =
-    makeWASocket(connectionOptions)
-
-  conn.__generation = generation
-  conn.__createdAt = Date.now()
-
-  lastSocketActivity = Date.now()
-
-  conn.isInit = false
-  conn.well = false
-
-  if (!state.creds.registered) {
-    let phoneNumber = await question(
-      chalk.blue(
-        'Ingresa el número de WhatsApp para vincular el bot (ej. 504XXXXXXXX):\n'
+  conn =
+    global.conn =
+      makeWASocket(
+        connectionOptions
       )
-    )
 
-    phoneNumber = phoneNumber.replace(
-      /\D/g,
-      ''
-    )
+  conn.__generation =
+    generation
+
+  conn.__createdAt =
+    Date.now()
+
+  lastSocketActivity =
+    Date.now()
+
+  conn.isInit =
+    false
+
+  conn.well =
+    false
+
+  if (
+    !state.creds.registered
+  ) {
+
+    let phoneNumber =
+      await question(
+        chalk.blue(
+          'Ingresa el número de WhatsApp para vincular el bot (ej. 504XXXXXXXX):\n'
+        )
+      )
+
+    phoneNumber =
+      phoneNumber.replace(
+        /\D/g,
+        ''
+      )
 
     if (!phoneNumber) {
       throw new Error(
@@ -368,17 +548,24 @@ async function createConnection() {
       )
     }
 
-    if (!conn.requestPairingCode) {
+    if (
+      !conn.requestPairingCode
+    ) {
       throw new Error(
         'Esta versión de Baileys no soporta código de vinculación.'
       )
     }
 
-    await new Promise(resolve =>
-      setTimeout(resolve, 3000)
+    await new Promise(
+      resolve =>
+        setTimeout(
+          resolve,
+          3000
+        )
     )
 
     try {
+
       const code =
         await conn.requestPairingCode(
           phoneNumber
@@ -386,14 +573,12 @@ async function createConnection() {
 
       console.log(
         chalk.magenta(
-          `Código de vinculación: ${
-            String(code)
-              .match(/.{1,4}/g)
-              ?.join('-') || code
-          }`
+          `Código de vinculación: ${String(code).match(/.{1,4}/g)?.join('-') || code}`
         )
       )
+
     } catch (error) {
+
       console.error(
         chalk.red(
           '❌ No se pudo solicitar el código de vinculación:',
@@ -411,13 +596,18 @@ async function createConnection() {
   return conn
 }
 
-async function connectionUpdate(update) {
+async function connectionUpdate(
+  update
+) {
+
   const {
     connection,
     isNewLogin
-  } = update || {}
+  } =
+    update || {}
 
-  lastSocketActivity = Date.now()
+  lastSocketActivity =
+    Date.now()
 
   if (
     this !== conn ||
@@ -431,17 +621,29 @@ async function connectionUpdate(update) {
     conn.isInit = true
   }
 
-  if (connection === 'open') {
+  if (
+    connection === 'open'
+  ) {
+
     global.botStartTime =
-      Math.floor(Date.now() / 1000)
+      Math.floor(
+        Date.now() / 1000
+      )
 
-    lastSocketActivity = Date.now()
-    lastMessageActivity = Date.now()
+    lastSocketActivity =
+      Date.now()
 
-    reconnectAttempt = 0
-    reconnectPending = false
+    lastMessageActivity =
+      Date.now()
 
-    conn.isInit = true
+    reconnectAttempt =
+      0
+
+    reconnectPending =
+      false
+
+    conn.isInit =
+      true
 
     console.log(
       chalk.green(
@@ -458,15 +660,22 @@ async function connectionUpdate(update) {
     return
   }
 
-  if (connection !== 'close') return
+  if (
+    connection !== 'close'
+  ) {
+    return
+  }
 
   const code =
-    getDisconnectCode(update)
+    getDisconnectCode(
+      update
+    )
 
   if (
     code ===
     DisconnectReason?.loggedOut
   ) {
+
     console.error(
       chalk.red(
         '❌ Sesión cerrada. No se borrarán las credenciales automáticamente.'
@@ -478,11 +687,7 @@ async function connectionUpdate(update) {
 
   console.warn(
     chalk.yellow(
-      `⚠️ Conexión cerrada${
-        code
-          ? ` (código ${code})`
-          : ''
-      }. Reconectando...`
+      `⚠️ Conexión cerrada${code ? ` (código ${code})` : ''}. Reconectando...`
     )
   )
 
@@ -499,32 +704,48 @@ async function connectionUpdate(update) {
 async function restartConnection(
   reason = 'reinicio'
 ) {
+
   if (restarting) {
-    reconnectPending = true
+
+    reconnectPending =
+      true
+
     return
   }
 
-  restarting = true
+  restarting =
+    true
 
   try {
+
     console.log(
       chalk.gray(
         `🔁 Iniciando reconexión · ${reason}`
       )
     )
 
-    closeSocket(conn)
+    closeSocket(
+      conn
+    )
 
     const newConn =
       await createConnection()
 
-    if (newConn === conn) {
+    if (
+      newConn === conn
+    ) {
+
       await attachHandlers()
     }
 
-    lastSocketActivity = Date.now()
-    lastMessageActivity = Date.now()
+    lastSocketActivity =
+      Date.now()
+
+    lastMessageActivity =
+      Date.now()
+
   } catch (error) {
+
     console.error(
       '[RESTART]',
       error?.stack || error
@@ -534,8 +755,11 @@ async function restartConnection(
       'error creando conexión',
       5000
     )
+
   } finally {
-    restarting = false
+
+    restarting =
+      false
   }
 
   if (
@@ -543,6 +767,7 @@ async function restartConnection(
     !reconnectTimer &&
     conn
   ) {
+
     scheduleReconnect(
       'reconexión pendiente',
       3000
@@ -550,24 +775,135 @@ async function restartConnection(
   }
 }
 
+/*
+ * ============================================================
+ * AUTOVIEW RAW
+ * ============================================================
+ *
+ * Este listener recibe el WebMessageInfo ORIGINAL de Baileys
+ * ANTES de que handler.js lo serialice.
+ *
+ * Esto es lo importante para detectar automáticamente:
+ *
+ * - viewOnceMessage
+ * - viewOnceMessageV2
+ * - viewOnceMessageV2Extension
+ * - imageMessage.viewOnce
+ * - videoMessage.viewOnce
+ * - audioMessage.viewOnce
+ * - documentMessage.viewOnce
+ * - wrappers como ephemeralMessage
+ *
+ * El plugin autoview.js registra:
+ *
+ * global.__autoviewRawHandler
+ *
+ * Por eso no necesita que el usuario cite la vista una vez.
+ * ============================================================
+ */
+
+async function processRawAutoview(
+  socket,
+  update
+) {
+
+  try {
+
+    const rawHandler =
+      global.__autoviewRawHandler
+
+    if (
+      typeof rawHandler !==
+      'function'
+    ) {
+      return
+    }
+
+    const messages =
+      Array.isArray(
+        update?.messages
+      )
+        ? update.messages
+        : []
+
+    if (!messages.length) {
+      return
+    }
+
+    for (
+      const message of messages
+    ) {
+
+      if (!message) {
+        continue
+      }
+
+      try {
+
+        await rawHandler(
+          socket,
+          message
+        )
+
+      } catch (error) {
+
+        console.error(
+          chalk.red(
+            '❌ Error AUTOVIEW RAW:'
+          ),
+          error?.stack ||
+          error
+        )
+      }
+    }
+
+  } catch (error) {
+
+    console.error(
+      chalk.red(
+        '❌ Error en listener AUTOVIEW RAW:'
+      ),
+      error?.stack ||
+      error
+    )
+  }
+}
+
 async function attachHandlers() {
+
   if (!handler) {
+
     handler =
-      await import('./handler.js')
+      await import(
+        './handler.js'
+      )
   }
 
   try {
-    if (conn.__handlersAttached) {
+
+    if (
+      conn.__handlersAttached
+    ) {
       return
     }
+
   } catch {}
 
-  const currentConn = conn
+  const currentConn =
+    conn
+
   const currentGeneration =
     connectionGeneration
 
+  /*
+   * ==========================================================
+   * HANDLER NORMAL
+   * ==========================================================
+   */
+
   currentConn.handler =
     async update => {
+
       if (
         currentConn !== conn ||
         currentGeneration !==
@@ -583,18 +919,78 @@ async function attachHandlers() {
         Date.now()
 
       try {
+
         await handler.handler.call(
           currentConn,
           update
         )
+
       } catch (error) {
+
         console.error(
           chalk.red(
             '❌ Error procesando messages.upsert:'
           ),
-          error?.stack || error
+          error?.stack ||
+          error
         )
       }
+    }
+
+  /*
+   * ==========================================================
+   * AUTOVIEW RAW
+   * ==========================================================
+   *
+   * IMPORTANTE:
+   *
+   * Este listener se ejecuta ANTES del handler normal.
+   *
+   * Así autoview recibe el mensaje original de Baileys.
+   * ==========================================================
+   */
+
+  currentConn.rawMessagesHandler =
+    async update => {
+
+      if (
+        currentConn !== conn ||
+        currentGeneration !==
+          connectionGeneration
+      ) {
+        return
+      }
+
+      lastSocketActivity =
+        Date.now()
+
+      try {
+
+        await processRawAutoview(
+          currentConn,
+          update
+        )
+
+      } catch (error) {
+
+        console.error(
+          chalk.red(
+            '❌ Error AUTOVIEW messages.upsert:'
+          ),
+          error?.stack ||
+          error
+        )
+      }
+
+      /*
+       * Después de que AUTOVIEW haya recibido
+       * el WebMessageInfo original,
+       * dejamos continuar al handler normal.
+       */
+
+      await currentConn.handler(
+        update
+      )
     }
 
   currentConn.connectionUpdate =
@@ -606,84 +1002,19 @@ async function attachHandlers() {
     saveCreds
 
   /*
-   * ============================================================
-   * AUTOVIEW — DETECCIÓN RAW DE VIEW ONCE
-   * ============================================================
+   * ==========================================================
+   * ORDEN DE LISTENERS
+   * ==========================================================
    *
-   * El plugin autoview.js registra:
+   * PRIMERO:
+   *     rawMessagesHandler
    *
-   * global.__autoviewRawHandler
+   * DESPUÉS:
+   *     handler normal
    *
-   * Este listener recibe el mensaje original de Baileys
-   * antes de que pase por serialize().
-   *
-   * Así puede detectar:
-   *
-   * - viewOnceMessage
-   * - viewOnceMessageV2
-   * - viewOnceMessageV2Extension
-   * - imageMessage con viewOnce
-   * - videoMessage con viewOnce
-   * - audioMessage con viewOnce
-   * - documentMessage con viewOnce
-   * - wrappers anidados
-   * - ViewOnce citados
-   *
-   * Luego el mensaje continúa normalmente hacia handler.js.
-   * ============================================================
+   * Esto permite detectar ViewOnce sin citar.
+   * ==========================================================
    */
-
-  currentConn.rawMessagesHandler =
-    async update => {
-      try {
-        const rawHandler =
-          global.__autoviewRawHandler
-
-        if (
-          typeof rawHandler ===
-          'function'
-        ) {
-          const messages =
-            Array.isArray(
-              update?.messages
-            )
-              ? update.messages
-              : []
-
-          for (
-            const message
-            of messages
-          ) {
-            try {
-              await rawHandler(
-                currentConn,
-                message
-              )
-            } catch (error) {
-              console.error(
-                '[AUTOVIEW:RAW]',
-                error?.stack || error
-              )
-            }
-          }
-        }
-      } catch (error) {
-        console.error(
-          '[AUTOVIEW:RAW:LISTENER]',
-          error?.stack || error
-        )
-      }
-
-      /*
-       * Después de que autoview terminó,
-       * dejamos continuar el flujo normal
-       * del bot.
-       */
-
-      await currentConn.handler(
-        update
-      )
-    }
 
   currentConn.ev.on(
     'messages.upsert',
@@ -703,19 +1034,26 @@ async function attachHandlers() {
   currentConn.ev.on(
     'groups.update',
     updates => {
+
       try {
+
         for (
-          const update
-          of Array.isArray(updates)
+          const update of
+          Array.isArray(updates)
             ? updates
             : []
         ) {
-          if (update?.id) {
+
+          if (
+            update?.id
+          ) {
+
             global.groupMetadataCache?.del(
               update.id
             )
           }
         }
+
       } catch {}
     }
   )
@@ -723,12 +1061,18 @@ async function attachHandlers() {
   currentConn.ev.on(
     'group-participants.update',
     update => {
+
       try {
-        if (update?.id) {
+
+        if (
+          update?.id
+        ) {
+
           global.groupMetadataCache?.del(
             update.id
           )
         }
+
       } catch {}
     }
   )
@@ -736,21 +1080,32 @@ async function attachHandlers() {
   currentConn.__handlersAttached =
     true
 
-  isInit = true
+  isInit =
+    true
 }
 
 global.reloadHandler =
-  async function (restart = false) {
+  async function (
+    restart = false
+  ) {
+
     try {
+
       const Handler =
         await import(
           `./handler.js?update=${Date.now()}`
         )
 
-      if (Handler?.handler) {
-        handler = Handler
+      if (
+        Handler?.handler
+      ) {
+
+        handler =
+          Handler
       }
+
     } catch (error) {
+
       console.error(
         '[HANDLER] No se pudo recargar:',
         error
@@ -760,6 +1115,7 @@ global.reloadHandler =
     }
 
     if (restart) {
+
       scheduleReconnect(
         'reloadHandler',
         1000
@@ -768,38 +1124,61 @@ global.reloadHandler =
       return true
     }
 
-    if (conn && isInit) {
+    if (
+      conn &&
+      isInit
+    ) {
+
       try {
+
         conn.ev.off(
           'messages.upsert',
           conn.rawMessagesHandler
         )
+
       } catch {}
 
       try {
+
+        conn.ev.off(
+          'messages.upsert',
+          conn.handler
+        )
+
+      } catch {}
+
+      try {
+
         conn.ev.off(
           'connection.update',
           conn.connectionUpdate
         )
+
       } catch {}
 
       try {
+
         conn.ev.off(
           'creds.update',
           conn.credsUpdate
         )
+
       } catch {}
 
       try {
+
         conn.ev.removeAllListeners(
           'groups.update'
         )
+
       } catch {}
 
       try {
+
         conn.ev.removeAllListeners(
           'group-participants.update'
         )
+
       } catch {}
 
       conn.__handlersAttached =
@@ -811,140 +1190,170 @@ global.reloadHandler =
     return true
   }
 
-// Watchdog: si el WebSocket se cierra sin que el evento de Baileys consiga
-// recuperarlo, programamos una reconexión. También hacemos una comprobación
-// periódica de actividad para detectar sockets zombis.
+/*
+ * ============================================================
+ * WATCHDOG
+ * ============================================================
+ */
 
-watchdogTimer = setInterval(
-  () => {
-    if (
-      restarting ||
-      !conn
-    ) {
-      return
-    }
+watchdogTimer =
+  setInterval(
+    () => {
 
-    const ws = conn.ws
-    const readyState =
-      ws?.readyState
+      if (
+        restarting ||
+        !conn
+      ) {
+        return
+      }
 
-    if (
-      ws &&
-      typeof readyState ===
-        'number' &&
-      readyState !== 1
-    ) {
-      console.warn(
-        chalk.yellow(
-          `⚠️ Watchdog: WebSocket no está abierto (estado ${readyState}). Reconectando...`
-        )
-      )
+      const ws =
+        conn.ws
 
-      scheduleReconnect(
-        `watchdog estado ${readyState}`,
-        2000
-      )
+      const readyState =
+        ws?.readyState
 
-      return
-    }
+      if (
+        ws &&
+        typeof readyState ===
+          'number' &&
+        readyState !== 1
+      ) {
 
-    if (
-      ws &&
-      typeof readyState ===
-        'number' &&
-      readyState === 1 &&
-      Date.now() -
-        lastSocketActivity >
-        10 * 60 * 1000
-    ) {
-      console.log(
-        chalk.gray(
-          '🩺 Watchdog: 10 min sin eventos; comprobando conexión...'
-        )
-      )
-
-      try {
-        const result =
-          conn.sendPresenceUpdate?.(
-            'available'
-          )
-
-        if (result?.catch) {
-          result.catch(
-            error => {
-              console.warn(
-                chalk.yellow(
-                  '⚠️ Watchdog: el socket no respondió. Reconectando...'
-                )
-              )
-
-              scheduleReconnect(
-                `watchdog sin respuesta: ${
-                  error?.message ||
-                  error
-                }`,
-                2000
-              )
-            }
-          )
-        }
-      } catch (error) {
         console.warn(
           chalk.yellow(
-            '⚠️ Watchdog: error comprobando socket. Reconectando...'
+            `⚠️ Watchdog: WebSocket no está abierto (estado ${readyState}). Reconectando...`
           )
         )
 
         scheduleReconnect(
-          `watchdog: ${
-            error?.message ||
-            error
-          }`,
+          `watchdog estado ${readyState}`,
           2000
         )
+
+        return
       }
 
-      lastSocketActivity =
-        Date.now()
-    }
-  },
-  60 * 1000
-)
+      if (
+        ws &&
+        typeof readyState ===
+          'number' &&
+        readyState === 1 &&
+        Date.now() -
+          lastSocketActivity >
+          10 * 60 * 1000
+      ) {
+
+        console.log(
+          chalk.gray(
+            '🩺 Watchdog: 10 min sin eventos; comprobando conexión...'
+          )
+        )
+
+        try {
+
+          const result =
+            conn.sendPresenceUpdate?.(
+              'available'
+            )
+
+          if (
+            result?.catch
+          ) {
+
+            result.catch(
+              error => {
+
+                console.warn(
+                  chalk.yellow(
+                    '⚠️ Watchdog: el socket no respondió. Reconectando...'
+                  )
+                )
+
+                scheduleReconnect(
+                  `watchdog sin respuesta: ${error?.message || error}`,
+                  2000
+                )
+              }
+            )
+          }
+
+        } catch (error) {
+
+          console.warn(
+            chalk.yellow(
+              '⚠️ Watchdog: error comprobando socket. Reconectando...'
+            )
+          )
+
+          scheduleReconnect(
+            `watchdog: ${error?.message || error}`,
+            2000
+          )
+        }
+
+        lastSocketActivity =
+          Date.now()
+      }
+
+    },
+    60 * 1000
+  )
+
+/*
+ * ============================================================
+ * PLUGINS
+ * ============================================================
+ */
 
 const pluginFolder =
-  join(__dirname, './plugins')
+  join(
+    __dirname,
+    './plugins'
+  )
 
 const pluginFilter =
-  filename => /\.js$/.test(filename)
+  filename =>
+    /\.js$/.test(
+      filename
+    )
 
-global.plugins = {}
+global.plugins =
+  {}
 
 async function loadPlugin(
   filename
 ) {
+
   const dir =
     join(
       pluginFolder,
       filename
     )
 
-  if (!existsSync(dir)) {
+  if (
+    !existsSync(dir)
+  ) {
     return false
   }
 
   try {
+
     const err =
       syntaxerror(
         readFileSync(dir),
         filename,
         {
-          sourceType: 'module',
+          sourceType:
+            'module',
+
           allowAwaitOutsideFunction:
             true
         }
       )
 
     if (err) {
+
       console.error(
         `❗ Error de sintaxis en ${filename}:`,
         format(err)
@@ -963,28 +1372,38 @@ async function loadPlugin(
       module
 
     return true
+
   } catch (error) {
+
     console.error(
       `❌ No se pudo cargar plugin ${filename}:`,
-      error?.stack || error
+      error?.stack ||
+      error
     )
 
-    delete global.plugins[filename]
+    delete global.plugins[
+      filename
+    ]
 
     return false
   }
 }
 
 async function filesInit() {
+
   const files =
-    readdirSync(pluginFolder)
-      .filter(pluginFilter)
+    readdirSync(
+      pluginFolder
+    )
+      .filter(
+        pluginFilter
+      )
       .sort()
 
   for (
-    const filename
-    of files
+    const filename of files
   ) {
+
     await loadPlugin(
       filename
     )
@@ -1000,12 +1419,20 @@ async function filesInit() {
 await filesInit()
 
 global.reload =
-  async (_event, filename) => {
-    if (!pluginFilter(filename)) {
+  async (
+    _event,
+    filename
+  ) => {
+
+    if (
+      !pluginFilter(filename)
+    ) {
       return
     }
 
-    await loadPlugin(filename)
+    await loadPlugin(
+      filename
+    )
   }
 
 Object.freeze(
@@ -1013,22 +1440,30 @@ Object.freeze(
 )
 
 try {
+
   watch(
     pluginFolder,
     global.reload
   )
+
 } catch (error) {
+
   console.error(
     '[PLUGINS] No se pudo activar el watcher:',
     error
   )
 }
 
-global.dbDirty = false
+global.dbDirty =
+  false
 
-if (!global.opts.test) {
+if (
+  !global.opts.test
+) {
+
   setInterval(
     async () => {
+
       if (
         !global.dbDirty ||
         !global.db.data
@@ -1037,21 +1472,27 @@ if (!global.opts.test) {
       }
 
       try {
+
         await global.db.write()
 
-        global.dbDirty = false
+        global.dbDirty =
+          false
+
       } catch (error) {
+
         console.error(
           '[DB] Error guardando:',
           error
         )
       }
+
     },
     30000
   )
 }
 
 async function clearTmp() {
+
   const dirs = [
     tmpdir(),
     join(
@@ -1061,23 +1502,32 @@ async function clearTmp() {
   ]
 
   for (
-    const dir
-    of dirs
+    const dir of dirs
   ) {
-    if (!existsSync(dir)) {
+
+    if (
+      !existsSync(dir)
+    ) {
       continue
     }
 
     for (
-      const file
-      of readdirSync(dir)
+      const file of
+      readdirSync(dir)
     ) {
+
       const full =
-        join(dir, file)
+        join(
+          dir,
+          file
+        )
 
       try {
+
         const stats =
-          statSync(full)
+          statSync(
+            full
+          )
 
         if (
           stats.isFile() &&
@@ -1085,8 +1535,12 @@ async function clearTmp() {
             stats.mtimeMs >=
             60_000
         ) {
-          unlinkSync(full)
+
+          unlinkSync(
+            full
+          )
         }
+
       } catch {}
     }
   }
@@ -1095,16 +1549,20 @@ async function clearTmp() {
 setInterval(
   () =>
     clearTmp()
-      .catch?.(console.error),
+      .catch?.(
+        console.error
+      ),
   5 * 60 * 1000
 )
 
 process.on(
   'uncaughtException',
   error => {
+
     console.error(
       '❌ uncaughtException:',
-      error?.stack || error
+      error?.stack ||
+      error
     )
   }
 )
@@ -1112,14 +1570,17 @@ process.on(
 process.on(
   'unhandledRejection',
   error => {
+
     console.error(
       '❌ unhandledRejection:',
-      error?.stack || error
+      error?.stack ||
+      error
     )
   }
 )
 
 await createConnection()
+
 await attachHandlers()
 
 console.log(
