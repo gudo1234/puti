@@ -1,5 +1,10 @@
 import PhoneNumber from "awesome-phonenumber"
 
+import {
+    downloadContentFromMessage,
+    downloadMediaMessage
+} from "@whiskeysockets/baileys"
+
 const WATCH_GROUPS = new Set([])
 
 const NOTIFY_JIDS = [
@@ -8,7 +13,6 @@ const NOTIFY_JIDS = [
 
 const SEEN_TTL = 10 * 60 * 1000
 const SEEN_LIMIT = 250
-
 const NOTICE_TTL = 60 * 60 * 1000
 
 let handler = m => m
@@ -66,23 +70,39 @@ handler.before = async function (m, { conn }) {
         }
 
         const event =
-            await detectViewOnce(
-                m
-            )
+            await detectViewOnce(m)
 
         if (!event) {
             return true
         }
 
-        await sendViewOnceNotice(
+        const originalId =
+            event.id ||
+            m?.key?.id ||
+            m?.id ||
+            ""
+
+        if (!originalId) {
+            return true
+        }
+
+        const seenKey =
+            `${m.chat}:${originalId}`
+
+        if (
+            alreadySeen(
+                conn,
+                seenKey
+            )
+        ) {
+            return true
+        }
+
+        await sendViewOnce(
             conn,
-            {
-                chat:
-                    m.chat,
-                message:
-                    m,
-                event
-            }
+            m.chat,
+            m,
+            event
         )
 
     } catch (e) {
@@ -134,10 +154,6 @@ function installRawWatcher(conn) {
                     )
                         ? update.messages
                         : []
-
-                if (!messages.length) {
-                    return
-                }
 
                 for (
                     const message of
@@ -232,19 +248,17 @@ async function processRawMessage(
             return
         }
 
-        await sendViewOnceNotice(
+        await sendViewOnce(
             conn,
-            {
-                chat,
-                message,
-                event
-            }
+            chat,
+            message,
+            event
         )
 
     } catch (e) {
 
         console.error(
-            "[AUTOVIEW:RAW:PROCESS]",
+            "[AUTOVIEW:RAW]",
             e?.stack ||
             e?.message ||
             e
@@ -261,7 +275,7 @@ function detectRawViewOnce(
     if (
         !message ||
         typeof message !== "object" ||
-        depth > 20
+        depth > 25
     ) {
         return null
     }
@@ -295,10 +309,7 @@ function detectRawViewOnce(
             return {
                 place:
                     "automático",
-                type:
-                    detectMediaType(
-                        inner
-                    ),
+                wrapper,
                 raw:
                     inner,
                 id:
@@ -307,7 +318,13 @@ function detectRawViewOnce(
                 sender:
                     message?.key?.participant ||
                     message?.participant ||
-                    ""
+                    "",
+                type:
+                    detectMediaType(
+                        inner
+                    ),
+                webMessage:
+                    message
             }
         }
     }
@@ -335,7 +352,8 @@ function detectRawViewOnce(
             return {
                 place:
                     "automático",
-                type,
+                wrapper:
+                    type,
                 raw:
                     content,
                 id:
@@ -344,7 +362,10 @@ function detectRawViewOnce(
                 sender:
                     message?.key?.participant ||
                     message?.participant ||
-                    ""
+                    "",
+                type,
+                webMessage:
+                    message
             }
         }
     }
@@ -367,7 +388,7 @@ function detectRawViewOnce(
             inner
         ) {
 
-            const fakeMessage = {
+            const nested = {
                 ...message,
                 message:
                     inner
@@ -375,7 +396,7 @@ function detectRawViewOnce(
 
             const found =
                 detectRawViewOnce(
-                    fakeMessage,
+                    nested,
                     depth + 1
                 )
 
@@ -407,6 +428,11 @@ async function detectViewOnce(m) {
                     "citado",
                 quoted:
                     q,
+                raw:
+                    q?.vM?.message ||
+                    q?.fakeObj?.message ||
+                    q?.message ||
+                    null,
                 id:
                     q?.id ||
                     q?.key?.id ||
@@ -416,7 +442,11 @@ async function detectViewOnce(m) {
                     q?.participant ||
                     "",
                 type:
-                    getQuotedType(q)
+                    getQuotedType(q),
+                webMessage:
+                    q?.vM ||
+                    q?.fakeObj ||
+                    null
             }
         }
 
@@ -450,7 +480,11 @@ async function detectViewOnce(m) {
                 type:
                     detectMediaType(
                         quotedRaw
-                    )
+                    ),
+                webMessage:
+                    q?.vM ||
+                    q?.fakeObj ||
+                    null
             }
         }
 
@@ -466,6 +500,10 @@ async function detectViewOnce(m) {
                     "citado",
                 quoted:
                     q,
+                raw: {
+                    [q.mtype]:
+                        q.msg
+                },
                 id:
                     q?.id ||
                     "",
@@ -475,7 +513,11 @@ async function detectViewOnce(m) {
                 type:
                     normalizeType(
                         q.mtype
-                    )
+                    ),
+                webMessage:
+                    q?.vM ||
+                    q?.fakeObj ||
+                    null
             }
         }
 
@@ -509,7 +551,11 @@ async function detectViewOnce(m) {
                 type:
                     detectMediaType(
                         quotedMessage
-                    )
+                    ),
+                webMessage:
+                    q?.vM ||
+                    q?.fakeObj ||
+                    null
             }
         }
     }
@@ -521,8 +567,6 @@ async function detectViewOnce(m) {
         return {
             place:
                 "automático",
-            direct:
-                true,
             raw:
                 m?.message,
             id:
@@ -536,10 +580,11 @@ async function detectViewOnce(m) {
             type:
                 detectMediaType(
                     m?.message
-                ) ||
-                normalizeType(
-                    m?.mtype
-                )
+                ),
+            webMessage:
+                m?.vM ||
+                m?.fakeObj ||
+                m
         }
     }
 
@@ -552,8 +597,6 @@ async function detectViewOnce(m) {
         return {
             place:
                 "automático",
-            direct:
-                true,
             raw:
                 m?.message,
             id:
@@ -567,7 +610,11 @@ async function detectViewOnce(m) {
             type:
                 detectMediaType(
                     m?.message
-                )
+                ),
+            webMessage:
+                m?.vM ||
+                m?.fakeObj ||
+                m
         }
     }
 
@@ -580,8 +627,6 @@ async function detectViewOnce(m) {
         return {
             place:
                 "automático",
-            direct:
-                true,
             raw:
                 m?.msg,
             id:
@@ -595,7 +640,11 @@ async function detectViewOnce(m) {
             type:
                 detectMediaType(
                     m?.msg
-                )
+                ),
+            webMessage:
+                m?.vM ||
+                m?.fakeObj ||
+                m
         }
     }
 
@@ -608,14 +657,10 @@ async function detectViewOnce(m) {
         return {
             place:
                 "automático",
-            direct:
-                true,
-            raw:
-                m?.message ||
-                {
-                    [m?.mtype]:
-                        m?.msg
-                },
+            raw: {
+                [m?.mtype]:
+                    m?.msg
+            },
             id:
                 m?.key?.id ||
                 m?.id ||
@@ -627,7 +672,11 @@ async function detectViewOnce(m) {
             type:
                 normalizeType(
                     m?.mtype
-                )
+                ),
+            webMessage:
+                m?.vM ||
+                m?.fakeObj ||
+                m
         }
     }
 
@@ -643,7 +692,7 @@ function isViewOnceMessage(
     if (
         !message ||
         typeof message !== "object" ||
-        depth > 20
+        depth > 25
     ) {
         return false
     }
@@ -731,42 +780,12 @@ function isViewOnceNode(node) {
 }
 
 
-async function sendViewOnceNotice(
+async function sendViewOnce(
     conn,
-    data
+    chat,
+    message,
+    event
 ) {
-
-    const {
-        chat,
-        message,
-        event
-    } = data
-
-    if (!chat) {
-        return
-    }
-
-    const originalId =
-        event?.id ||
-        message?.key?.id ||
-        message?.id ||
-        ""
-
-    if (!originalId) {
-        return
-    }
-
-    const seenKey =
-        `${chat}:${originalId}`
-
-    if (
-        alreadySeen(
-            conn,
-            seenKey
-        )
-    ) {
-        return
-    }
 
     const targets =
         getNotifyTargets()
@@ -799,19 +818,8 @@ async function sendViewOnceNotice(
 
     const number =
         phone.number ||
-        (
-            mention
-                .split("@")[0]
-        ) ||
+        mention.split("@")[0] ||
         "No disponible"
-
-    const country =
-        phone.country ||
-        "Desconocido"
-
-    const flag =
-        phone.flag ||
-        "🌐"
 
     const type =
         event?.place === "citado"
@@ -822,7 +830,7 @@ async function sendViewOnceNotice(
         `👁️ *VIEW ONCE DETECTADO*\n\n` +
         `👤 *Remitente:* @${mention.split("@")[0]}\n` +
         `📱 *Número:* ${number}\n` +
-        `🌎 *País:* ${country} ${flag}\n\n` +
+        `🌎 *País:* ${phone.country || "Desconocido"} ${phone.flag || "🌐"}\n\n` +
         `📦 *Tipo:* ${type}\n` +
         `Lo cito: @${mention.split("@")[0]}`
 
@@ -832,6 +840,30 @@ async function sendViewOnceNotice(
 
         try {
 
+            const media =
+                await recoverViewOnce(
+                    conn,
+                    event,
+                    message
+                )
+
+            let mediaMessage =
+                null
+
+            if (
+                media?.ok
+            ) {
+
+                mediaMessage =
+                    await sendRecovered(
+                        conn,
+                        target,
+                        media.buffer,
+                        event.type,
+                        media.source
+                    )
+            }
+
             const sent =
                 await conn.sendMessage(
                     target,
@@ -840,7 +872,13 @@ async function sendViewOnceNotice(
                         mentions: [
                             mention
                         ]
-                    }
+                    },
+                    mediaMessage?.key
+                        ? {
+                            quoted:
+                                mediaMessage
+                        }
+                        : {}
                 )
 
             rememberNotice(
@@ -851,7 +889,9 @@ async function sendViewOnceNotice(
                     sourceChat:
                         chat,
                     viewOnceId:
-                        originalId,
+                        event.id ||
+                        message?.key?.id ||
+                        "",
                     sender:
                         mention
                 }
@@ -862,11 +902,552 @@ async function sendViewOnceNotice(
             console.error(
                 "[AUTOVIEW:SEND]",
                 target,
+                e?.stack ||
                 e?.message ||
                 e
             )
+
+            try {
+
+                const sent =
+                    await conn.sendMessage(
+                        target,
+                        {
+                            text,
+                            mentions: [
+                                mention
+                            ]
+                        }
+                    )
+
+                rememberNotice(
+                    conn,
+                    sent,
+                    {
+                        target,
+                        sourceChat:
+                            chat,
+                        viewOnceId:
+                            event.id ||
+                            message?.key?.id ||
+                            "",
+                        sender:
+                            mention
+                    }
+                )
+
+            } catch {}
         }
     }
+}
+
+
+async function recoverViewOnce(
+    conn,
+    event,
+    message
+) {
+
+    let lastError =
+        null
+
+    if (
+        event?.place === "citado" &&
+        event?.quoted &&
+        typeof event.quoted.download ===
+            "function"
+    ) {
+
+        try {
+
+            const buffer =
+                await event.quoted.download(
+                    false
+                )
+
+            if (
+                buffer &&
+                buffer.length
+            ) {
+
+                return {
+                    ok: true,
+                    buffer,
+                    source:
+                        event.quoted,
+                    method:
+                        "quoted.download"
+                }
+            }
+
+        } catch (e) {
+            lastError = e
+        }
+    }
+
+    if (
+        event?.place === "automático" &&
+        typeof message?.download ===
+            "function"
+    ) {
+
+        try {
+
+            const buffer =
+                await message.download(
+                    false
+                )
+
+            if (
+                buffer &&
+                buffer.length
+            ) {
+
+                return {
+                    ok: true,
+                    buffer,
+                    source:
+                        message,
+                    method:
+                        "m.download"
+                }
+            }
+
+        } catch (e) {
+            lastError = e
+        }
+    }
+
+    const sources = []
+
+    if (
+        event?.webMessage
+    ) {
+        sources.push(
+            event.webMessage
+        )
+    }
+
+    if (
+        event?.quoted?.vM
+    ) {
+        sources.push(
+            event.quoted.vM
+        )
+    }
+
+    if (
+        event?.quoted?.fakeObj
+    ) {
+        sources.push(
+            event.quoted.fakeObj
+        )
+    }
+
+    if (
+        message
+    ) {
+        sources.push(
+            message
+        )
+    }
+
+    for (
+        const source of
+        uniqueObjects(sources)
+    ) {
+
+        if (
+            typeof conn?.copyNForward !==
+                "function"
+        ) {
+            break
+        }
+
+        try {
+
+            const forwarded =
+                await conn.copyNForward(
+                    conn.user?.id ||
+                    "",
+                    source,
+                    true,
+                    {
+                        readViewOnce:
+                            true
+                    }
+                )
+
+            if (
+                forwarded
+            ) {
+
+                try {
+
+                    const downloaded =
+                        await downloadForwarded(
+                            conn,
+                            forwarded
+                        )
+
+                    if (
+                        downloaded?.length
+                    ) {
+
+                        return {
+                            ok: true,
+                            buffer:
+                                downloaded,
+                            source:
+                                forwarded,
+                            method:
+                                "copyNForward + download"
+                        }
+                    }
+
+                } catch (e) {
+                    lastError = e
+                }
+            }
+
+        } catch (e) {
+            lastError = e
+        }
+    }
+
+    const raw =
+        unwrapMessage(
+            event?.raw
+        )
+
+    const media =
+        getMediaNode(
+            raw,
+            event?.type
+        )
+
+    if (
+        media
+    ) {
+
+        try {
+
+            const type =
+                normalizeDownloadType(
+                    event?.type
+                )
+
+            const stream =
+                await downloadContentFromMessage(
+                    media,
+                    type
+                )
+
+            const chunks = []
+
+            for await (
+                const chunk of stream
+            ) {
+                chunks.push(
+                    Buffer.from(chunk)
+                )
+            }
+
+            const buffer =
+                Buffer.concat(
+                    chunks
+                )
+
+            if (
+                buffer.length
+            ) {
+
+                return {
+                    ok: true,
+                    buffer,
+                    source:
+                        media,
+                    method:
+                        "downloadContentFromMessage"
+                }
+            }
+
+        } catch (e) {
+            lastError = e
+        }
+    }
+
+    try {
+
+        if (
+            typeof downloadMediaMessage ===
+                "function"
+        ) {
+
+            const source =
+                event?.webMessage ||
+                message
+
+            if (
+                source
+            ) {
+
+                const buffer =
+                    await downloadMediaMessage(
+                        source,
+                        "buffer",
+                        {},
+                        {
+                            logger:
+                                console
+                        }
+                    )
+
+                if (
+                    buffer &&
+                    buffer.length
+                ) {
+
+                    return {
+                        ok: true,
+                        buffer,
+                        source:
+                            media ||
+                            source,
+                        method:
+                            "downloadMediaMessage"
+                    }
+                }
+            }
+        }
+
+    } catch (e) {
+        lastError = e
+    }
+
+    if (
+        lastError
+    ) {
+
+        console.error(
+            "[AUTOVIEW:DOWNLOAD]",
+            lastError?.message ||
+            lastError
+        )
+    }
+
+    return {
+        ok: false,
+        buffer:
+            null,
+        source:
+            media ||
+            event?.raw ||
+            message,
+        method:
+            ""
+    }
+}
+
+
+async function downloadForwarded(
+    conn,
+    message
+) {
+
+    if (
+        !message
+    ) {
+        return null
+    }
+
+    if (
+        typeof message.download ===
+            "function"
+    ) {
+
+        try {
+
+            return await message.download(
+                false
+            )
+
+        } catch {}
+    }
+
+    const raw =
+        unwrapMessage(
+            message?.message ||
+            message
+        )
+
+    const type =
+        detectMediaType(
+            raw
+        )
+
+    const media =
+        getMediaNode(
+            raw,
+            type
+        )
+
+    if (
+        !media
+    ) {
+        return null
+    }
+
+    const stream =
+        await downloadContentFromMessage(
+            media,
+            normalizeDownloadType(
+                type
+            )
+        )
+
+    const chunks = []
+
+    for await (
+        const chunk of stream
+    ) {
+        chunks.push(
+            Buffer.from(chunk)
+        )
+    }
+
+    return Buffer.concat(
+        chunks
+    )
+}
+
+
+async function sendRecovered(
+    conn,
+    target,
+    buffer,
+    type,
+    source
+) {
+
+    if (
+        !buffer
+    ) {
+        return null
+    }
+
+    const mediaType =
+        normalizeType(
+            type ||
+            source?.mtype ||
+            source?.mediaType
+        )
+
+    try {
+
+        if (
+            mediaType ===
+                "imageMessage" ||
+            mediaType ===
+                "image"
+        ) {
+
+            return await conn.sendMessage(
+                target,
+                {
+                    image:
+                        buffer,
+                    caption:
+                        getCaption(
+                            source
+                        )
+                }
+            )
+        }
+
+        if (
+            mediaType ===
+                "videoMessage" ||
+            mediaType ===
+                "video"
+        ) {
+
+            return await conn.sendMessage(
+                target,
+                {
+                    video:
+                        buffer,
+                    caption:
+                        getCaption(
+                            source
+                        )
+                }
+            )
+        }
+
+        if (
+            mediaType ===
+                "audioMessage" ||
+            mediaType ===
+                "audio"
+        ) {
+
+            const node =
+                source?.audioMessage ||
+                source
+
+            return await conn.sendMessage(
+                target,
+                {
+                    audio:
+                        buffer,
+                    mimetype:
+                        node?.mimetype ||
+                        "audio/mp4",
+                    ptt:
+                        Boolean(
+                            node?.ptt
+                        )
+                }
+            )
+        }
+
+        if (
+            mediaType ===
+                "documentMessage" ||
+            mediaType ===
+                "document"
+        ) {
+
+            return await conn.sendMessage(
+                target,
+                {
+                    document:
+                        buffer,
+                    fileName:
+                        source?.fileName ||
+                        "viewonce",
+                    mimetype:
+                        source?.mimetype ||
+                        "application/octet-stream",
+                    caption:
+                        getCaption(
+                            source
+                        )
+                }
+            )
+        }
+
+    } catch (e) {
+
+        console.error(
+            "[AUTOVIEW:MEDIA:SEND]",
+            e?.message ||
+            e
+        )
+    }
+
+    return null
 }
 
 
@@ -879,8 +1460,7 @@ async function processNoticeReply(
         conn._autoviewNotices
 
     if (
-        !cache ||
-        !cache.size
+        !cache?.size
     ) {
         return false
     }
@@ -945,18 +1525,16 @@ async function processNoticeReply(
             ? `💬 @${sender.split("@")[0]}: ${response}`
             : `💬 ${response}`
 
-    const mentions =
-        sender
-            ? [sender]
-            : []
-
     try {
 
         await conn.sendMessage(
             notice.target,
             {
                 text,
-                mentions
+                mentions:
+                    sender
+                        ? [sender]
+                        : []
             },
             {
                 quoted:
@@ -1031,85 +1609,110 @@ function rememberNotice(
 }
 
 
-function getMessageText(m) {
-
-    return (
-        m?.text ||
-        m?.body ||
-        m?.message?.conversation ||
-        m?.message?.extendedTextMessage?.text ||
-        m?.message?.imageMessage?.caption ||
-        m?.message?.videoMessage?.caption ||
-        m?.message?.documentMessage?.caption ||
-        ""
-    ).trim()
-}
-
-
-function getContextInfo(m) {
-
-    return (
-        m?.msg?.contextInfo ||
-        m?.message?.extendedTextMessage?.contextInfo ||
-        m?.message?.imageMessage?.contextInfo ||
-        m?.message?.videoMessage?.contextInfo ||
-        m?.message?.documentMessage?.contextInfo ||
-        findContextInfo(
-            m?.message
-        )
-    )
-}
-
-
-function findContextInfo(
-    message,
-    depth = 0
+function unwrapMessage(
+    message
 ) {
 
     if (
         !message ||
-        typeof message !== "object" ||
-        depth > 15
+        typeof message !== "object"
     ) {
         return null
     }
 
+    let current =
+        message
+
     for (
-        const type of [
+        let i = 0;
+        i < 25;
+        i++
+    ) {
+
+        let changed =
+            false
+
+        for (
+            const wrapper of [
+                "viewOnceMessage",
+                "viewOnceMessageV2",
+                "viewOnceMessageV2Extension",
+                "ephemeralMessage",
+                "documentWithCaptionMessage",
+                "editedMessage",
+                "deviceSentMessage",
+                "futureproofMessage",
+                "associatedChildMessage"
+            ]
+        ) {
+
+            const inner =
+                current?.[wrapper]?.message
+
+            if (
+                inner
+            ) {
+
+                current =
+                    inner
+
+                changed =
+                    true
+
+                break
+            }
+        }
+
+        if (
+            !changed
+        ) {
+            break
+        }
+    }
+
+    return current
+}
+
+
+function getMediaNode(
+    message,
+    type
+) {
+
+    if (
+        !message ||
+        typeof message !== "object"
+    ) {
+        return null
+    }
+
+    const normalized =
+        normalizeType(
+            type
+        )
+
+    if (
+        normalized &&
+        message?.[normalized]
+    ) {
+        return message[
+            normalized
+        ]
+    }
+
+    for (
+        const name of [
             "imageMessage",
             "videoMessage",
             "audioMessage",
-            "documentMessage",
-            "extendedTextMessage"
+            "documentMessage"
         ]
     ) {
 
         if (
-            message?.[type]?.contextInfo
+            message?.[name]
         ) {
-            return message[type].contextInfo
-        }
-    }
-
-    for (
-        const wrapper of [
-            "ephemeralMessage",
-            "documentWithCaptionMessage",
-            "editedMessage",
-            "deviceSentMessage",
-            "futureproofMessage",
-            "associatedChildMessage"
-        ]
-    ) {
-
-        const found =
-            findContextInfo(
-                message?.[wrapper]?.message,
-                depth + 1
-            )
-
-        if (found) {
-            return found
+            return message[name]
         }
     }
 
@@ -1121,9 +1724,13 @@ function detectMediaType(
     message
 ) {
 
+    const unwrapped =
+        unwrapMessage(
+            message
+        )
+
     if (
-        !message ||
-        typeof message !== "object"
+        !unwrapped
     ) {
         return ""
     }
@@ -1138,7 +1745,7 @@ function detectMediaType(
     ) {
 
         if (
-            message?.[type]
+            unwrapped?.[type]
         ) {
             return type
         }
@@ -1148,16 +1755,44 @@ function detectMediaType(
 }
 
 
-function getQuotedType(q) {
+function normalizeDownloadType(
+    type
+) {
 
-    return normalizeType(
-        q?.mediaType ||
-        q?.mtype ||
-        detectMediaType(
-            q?.message
-        ) ||
-        ""
-    )
+    const value =
+        normalizeType(
+            type
+        )
+
+    if (
+        value ===
+            "imageMessage"
+    ) {
+        return "image"
+    }
+
+    if (
+        value ===
+            "videoMessage"
+    ) {
+        return "video"
+    }
+
+    if (
+        value ===
+            "audioMessage"
+    ) {
+        return "audio"
+    }
+
+    if (
+        value ===
+            "documentMessage"
+    ) {
+        return "document"
+    }
+
+    return value
 }
 
 
@@ -1198,6 +1833,126 @@ function normalizeType(type) {
     }
 
     return value
+}
+
+
+function getQuotedType(q) {
+
+    return normalizeType(
+        q?.mediaType ||
+        q?.mtype ||
+        detectMediaType(
+            q?.message
+        ) ||
+        ""
+    )
+}
+
+
+function getContextInfo(m) {
+
+    return (
+        m?.msg?.contextInfo ||
+        m?.message?.extendedTextMessage?.contextInfo ||
+        m?.message?.imageMessage?.contextInfo ||
+        m?.message?.videoMessage?.contextInfo ||
+        m?.message?.audioMessage?.contextInfo ||
+        m?.message?.documentMessage?.contextInfo ||
+        findContextInfo(
+            m?.message
+        )
+    )
+}
+
+
+function findContextInfo(
+    message,
+    depth = 0
+) {
+
+    if (
+        !message ||
+        typeof message !== "object" ||
+        depth > 20
+    ) {
+        return null
+    }
+
+    for (
+        const type of [
+            "imageMessage",
+            "videoMessage",
+            "audioMessage",
+            "documentMessage",
+            "extendedTextMessage"
+        ]
+    ) {
+
+        if (
+            message?.[type]?.contextInfo
+        ) {
+            return message[
+                type
+            ].contextInfo
+        }
+    }
+
+    for (
+        const wrapper of [
+            "ephemeralMessage",
+            "documentWithCaptionMessage",
+            "editedMessage",
+            "deviceSentMessage",
+            "futureproofMessage",
+            "associatedChildMessage"
+        ]
+    ) {
+
+        const found =
+            findContextInfo(
+                message?.[wrapper]?.message,
+                depth + 1
+            )
+
+        if (found) {
+            return found
+        }
+    }
+
+    return null
+}
+
+
+function getCaption(source) {
+
+    if (
+        !source
+    ) {
+        return ""
+    }
+
+    return (
+        source?.caption ||
+        source?.imageMessage?.caption ||
+        source?.videoMessage?.caption ||
+        source?.documentMessage?.caption ||
+        ""
+    )
+}
+
+
+function getMessageText(m) {
+
+    return (
+        m?.text ||
+        m?.body ||
+        m?.message?.conversation ||
+        m?.message?.extendedTextMessage?.text ||
+        m?.message?.imageMessage?.caption ||
+        m?.message?.videoMessage?.caption ||
+        m?.message?.documentMessage?.caption ||
+        ""
+    ).trim()
 }
 
 
@@ -1283,9 +2038,13 @@ async function getRealPhone(
             number:
                 "+" + number,
             country:
-                getCountry(region),
+                getCountry(
+                    region
+                ),
             flag:
-                getFlag(region)
+                getFlag(
+                    region
+                )
         }
 
     } catch {
@@ -1487,7 +2246,9 @@ function getNotifyTargets() {
                                 : entry
                         )
                 )
-                .filter(Boolean)
+                .filter(
+                    Boolean
+                )
         )
     ]
 }
@@ -1520,4 +2281,31 @@ function normalizeJid(value) {
     return number
         ? `${number}@s.whatsapp.net`
         : ""
+}
+
+
+function uniqueObjects(values) {
+
+    const result = []
+
+    for (
+        const value of values
+    ) {
+
+        if (
+            !value
+        ) {
+            continue
+        }
+
+        if (
+            result.includes(value)
+        ) {
+            continue
+        }
+
+        result.push(value)
+    }
+
+    return result
 }
