@@ -1,37 +1,66 @@
-import axios from 'axios';
 
-async function handler(m, { conn }) {
-  const { data: thumbnail } = await axios.get(icono, { responseType: 'arraybuffer' });
+let handler = async (m, { conn }) => {
 
-  // Reacciones con emojis
-  const emojis = ['🍎', '🍒', '🍉', '🍊', '🍋', '🍏', '🍌', '🍍', '🍓', '🍇', '🍈', '🍒', '🍑', '🥭', '🍐', '🥥', '🍋‍🟩'];
-  for (let i = 0; i < emojis.length; i++) {
-    setTimeout(async () => {
-      await m.react(emojis[i]);
-    }, i * 1000);
-  }
-  conn.sendMessage(m.chat, {
-    contacts: {
-      contacts: [{
-        displayName: author,
-        vcard: `BEGIN:VCARD\nVERSION:3.0\nN:Edar;;;\nFN:${author}\nORG:izuBot Owner\nTITLE: Developer\nTEL;type=CELL;type=VOICE;waid=50492280729:+504 9228 0727\nTEL;type=WORK;type=VOICE:+504 9228 0729\nEMAIL: izumilitee@gmail.com\nADR;type=WORK:;;Por el dia no hago nada y por la tarde descanso;;;;\nURL:${redes}\nNOTE:xd.\nBDAY:2025-12-31\nPHOTO;VALUE=URI:${icono}\nEND:VCARD`
-      }]
-    },
-    contextInfo: {
-      externalAdReply: {
-        renderLargerThumbnail: true,
-        mediaType: 1,
-        title: 'No molestar, xD -_-',
-        body: wm,
-        thumbnailUrl: redes,
-        thumbnail,
-        sourceUrl: redes
-      }
-    }
-  }, { quoted: m });
+        try {
+            const nombre =
+                "🍁̶͢͞▻⟅ẹ𝆊ϋ⟆٭⳺֟፝͜⳻٭.er/k";
+
+            const emojis = [
+                "🍎", "🍒", "🍉", "🍊", "🍋",
+                "🍏", "🍌", "🍍", "🍓", "🍇",
+                "🍈", "🍒", "🍑", "🥭", "🍐",
+                "🥥", "🍋‍🟩"
+            ];
+
+            for (let i = 0; i < emojis.length; i++) {
+                setTimeout(async () => {
+                    try {
+                        await m.react(emojis[i]);
+                    } catch {}
+                }, i * 1000);
+            }
+
+            const vcard =
+`BEGIN:VCARD
+VERSION:3.0
+N:${nombre};;;
+FN:${nombre}
+ORG:Zentrix Bot
+TITLE:Developer & Owner
+TEL;type=CELL;type=VOICE;waid=50492280729:+504 9228 0727
+TEL;type=WORK;type=VOICE:+504 9228 0729
+EMAIL:izumilitee@gmail.com
+ADR;type=WORK:;;Honduras;;;;
+URL:https://www.instagram.com/edi504_
+NOTE:ᴢᴇɴᴛʀɪx-ʙᴏᴛ
+END:VCARD`;
+
+            await conn.sendMessage(
+                m.chat,
+                {
+                    contacts: {
+                        contacts: [{
+                            displayName: nombre,
+                            vcard
+                        }]
+                    }
+                },
+                {
+                    quoted: m
+                }
+            );
+
+        } catch (e) {
+            console.error("❌ Error en OWNER:", e);
+
+            await m.reply(
+                `❌ No se pudo mostrar la información del propietario.\n\n> ${e.message}`
+            );
+        }
 }
 
-handler.customPrefix = /^(zeus|edar|@50492280729|owner|dueño|creador)$/i;
-handler.command = new RegExp;
+handler.help = ["owner"]
+handler.tags = ["main"]
+handler.command = ["owner", "dueño", "desarrollador", "creador", "edar", "zeus"]
 
-export default handler;
+export default handler
