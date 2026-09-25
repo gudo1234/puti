@@ -4,15 +4,7 @@ let handler = async (m, { conn }) => {
   const participants = global.db?.data?.chats?.[m.chat]?.participants || []
   const subject = conn.chats?.[m.chat]?.subject || 'Grupo'
 
-  const icon = typeof icono === 'function' ? icono() : icono
-
-  const response = await fetch(icon)
-
-  if (!response.ok) {
-    throw new Error(`No se pudo descargar el icono: ${response.status}`)
-  }
-
-  const jpegThumbnail = Buffer.from(await response.arrayBuffer())
+  const jpegThumbnail = await (await fetch(icono)).buffer()
 
   const msg = baileys.generateWAMessageFromContent(m.chat, {
     buttonsMessage: {
