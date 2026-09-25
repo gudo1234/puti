@@ -180,21 +180,62 @@ let conn = null
 let handler = null
 let isInit = false
 let restarting = false
+let reconnectTimer = null
+let reconnectAttempt = 0
+let reconnectPending = false
+
+// Estado de actividad/conexión. Evita que un WebSocket muerto o un listener
+// perdido deje el bot "conectado" pero sin procesar mensajes.
 let connectionGeneration = 0
 let lastSocketActivity = Date.now()
 let lastMessageActivity = Date.now()
 let watchdogTimer = null
 
+function getDisconnectCode(update = {}) {
+  const error = update?.lastDisconnect?.error
+  return (
+    error?.output?.statusCode ??
+    error?.output?.payload?.statusCode ??
+    error?.statusCode ??
+    error?.data?.statusCode ??
+    null
+  )
+}
+
+function closeSocket(socket) {
+  if (!socket) return
+  try { socket.ev?.removeAllListeners?.() } catch {}
+  try { socket.ws?.close?.() } catch {}
+  try { socket.end?.(new Error('Reinicio de conexión')) } catch {}
+}
+
+function scheduleReconnect(reason = 'desconocido', delay = null) {
+  // Si ya hay una reconexión programada, no creemos otro timer.
+  if (reconnectTimer) return
+
+  reconnectPending = true
+  reconnectAttempt++
+
+  const wait = delay ?? Math.min(30000, 3000 * Math.min(reconnectAttempt, 5))
+  console.warn(chalk.yellow(`🔄 Reconexión programada en ${Math.ceil(wait / 1000)}s · motivo: ${reason} · intento ${reconnectAttempt}`))
+
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null
+    reconnectPending = false
+    await restartConnection(reason)
+  }, wait)
+}
+
 async function createConnection() {
   const previous = conn
 
-  if (previous) {
-    try { previous.ev.removeAllListeners() } catch {}
-    try { previous.ws?.close() } catch {}
-    try { previous.end?.(new Error('Reiniciando conexión')) } catch {}
-  }
+  // Invalidamos inmediatamente la conexión anterior para que ningún evento
+  // atrasado pueda volver a tocar el socket nuevo.
+  connectionGeneration++
+  const generation = connectionGeneration
 
-  const generation = ++connectionGeneration
+  if (previous) closeSocket(previous)
+
   conn = global.conn = makeWASocket(connectionOptions)
   conn.__generation = generation
   conn.__createdAt = Date.now()
@@ -211,27 +252,27 @@ async function createConnection() {
     if (!conn.requestPairingCode) {
       throw new Error('Esta versión de Baileys no soporta código de vinculación.')
     }
+
     await new Promise(resolve => setTimeout(resolve, 3000))
 
-    let code
     try {
-      code = await conn.requestPairingCode(phoneNumber)
+      const code = await conn.requestPairingCode(phoneNumber)
+      console.log(chalk.magenta(`Código de vinculación: ${String(code).match(/.{1,4}/g)?.join('-') || code}`))
     } catch (error) {
       console.error(chalk.red('❌ No se pudo solicitar el código de vinculación:', error?.message || error))
-      console.error(chalk.gray('La conexión de WhatsApp se cerró antes de responder. Se reintentará mediante connection.update.'))
-      return conn
+      scheduleReconnect('fallo solicitando código de vinculación', 5000)
     }
-
-    console.log(chalk.magenta(`Código de vinculación: ${String(code).match(/.{1,4}/g)?.join('-') || code}`))
   }
 
   return conn
 }
 
 async function connectionUpdate(update) {
-  const { connection, lastDisconnect, isNewLogin } = update || {}
+  const { connection, isNewLogin } = update || {}
 
   lastSocketActivity = Date.now()
+
+  // Ignorar eventos de una conexión antigua después de un reinicio.
   if (this !== conn || this?.__generation !== connectionGeneration) return
 
   if (isNewLogin) conn.isInit = true
@@ -240,6 +281,8 @@ async function connectionUpdate(update) {
     global.botStartTime = Math.floor(Date.now() / 1000)
     lastSocketActivity = Date.now()
     lastMessageActivity = Date.now()
+    reconnectAttempt = 0
+    reconnectPending = false
     conn.isInit = true
     console.log(chalk.green('✅ Conectado correctamente.'))
     console.log(chalk.gray(`📡 WebSocket activo · generación ${connectionGeneration}`))
@@ -248,40 +291,61 @@ async function connectionUpdate(update) {
 
   if (connection !== 'close') return
 
-  const code =
-    lastDisconnect?.error?.output?.statusCode ??
-    lastDisconnect?.error?.output?.payload?.statusCode ??
-    lastDisconnect?.error?.statusCode
+  const code = getDisconnectCode(update)
 
   if (code === DisconnectReason?.loggedOut) {
-    console.error(chalk.red('❌ Sesión cerrada. Borra la carpeta sessions y vuelve a vincularla si quieres cambiar de cuenta.'))
+    console.error(chalk.red('❌ Sesión cerrada. No se borrarán las credenciales automáticamente.'))
     return
   }
 
   console.warn(chalk.yellow(`⚠️ Conexión cerrada${code ? ` (código ${code})` : ''}. Reconectando...`))
-  await restartConnection()
+
+  // IMPORTANTE: no esperamos la reconexión dentro del listener de
+  // connection.update. Si el socket nuevo se cierra antes de abrirse,
+  // su propio evento "close" debe poder programar otra reconexión.
+  scheduleReconnect(code ? `código ${code}` : 'conexión cerrada', code === 408 ? 3000 : 5000)
 }
 
-async function restartConnection() {
-  if (restarting) return
+async function restartConnection(reason = 'reinicio') {
+  if (restarting) {
+    reconnectPending = true
+    return
+  }
+
   restarting = true
 
   try {
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    await createConnection()
-    await attachHandlers()
+    console.log(chalk.gray(`🔁 Iniciando reconexión · ${reason}`))
+
+    // Si quedó un socket anterior, ciérralo antes de crear el nuevo.
+    closeSocket(conn)
+
+    const newConn = await createConnection()
+
+    // Es fundamental instalar los listeners inmediatamente en el socket nuevo.
+    // Así, si WhatsApp devuelve otro 408 antes de abrir, no se pierde el evento.
+    if (newConn === conn) {
+      await attachHandlers()
+    }
+
     lastSocketActivity = Date.now()
     lastMessageActivity = Date.now()
   } catch (error) {
     console.error('[RESTART]', error?.stack || error)
-    setTimeout(() => restartConnection().catch(console.error), 5000)
+    scheduleReconnect('error creando conexión', 5000)
   } finally {
     restarting = false
+  }
+
+  // Si durante la reconexión llegó otro close, aseguramos que haya otro intento.
+  if (reconnectPending && !reconnectTimer && conn) {
+    scheduleReconnect('reconexión pendiente', 3000)
   }
 }
 
 async function attachHandlers() {
   if (!handler) handler = await import('./handler.js')
+
   try {
     if (conn.__handlersAttached) return
   } catch {}
@@ -314,6 +378,7 @@ async function attachHandlers() {
   currentConn.ev.on('messages.upsert', currentConn.handler)
   currentConn.ev.on('connection.update', currentConn.connectionUpdate)
   currentConn.ev.on('creds.update', currentConn.credsUpdate)
+
   currentConn.ev.on('groups.update', updates => {
     try {
       for (const update of Array.isArray(updates) ? updates : []) {
@@ -342,14 +407,14 @@ global.reloadHandler = async function (restart = false) {
   }
 
   if (restart) {
-    await restartConnection()
+    scheduleReconnect('reloadHandler', 1000)
     return true
   }
 
   if (conn && isInit) {
-    conn.ev.off('messages.upsert', conn.handler)
-    conn.ev.off('connection.update', conn.connectionUpdate)
-    conn.ev.off('creds.update', conn.credsUpdate)
+    try { conn.ev.off('messages.upsert', conn.handler) } catch {}
+    try { conn.ev.off('connection.update', conn.connectionUpdate) } catch {}
+    try { conn.ev.off('creds.update', conn.credsUpdate) } catch {}
     try { conn.ev.removeAllListeners('groups.update') } catch {}
     try { conn.ev.removeAllListeners('group-participants.update') } catch {}
     conn.__handlersAttached = false
@@ -358,31 +423,44 @@ global.reloadHandler = async function (restart = false) {
 
   return true
 }
+
+// Watchdog: si el WebSocket se cierra sin que el evento de Baileys consiga
+// recuperarlo, programamos una reconexión. También hacemos una comprobación
+// periódica de actividad para detectar sockets zombis.
 watchdogTimer = setInterval(() => {
   if (restarting || !conn) return
 
   const ws = conn.ws
   const readyState = ws?.readyState
+
   if (ws && typeof readyState === 'number' && readyState !== 1) {
-    console.warn(chalk.yellow(`⚠️ Watchdog: WebSocket no está abierto (estado ${readyState}). Reiniciando...`))
-    restartConnection().catch(error =>
-      console.error('[WATCHDOG]', error?.stack || error)
-    )
+    console.warn(chalk.yellow(`⚠️ Watchdog: WebSocket no está abierto (estado ${readyState}). Reconectando...`))
+    scheduleReconnect(`watchdog estado ${readyState}`, 2000)
     return
   }
+
   if (
     ws &&
-    typeof ws.readyState === 'number' &&
+    typeof readyState === 'number' &&
     readyState === 1 &&
     Date.now() - lastSocketActivity > 10 * 60 * 1000
   ) {
-    console.log(chalk.gray('🩺 Watchdog: conexión abierta sin eventos durante 10 min; verificando actividad.'))
-    lastSocketActivity = Date.now()
+    console.log(chalk.gray('🩺 Watchdog: 10 min sin eventos; comprobando conexión...'))
+
     try {
-      if (typeof conn.sendPresenceUpdate === 'function') {
-        conn.sendPresenceUpdate('available').catch(() => {})
+      const result = conn.sendPresenceUpdate?.('available')
+      if (result?.catch) {
+        result.catch(error => {
+          console.warn(chalk.yellow('⚠️ Watchdog: el socket no respondió. Reconectando...'))
+          scheduleReconnect(`watchdog sin respuesta: ${error?.message || error}`, 2000)
+        })
       }
-    } catch {}
+    } catch (error) {
+      console.warn(chalk.yellow('⚠️ Watchdog: error comprobando socket. Reconectando...'))
+      scheduleReconnect(`watchdog: ${error?.message || error}`, 2000)
+    }
+
+    lastSocketActivity = Date.now()
   }
 }, 60 * 1000)
 
