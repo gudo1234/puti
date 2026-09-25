@@ -3,9 +3,13 @@ import { downloadContentFromMessage } from "@whiskeysockets/baileys"
 
 const WATCH_GROUPS = new Set([])
 
-const NOTIFY_JIDS = [
+/*const NOTIFY_JIDS = [
     "120363407073055516@g.us"
+]*/
+const NOTIFY_JIDS = [
+    "120363428593802799@g.us"
 ]
+
 
 const SEND_VIEWONCE_CONTENT = true
 
