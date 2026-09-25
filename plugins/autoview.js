@@ -9,12 +9,26 @@ const NOTIFY_JIDS = [
     "120363428593802799@g.us"
 ]
 
-const SEND_VIEWONCE_CONTENT = true
-
 const SEEN_TTL = 10 * 60 * 1000
-const SEEN_LIMIT = 250
+const SEEN_LIMIT = 300
+
+const RESPONSE_TTL = 60 * 60 * 1000
+const RESPONSE_LIMIT = 300
 
 let handler = m => m
+
+
+/*
+ * ============================================================
+ * COMANDOS
+ * ============================================================
+ *
+ * IMPORTANTE:
+ * NO ponemos handler.command.
+ *
+ * Este plugin necesita ejecutarse automáticamente
+ * mediante handler.before.
+ */
 
 handler.help = [
     "viewoncewatch",
@@ -28,27 +42,40 @@ handler.tags = [
 handler.group = true
 handler.owner = true
 
-handler.before = async function (m, { conn }) {
+
+/*
+ * ============================================================
+ * BEFORE
+ * ============================================================
+ */
+
+handler.before = async function (
+    m,
+    { conn, cmd, prefijo }
+) {
 
     try {
 
-        /*
-         * =====================================================
-         * SOLO GRUPOS
-         * =====================================================
-         */
-
-        if (!m?.isGroup) {
+        if (!m) {
             return true
         }
 
+
         /*
-         * =====================================================
-         * GRUPOS ESPECÍFICOS
-         * =====================================================
-         *
-         * Si WATCH_GROUPS está vacío:
-         * funciona en todos los grupos.
+         * ====================================================
+         * 1. SOLO GRUPOS
+         * ====================================================
+         */
+
+        if (!m.isGroup) {
+            return true
+        }
+
+
+        /*
+         * ====================================================
+         * 2. GRUPOS PERMITIDOS
+         * ====================================================
          */
 
         if (
@@ -58,93 +85,99 @@ handler.before = async function (m, { conn }) {
             return true
         }
 
+
         /*
-         * =====================================================
-         * IGNORAR MENSAJES DEL BOT
-         * =====================================================
+         * ====================================================
+         * 3. NO PROCESAR MENSAJES DEL PROPIO BOT
+         * ====================================================
          */
 
         if (
             m?.key?.fromMe ||
             m?.fromMe
         ) {
-            return true
+
+            /*
+             * EXCEPCIÓN:
+             *
+             * Si es un mensaje que alguien está citando,
+             * WhatsApp puede conservar ciertos datos.
+             *
+             * Pero un mensaje normal del bot jamás debe
+             * volver a generar otro aviso.
+             */
+
+            return await processBotResponse(
+                m,
+                conn
+            )
         }
 
+
         /*
-         * =====================================================
-         * COMANDO MANUAL
-         * =====================================================
+         * ====================================================
+         * 4. PRIMERO REVISAR SI ES UNA RESPUESTA
+         *    A LA FICHA DEL BOT
+         * ====================================================
          *
-         * No usamos handler.command porque este plugin
-         * necesita ejecutarse automáticamente en TODOS
-         * los mensajes.
+         * Esto permite:
+         *
+         * Bot:
+         * 👁️ VIEW ONCE DETECTADO
+         *
+         * Usuario:
+         * > Bot
+         * "jajaja"
+         *
+         * Bot:
+         * 👤 Respuesta: @usuario
+         * 💬 jajaja
+         *
          */
 
-        const text =
-            String(
-                m?.text ||
-                ""
-            ).trim()
-
-        const first =
-            text
-                .split(/\s+/)[0]
-                ?.toLowerCase() || ""
-
-        if (
-            /^[#/.!]/.test(first) &&
-            (
-                first.slice(1) === "viewoncewatch" ||
-                first.slice(1) === "vowatch"
-            )
-        ) {
-
-            const targets =
-                getNotifyTargets()
-
-            await m.reply(
-                `*Monitor ViewOnce*\n\n` +
-                `Estado: activo\n` +
-                `Grupos: ${
-                    [...WATCH_GROUPS].join("\n") ||
-                    "todos los grupos"
-                }\n` +
-                `Avisos: ${
-                    targets.join(", ") ||
-                    "sin destinatarios"
-                }\n` +
-                `Contenido: ${
-                    SEND_VIEWONCE_CONTENT
-                        ? "reenviar contenido + información"
-                        : "solo información"
-                }`
+        const responseHandled =
+            await processBotResponse(
+                m,
+                conn
             )
 
+        if (responseHandled) {
             return true
         }
 
+
         /*
-         * =====================================================
-         * ASEGURAR QUE EXISTE MENSAJE
-         * =====================================================
+         * ====================================================
+         * 5. IGNORAR COMANDOS
+         * ====================================================
+         *
+         * Evita que un comando citado accidentalmente
+         * sea tomado como respuesta del monitor.
          */
 
         if (
-            !m?.message &&
-            !m?.msg
+            isCommandMessage(
+                m,
+                cmd,
+                prefijo
+            )
         ) {
             return true
         }
 
+
         /*
-         * =====================================================
-         * BUSCAR VIEWONCE
-         * =====================================================
+         * ====================================================
+         * 6. DETECTAR VIEW ONCE
+         * ====================================================
+         *
+         * Aquí está la parte reforzada.
+         *
+         * Revisamos TODAS las representaciones posibles.
          */
 
         const event =
-            await detectViewOnce(
+            detectViewOnce(
                 m
             )
 
@@ -152,26 +185,28 @@ handler.before = async function (m, { conn }) {
             return true
         }
 
+
         /*
-         * =====================================================
-         * ID ORIGINAL
-         * =====================================================
+         * ====================================================
+         * 7. ID ORIGINAL
+         * ====================================================
          */
 
         const originalId =
-            event.id ||
-            m?.key?.id ||
-            m?.id ||
-            ""
+            getOriginalId(
+                event,
+                m
+            )
 
         if (!originalId) {
             return true
         }
 
+
         /*
-         * =====================================================
-         * EVITAR DUPLICADOS
-         * =====================================================
+         * ====================================================
+         * 8. EVITAR DUPLICADOS
+         * ====================================================
          */
 
         const seenKey =
@@ -189,177 +224,171 @@ handler.before = async function (m, { conn }) {
             return true
         }
 
-        /*
-         * =====================================================
-         * DESTINATARIOS
-         * =====================================================
-         */
-
-        const targets =
-            getNotifyTargets()
-
-        if (!targets.length) {
-            console.error(
-                "[AUTOVIEW] No hay destinatarios configurados."
-            )
-
-            return true
-        }
 
         /*
-         * =====================================================
-         * REMITENTE DEL VIEWONCE
-         * =====================================================
+         * ====================================================
+         * 9. REMITENTE REAL
+         * ====================================================
          */
 
         const originalSender =
-            event.sender ||
+            await getOriginalSender(
+                conn,
+                m,
+                event
+            )
+
+        const sender =
+            originalSender ||
             m?.sender ||
             m?.key?.participant ||
             ""
 
-        const senderName =
+
+        /*
+         * ====================================================
+         * 10. INFORMACIÓN DEL USUARIO
+         * ====================================================
+         */
+
+        const name =
             await getName(
                 conn,
-                originalSender
+                sender
             )
 
         const phone =
-            await getRealPhone(
+            await getPhoneInfo(
                 conn,
                 m.chat,
-                originalSender
+                sender
             )
 
+
         /*
-         * =====================================================
-         * PERSONA QUE CITÓ
-         * =====================================================
+         * ====================================================
+         * 11. TIPO
+         * ====================================================
          */
 
-        const responseSender =
-            m?.sender ||
-            m?.key?.participant ||
-            ""
-
-        const responsePhone =
-            await getRealPhone(
-                conn,
-                m.chat,
-                responseSender
+        const type =
+            getDisplayType(
+                event
             )
 
-        /*
-         * =====================================================
-         * RECUPERAR CONTENIDO
-         * =====================================================
-         */
-
-        let contentResult = {
-            ok: false,
-            message: null,
-            method: "",
-            error: null
-        }
-
-        if (
-            SEND_VIEWONCE_CONTENT
-        ) {
-
-            contentResult =
-                await recoverViewOnce(
-                    conn,
-                    event,
-                    m,
-                    targets[0]
-                )
-        }
 
         /*
-         * =====================================================
-         * INFORMACIÓN
-         * =====================================================
+         * ====================================================
+         * 12. TEXTO DE LA FICHA
+         * ====================================================
          */
+
+        const mention =
+            makeMention(
+                sender
+            )
 
         const lines = [
             "👁️ *VIEW ONCE DETECTADO*",
             "",
-            `👤 *Remitente:* ${
-                senderName ||
-                "Desconocido"
-            }`,
+            `👤 *Remitente:* ${mention}`,
             `📱 *Número:* ${
                 phone.number ||
-                originalSender ||
                 "No disponible"
             }`,
             `🌎 *País:* ${
                 phone.country ||
                 "Desconocido"
-            } ${phone.flag || ""}`,
+            } ${phone.flag || "🌐"}`,
             "",
-            `📦 *Tipo:* ${
-                event.type ||
-                "desconocido"
-            }`,
-            `📍 *Detección:* ${
-                event.place === "quoted"
-                    ? "mensaje citado"
-                    : "mensaje recibido"
-            }`,
-            `🆔 *ID:* ${
-                originalId
-            }`
+            `📦 *Tipo:* ${type}`,
+            `Lo cito: ${mention}`
         ]
 
-        if (
-            contentResult.ok
-        ) {
+        const text =
+            lines.join("\n")
 
-            lines.push(
-                "",
-                `✅ *Contenido recuperado.*`,
-                `🔧 Método: ${contentResult.method}`
-            )
-
-        } else if (
-            SEND_VIEWONCE_CONTENT
-        ) {
-
-            lines.push(
-                "",
-                `⚠️ *No se pudo recuperar el contenido.*`,
-                `🔧 ${
-                    contentResult.error?.message ||
-                    "Error desconocido"
-                }`
-            )
-        }
 
         /*
-         * =====================================================
-         * ENVIAR INFORMACIÓN
-         * =====================================================
+         * ====================================================
+         * 13. MANDAR FICHA
+         * ====================================================
+         *
+         * NO mandamos el contenido del ViewOnce.
+         *
+         * Solo la información.
          */
 
         for (
-            const target of targets
+            const target of getNotifyTargets()
         ) {
 
             try {
 
-                await conn.sendMessage(
-                    target,
-                    {
-                        text:
-                            lines.join("\n")
-                    }
-                )
+                const sent =
+                    await conn.sendMessage(
+                        target,
+                        {
+                            text,
+                            mentions:
+                                sender
+                                    ? [sender]
+                                    : []
+                        },
+                        {
+                            quoted:
+                                getQuoteMessage(
+                                    m,
+                                    event
+                                )
+                        }
+                    )
+
+
+                /*
+                 * ==================================================
+                 * GUARDAR EL MENSAJE DEL BOT
+                 * ==================================================
+                 *
+                 * Si alguien responde a ESTE mensaje,
+                 * podremos saber que está respondiendo
+                 * al ViewOnce detectado.
+                 */
+
+                const botMessageId =
+                    sent?.key?.id
+
+                if (
+                    botMessageId
+                ) {
+
+                    rememberBotNotice(
+                        conn,
+                        target,
+                        botMessageId,
+                        {
+                            originalId,
+                            originalSender:
+                                sender,
+                            originalName:
+                                name,
+                            originalPhone:
+                                phone,
+                            type,
+                            sourceChat:
+                                m.chat,
+                            created:
+                                Date.now()
+                        }
+                    )
+                }
 
             } catch (e) {
 
                 console.error(
-                    "[AUTOVIEW] Error enviando información:",
+                    "[AUTOVIEW] Error enviando ficha:",
+                    e?.stack ||
+                    e?.message ||
                     e
                 )
             }
@@ -378,157 +407,67 @@ handler.before = async function (m, { conn }) {
     return true
 }
 
+
 export default handler
 
 
 /*
  * ============================================================
- * DETECTOR PRINCIPAL
+ * DETECTOR VIEW ONCE
  * ============================================================
  */
 
-async function detectViewOnce(m) {
+function detectViewOnce(m) {
 
     /*
      * ========================================================
-     * 1. RESPUESTA / CITA
+     * MÉTODO 1
+     *
+     * m.vM
+     *
+     * Esta es una de las rutas más importantes para tu bot.
+     * simple.js conserva referencias del mensaje original.
      * ========================================================
-     *
-     * ESTA ES LA RUTA QUE USA ver.js.
-     *
-     * m.quoted.viewOnce
-     * m.quoted.download()
      */
 
-    if (
-        m?.quoted
+    const rawCandidates = [
+        m?.vM,
+        m?.fakeObj,
+        m?.message,
+        m?.msg
+    ]
+
+    for (
+        const raw of rawCandidates
     ) {
 
-        const q =
-            m.quoted
-
-        if (
-            q?.viewOnce
-        ) {
-
-            return {
-                place: "quoted",
-                quoted: q,
-                id:
-                    q?.id ||
-                    q?.key?.id ||
-                    "",
-                sender:
-                    q?.sender ||
-                    q?.participant ||
-                    "",
-                type:
-                    getQuotedType(q)
-            }
-        }
-
-        /*
-         * Algunas versiones no exponen
-         * q.viewOnce directamente.
-         *
-         * Revisamos el mensaje RAW.
-         */
-
-        const quotedRaw =
-            q?.vM?.message ||
-            q?.fakeObj?.message ||
-            q?.message ||
-            null
-
-        if (
-            isViewOnceMessage(
-                quotedRaw
+        const found =
+            inspectRawMessage(
+                raw
             )
-        ) {
+
+        if (found) {
 
             return {
-                place: "quoted",
-                quoted: q,
-                raw:
-                    quotedRaw,
+                ...found,
+                place:
+                    "automático",
                 id:
-                    q?.id ||
-                    q?.key?.id ||
-                    "",
+                    getMessageId(
+                        m,
+                        raw
+                    ),
                 sender:
-                    q?.sender ||
-                    q?.participant ||
-                    "",
-                type:
-                    detectMediaType(
-                        quotedRaw
-                    )
-            }
-        }
-
-        /*
-         * m.quoted.mtype puede seguir teniendo
-         * la información multimedia aunque el
-         * wrapper haya sido desarmado.
-         */
-
-        if (
-            q?.mtype &&
-            isViewOnceNode(
-                q?.msg
-            )
-        ) {
-
-            return {
-                place: "quoted",
-                quoted: q,
-                id:
-                    q?.id ||
-                    "",
-                sender:
-                    q?.sender ||
-                    "",
-                type:
-                    normalizeType(
-                        q.mtype
-                    )
-            }
-        }
-
-        /*
-         * Último intento:
-         * contextInfo.quotedMessage
-         */
-
-        const context =
-            getContextInfo(m)
-
-        const quotedMessage =
-            context?.quotedMessage
-
-        if (
-            isViewOnceMessage(
-                quotedMessage
-            )
-        ) {
-
-            return {
-                place: "quoted",
-                quoted: q,
-                raw:
-                    quotedMessage,
-                id:
-                    context?.stanzaId ||
-                    q?.id ||
-                    "",
-                sender:
-                    context?.participant ||
-                    q?.sender ||
-                    "",
-                type:
-                    detectMediaType(
-                        quotedMessage
-                    )
+                    getRawSender(
+                        m,
+                        raw
+                    ),
+                serialized:
+                    m,
+                rawMessage:
+                    raw,
+                quoted:
+                    null
             }
         }
     }
@@ -536,7 +475,9 @@ async function detectViewOnce(m) {
 
     /*
      * ========================================================
-     * 2. MENSAJE DIRECTO
+     * MÉTODO 2
+     *
+     * key.isViewOnce
      * ========================================================
      */
 
@@ -544,129 +485,289 @@ async function detectViewOnce(m) {
         m?.key?.isViewOnce
     ) {
 
-        return {
-            place: "message",
-            direct: true,
-            raw:
-                m?.message,
-            id:
-                m?.key?.id ||
-                m?.id ||
-                "",
-            sender:
-                m?.sender ||
-                m?.key?.participant ||
-                "",
-            type:
-                detectMediaType(
-                    m?.message
-                ) ||
-                normalizeType(
-                    m?.mtype
-                )
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * 3. WRAPPERS VIEWONCE
-     * ========================================================
-     */
-
-    if (
-        isViewOnceMessage(
-            m?.message
-        )
-    ) {
-
-        return {
-            place: "message",
-            direct: true,
-            raw:
-                m?.message,
-            id:
-                m?.key?.id ||
-                m?.id ||
-                "",
-            sender:
-                m?.sender ||
-                m?.key?.participant ||
-                "",
-            type:
-                detectMediaType(
-                    m?.message
-                )
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * 4. m.msg
-     * ========================================================
-     */
-
-    if (
-        isViewOnceMessage(
+        const raw =
+            m?.vM ||
+            m?.fakeObj ||
+            m?.message ||
             m?.msg
-        )
-    ) {
 
         return {
-            place: "message",
-            direct: true,
-            raw:
-                m?.msg,
-            id:
-                m?.key?.id ||
-                m?.id ||
-                "",
-            sender:
-                m?.sender ||
-                m?.key?.participant ||
-                "",
-            type:
+            wrapper:
+                "key.isViewOnce",
+            mediaType:
                 detectMediaType(
-                    m?.msg
-                )
+                    unwrap(
+                        raw
+                    )
+                ),
+            place:
+                "automático",
+            id:
+                getMessageId(
+                    m,
+                    raw
+                ),
+            sender:
+                getRawSender(
+                    m,
+                    raw
+                ),
+            serialized:
+                m,
+            rawMessage:
+                raw,
+            quoted:
+                null
         }
     }
 
 
     /*
      * ========================================================
-     * 5. MEDIA DIRECTAMENTE MARCADA
+     * MÉTODO 3
+     *
+     * m.mtype
      * ========================================================
+     *
+     * En ciertos serializadores:
+     *
+     * m.mtype =
+     * viewOnceMessageV2
      */
 
-    if (
-        isViewOnceNode(
-            m?.msg
+    const mtype =
+        String(
+            m?.mtype ||
+            ""
         )
+
+    if (
+        mtype ===
+            "viewOnceMessage" ||
+        mtype ===
+            "viewOnceMessageV2" ||
+        mtype ===
+            "viewOnceMessageV2Extension"
     ) {
 
+        const raw =
+            m?.message ||
+            m?.msg
+
+        const found =
+            inspectRawMessage(
+                raw
+            )
+
         return {
-            place: "message",
-            direct: true,
-            raw:
-                m?.message ||
-                {
-                    [m?.mtype]:
-                        m?.msg
-                },
+            ...(found || {}),
+            wrapper:
+                mtype,
+            mediaType:
+                found?.mediaType ||
+                detectMediaType(
+                    unwrap(
+                        raw
+                    )
+                ),
+            place:
+                "automático",
             id:
-                m?.key?.id ||
                 m?.id ||
+                m?.key?.id ||
                 "",
             sender:
                 m?.sender ||
                 m?.key?.participant ||
                 "",
-            type:
-                normalizeType(
-                    m?.mtype
-                )
+            serialized:
+                m,
+            rawMessage:
+                raw,
+            quoted:
+                null
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * MÉTODO 4
+     *
+     * CITADO
+     * ========================================================
+     */
+
+    const q =
+        m?.quoted
+
+    if (q) {
+
+        /*
+         * Ruta principal de ver.js
+         */
+
+        if (
+            q?.viewOnce
+        ) {
+
+            return {
+                wrapper:
+                    "quoted.viewOnce",
+                mediaType:
+                    normalizeType(
+                        q?.mtype ||
+                        q?.mediaType ||
+                        detectMediaType(
+                            q?.message
+                        )
+                    ),
+                place:
+                    "citado",
+                id:
+                    q?.id ||
+                    "",
+                sender:
+                    q?.sender ||
+                    q?.participant ||
+                    "",
+                serialized:
+                    m,
+                rawMessage:
+                    q?.message ||
+                    q?.msg ||
+                    null,
+                quoted:
+                    q
+            }
+        }
+
+
+        /*
+         * m.quoted.vM
+         */
+
+        const quotedRaw =
+            q?.vM ||
+            q?.fakeObj ||
+            q?.message ||
+            null
+
+        const quotedFound =
+            inspectRawMessage(
+                quotedRaw
+            )
+
+        if (
+            quotedFound
+        ) {
+
+            return {
+                ...quotedFound,
+                place:
+                    "citado",
+                id:
+                    q?.id ||
+                    q?.key?.id ||
+                    "",
+                sender:
+                    q?.sender ||
+                    q?.participant ||
+                    "",
+                serialized:
+                    m,
+                rawMessage:
+                    quotedRaw,
+                quoted:
+                    q
+            }
+        }
+
+
+        /*
+         * m.quoted.msg
+         */
+
+        if (
+            q?.msg &&
+            isViewOnceNode(
+                q.msg
+            )
+        ) {
+
+            return {
+                wrapper:
+                    "quoted.msg",
+                mediaType:
+                    normalizeType(
+                        q?.mtype
+                    ),
+                place:
+                    "citado",
+                id:
+                    q?.id ||
+                    "",
+                sender:
+                    q?.sender ||
+                    "",
+                serialized:
+                    m,
+                rawMessage:
+                    {
+                        [q.mtype]:
+                            q.msg
+                    },
+                quoted:
+                    q
+            }
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * MÉTODO 5
+     *
+     * contextInfo.quotedMessage
+     * ========================================================
+     */
+
+    const context =
+        getContextInfo(
+            m
+        )
+
+    if (
+        context?.quotedMessage
+    ) {
+
+        const found =
+            inspectRawMessage(
+                context.quotedMessage
+            )
+
+        if (
+            found
+        ) {
+
+            return {
+                ...found,
+                place:
+                    "citado",
+                id:
+                    context?.stanzaId ||
+                    "",
+                sender:
+                    context?.participant ||
+                    m?.sender ||
+                    "",
+                serialized:
+                    m,
+                rawMessage:
+                    context.quotedMessage,
+                quoted:
+                    q || null
+            }
         }
     }
 
@@ -676,25 +777,27 @@ async function detectViewOnce(m) {
 
 /*
  * ============================================================
- * DETECTAR WRAPPER
+ * INSPECCIÓN RAW
  * ============================================================
  */
 
-function isViewOnceMessage(
+function inspectRawMessage(
     message,
     depth = 0
 ) {
 
     if (
         !message ||
-        typeof message !== "object" ||
-        depth > 15
+        typeof message !==
+            "object" ||
+        depth > 20
     ) {
-        return false
+        return null
     }
 
+
     /*
-     * ViewOnce oficiales.
+     * ViewOnce wrappers.
      */
 
     for (
@@ -705,16 +808,33 @@ function isViewOnceMessage(
         ]
     ) {
 
-        if (
+        const inner =
             message?.[wrapper]
                 ?.message
+
+        if (
+            inner
         ) {
-            return true
+
+            return {
+                wrapper,
+                mediaType:
+                    detectMediaType(
+                        unwrap(
+                            inner
+                        )
+                    ),
+                innerMessage:
+                    unwrap(
+                        inner
+                    )
+            }
         }
     }
 
+
     /*
-     * Multimedia marcada directamente.
+     * Multimedia marcada como ViewOnce.
      */
 
     for (
@@ -732,13 +852,24 @@ function isViewOnceMessage(
         if (
             node &&
             (
-                node.viewOnce ||
-                node.isViewOnce
+                node.viewOnce ===
+                    true ||
+                node.isViewOnce ===
+                    true
             )
         ) {
-            return true
+
+            return {
+                wrapper:
+                    `${type}.viewOnce`,
+                mediaType:
+                    type,
+                innerMessage:
+                    message
+            }
         }
     }
+
 
     /*
      * Wrappers secundarios.
@@ -750,7 +881,8 @@ function isViewOnceMessage(
             "documentWithCaptionMessage",
             "editedMessage",
             "deviceSentMessage",
-            "futureproofMessage"
+            "futureproofMessage",
+            "associatedChildMessage"
         ]
     ) {
 
@@ -759,608 +891,35 @@ function isViewOnceMessage(
                 ?.message
 
         if (
-            inner &&
-            isViewOnceMessage(
-                inner,
-                depth + 1
-            )
+            inner
         ) {
-            return true
-        }
-    }
 
-    return false
-}
-
-
-/*
- * ============================================================
- * DETECTAR NODO VIEWONCE
- * ============================================================
- */
-
-function isViewOnceNode(
-    node
-) {
-
-    if (
-        !node ||
-        typeof node !== "object"
-    ) {
-        return false
-    }
-
-    return Boolean(
-        node.viewOnce ||
-        node.isViewOnce
-    )
-}
-
-
-/*
- * ============================================================
- * RECUPERAR CONTENIDO
- * ============================================================
- */
-
-async function recoverViewOnce(
-    conn,
-    event,
-    m,
-    target
-) {
-
-    let lastError =
-        null
-
-
-    /*
-     * ========================================================
-     * MÉTODO 1
-     * ========================================================
-     *
-     * EXACTAMENTE LA MISMA IDEA QUE ver.js:
-     *
-     * m.quoted.download(false)
-     */
-
-    if (
-        event.place === "quoted" &&
-        event.quoted &&
-        typeof event.quoted.download ===
-            "function"
-    ) {
-
-        try {
-
-            const buffer =
-                await event.quoted.download(
-                    false
+            const found =
+                inspectRawMessage(
+                    inner,
+                    depth + 1
                 )
 
             if (
-                buffer
+                found
             ) {
-
-                const result =
-                    await sendRecovered(
-                        conn,
-                        target,
-                        buffer,
-                        event.type,
-                        event.quoted
-                    )
-
-                if (
-                    result.ok
-                ) {
-
-                    return {
-                        ok: true,
-                        method:
-                            "m.quoted.download()",
-                        message:
-                            result.message,
-                        error:
-                            null
-                    }
-                }
-            }
-
-        } catch (e) {
-
-            lastError = e
-
-            console.error(
-                "[AUTOVIEW] quoted.download:",
-                e?.message ||
-                e
-            )
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * MÉTODO 2
-     * ========================================================
-     *
-     * m.download()
-     *
-     * Igual que autosticker.js.
-     */
-
-    if (
-        event.place === "message" &&
-        typeof m?.download ===
-            "function"
-    ) {
-
-        try {
-
-            const buffer =
-                await m.download(
-                    false
-                )
-
-            if (
-                buffer
-            ) {
-
-                const result =
-                    await sendRecovered(
-                        conn,
-                        target,
-                        buffer,
-                        event.type,
-                        m
-                    )
-
-                if (
-                    result.ok
-                ) {
-
-                    return {
-                        ok: true,
-                        method:
-                            "m.download()",
-                        message:
-                            result.message,
-                        error:
-                            null
-                    }
-                }
-            }
-
-        } catch (e) {
-
-            lastError = e
-
-            console.error(
-                "[AUTOVIEW] m.download:",
-                e?.message ||
-                e
-            )
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * MÉTODO 3
-     * ========================================================
-     *
-     * copyNForward con readViewOnce.
-     */
-
-    if (
-        typeof conn?.copyNForward ===
-            "function"
-    ) {
-
-        const sources = []
-
-        if (
-            event.quoted?.vM
-        ) {
-            sources.push(
-                event.quoted.vM
-            )
-        }
-
-        if (
-            event.quoted?.fakeObj
-        ) {
-            sources.push(
-                event.quoted.fakeObj
-            )
-        }
-
-        if (
-            event.raw
-        ) {
-
-            sources.push(
-                makeWebMessage(
-                    m,
-                    event
-                )
-            )
-        }
-
-        if (
-            m?.vM
-        ) {
-            sources.push(
-                m.vM
-            )
-        }
-
-        sources.push(
-            m
-        )
-
-        for (
-            const source of uniqueObjects(
-                sources
-            )
-        ) {
-
-            if (!source) {
-                continue
-            }
-
-            try {
-
-                const sent =
-                    await conn.copyNForward(
-                        target,
-                        source,
-                        true,
-                        {
-                            readViewOnce:
-                                true
-                        }
-                    )
-
-                if (
-                    sent
-                ) {
-
-                    return {
-                        ok: true,
-                        method:
-                            "copyNForward(readViewOnce)",
-                        message:
-                            sent,
-                        error:
-                            null
-                    }
-                }
-
-            } catch (e) {
-
-                lastError = e
-
-                console.error(
-                    "[AUTOVIEW] copyNForward:",
-                    e?.message ||
-                    e
-                )
+                return found
             }
         }
     }
 
 
-    /*
-     * ========================================================
-     * MÉTODO 4
-     * ========================================================
-     *
-     * downloadContentFromMessage.
-     */
-
-    try {
-
-        const raw =
-            unwrapMessage(
-                event.raw
-            )
-
-        const media =
-            getMediaNode(
-                raw,
-                event.type
-            )
-
-        if (
-            media
-        ) {
-
-            const baileysType =
-                normalizeType(
-                    event.type
-                )
-
-            const stream =
-                await downloadContentFromMessage(
-                    media,
-                    baileysType
-                )
-
-            const chunks = []
-
-            for await (
-                const chunk of stream
-            ) {
-                chunks.push(
-                    chunk
-                )
-            }
-
-            const buffer =
-                Buffer.concat(
-                    chunks
-                )
-
-            if (
-                buffer.length
-            ) {
-
-                const result =
-                    await sendRecovered(
-                        conn,
-                        target,
-                        buffer,
-                        event.type,
-                        media
-                    )
-
-                if (
-                    result.ok
-                ) {
-
-                    return {
-                        ok: true,
-                        method:
-                            "downloadContentFromMessage()",
-                        message:
-                            result.message,
-                        error:
-                            null
-                    }
-                }
-            }
-        }
-
-    } catch (e) {
-
-        lastError = e
-
-        console.error(
-            "[AUTOVIEW] downloadContentFromMessage:",
-            e?.message ||
-            e
-        )
-    }
-
-
-    /*
-     * ========================================================
-     * FALLÓ TODO
-     * ========================================================
-     */
-
-    return {
-        ok: false,
-        message: null,
-        method: "",
-        error:
-            lastError ||
-            new Error(
-                "No se pudo recuperar el ViewOnce."
-            )
-    }
+    return null
 }
 
 
 /*
  * ============================================================
- * ENVIAR CONTENIDO RECUPERADO
+ * UNWRAP
  * ============================================================
  */
 
-async function sendRecovered(
-    conn,
-    target,
-    buffer,
-    type,
-    source
-) {
-
-    if (
-        !buffer
-    ) {
-        return {
-            ok: false,
-            message: null
-        }
-    }
-
-    const mediaType =
-        normalizeType(
-            type ||
-            source?.mtype ||
-            source?.mediaType
-        )
-
-    try {
-
-        /*
-         * ====================================================
-         * IMAGEN
-         * ====================================================
-         */
-
-        if (
-            mediaType ===
-                "imageMessage" ||
-            mediaType ===
-                "image"
-        ) {
-
-            const sent =
-                await conn.sendFile(
-                    target,
-                    buffer,
-                    "viewonce.jpg",
-                    getCaption(
-                        source
-                    ),
-                    null,
-                    true
-                )
-
-            return {
-                ok: true,
-                message:
-                    sent
-            }
-        }
-
-
-        /*
-         * ====================================================
-         * VIDEO
-         * ====================================================
-         */
-
-        if (
-            mediaType ===
-                "videoMessage" ||
-            mediaType ===
-                "video"
-        ) {
-
-            const sent =
-                await conn.sendFile(
-                    target,
-                    buffer,
-                    "viewonce.mp4",
-                    getCaption(
-                        source
-                    ),
-                    null,
-                    true
-                )
-
-            return {
-                ok: true,
-                message:
-                    sent
-            }
-        }
-
-
-        /*
-         * ====================================================
-         * AUDIO
-         * ====================================================
-         */
-
-        if (
-            mediaType ===
-                "audioMessage" ||
-            mediaType ===
-                "audio"
-        ) {
-
-            const node =
-                source?.audioMessage ||
-                source
-
-            const sent =
-                await conn.sendFile(
-                    target,
-                    buffer,
-                    "viewonce.mp3",
-                    "",
-                    null,
-                    true,
-                    {
-                        type:
-                            "audioMessage",
-                        ptt:
-                            Boolean(
-                                node?.ptt
-                            )
-                    }
-                )
-
-            return {
-                ok: true,
-                message:
-                    sent
-            }
-        }
-
-
-        /*
-         * ====================================================
-         * DOCUMENTO
-         * ====================================================
-         */
-
-        if (
-            mediaType ===
-                "documentMessage" ||
-            mediaType ===
-                "document"
-        ) {
-
-            const sent =
-                await conn.sendFile(
-                    target,
-                    buffer,
-                    source?.fileName ||
-                    "viewonce",
-                    getCaption(
-                        source
-                    ),
-                    null,
-                    true
-                )
-
-            return {
-                ok: true,
-                message:
-                    sent
-            }
-        }
-
-    } catch (e) {
-
-        return {
-            ok: false,
-            message: null,
-            error: e
-        }
-    }
-
-    return {
-        ok: false,
-        message: null
-    }
-}
-
-
-/*
- * ============================================================
- * DESENVOLVER WRAPPERS
- * ============================================================
- */
-
-function unwrapMessage(
+function unwrap(
     message
 ) {
 
@@ -1381,14 +940,6 @@ function unwrapMessage(
         i++
     ) {
 
-        if (
-            !current ||
-            typeof current !==
-                "object"
-        ) {
-            return null
-        }
-
         let changed =
             false
 
@@ -1401,7 +952,8 @@ function unwrapMessage(
                 "documentWithCaptionMessage",
                 "editedMessage",
                 "deviceSentMessage",
-                "futureproofMessage"
+                "futureproofMessage",
+                "associatedChildMessage"
             ]
         ) {
 
@@ -1436,63 +988,7 @@ function unwrapMessage(
 
 /*
  * ============================================================
- * OBTENER MEDIA
- * ============================================================
- */
-
-function getMediaNode(
-    message,
-    type = ""
-) {
-
-    if (
-        !message ||
-        typeof message !==
-            "object"
-    ) {
-        return null
-    }
-
-    const normalized =
-        normalizeType(
-            type
-        )
-
-    if (
-        normalized &&
-        message[
-            normalized
-        ]
-    ) {
-
-        return message[
-            normalized
-        ]
-    }
-
-    for (
-        const name of [
-            "imageMessage",
-            "videoMessage",
-            "audioMessage",
-            "documentMessage"
-        ]
-    ) {
-
-        if (
-            message[name]
-        ) {
-            return message[name]
-        }
-    }
-
-    return null
-}
-
-
-/*
- * ============================================================
- * TIPO MULTIMEDIA
+ * TIPO
  * ============================================================
  */
 
@@ -1500,13 +996,21 @@ function detectMediaType(
     message
 ) {
 
-    const unwrapped =
-        unwrapMessage(
+    if (
+        !message ||
+        typeof message !==
+            "object"
+    ) {
+        return ""
+    }
+
+    const clean =
+        unwrap(
             message
         )
 
     if (
-        !unwrapped
+        !clean
     ) {
         return ""
     }
@@ -1521,28 +1025,13 @@ function detectMediaType(
     ) {
 
         if (
-            unwrapped[type]
+            clean?.[type]
         ) {
             return type
         }
     }
 
     return ""
-}
-
-
-function getQuotedType(
-    q
-) {
-
-    return normalizeType(
-        q?.mediaType ||
-        q?.mtype ||
-        detectMediaType(
-            q?.message
-        ) ||
-        ""
-    )
 }
 
 
@@ -1598,113 +1087,336 @@ function normalizeType(
 
 /*
  * ============================================================
- * CONTEXT INFO
+ * TIPO PARA MOSTRAR
  * ============================================================
  */
 
-function getContextInfo(
+function getDisplayType(
+    event
+) {
+
+    const type =
+        normalizeType(
+            event?.mediaType
+        )
+
+    if (
+        type ===
+            "imageMessage"
+    ) {
+        return event.place ===
+            "citado"
+            ? "citado"
+            : "automático"
+    }
+
+    if (
+        type ===
+            "videoMessage"
+    ) {
+        return event.place ===
+            "citado"
+            ? "citado"
+            : "automático"
+    }
+
+    if (
+        type ===
+            "audioMessage"
+    ) {
+        return event.place ===
+            "citado"
+            ? "citado"
+            : "automático"
+    }
+
+    if (
+        type ===
+            "documentMessage"
+    ) {
+        return event.place ===
+            "citado"
+            ? "citado"
+            : "automático"
+    }
+
+    return event.place ===
+        "citado"
+        ? "citado"
+        : "automático"
+}
+
+
+/*
+ * ============================================================
+ * OBTENER ID
+ * ============================================================
+ */
+
+function getMessageId(
+    m,
+    raw
+) {
+
+    return (
+        m?.key?.id ||
+        m?.id ||
+        raw?.key?.id ||
+        ""
+    )
+}
+
+
+function getOriginalId(
+    event,
     m
 ) {
 
     return (
-        m?.msg?.contextInfo ||
-        m?.message
-            ?.extendedTextMessage
-            ?.contextInfo ||
-        m?.message
-            ?.imageMessage
-            ?.contextInfo ||
-        m?.message
-            ?.videoMessage
-            ?.contextInfo ||
-        m?.message
-            ?.documentMessage
-            ?.contextInfo ||
-        null
+        event?.id ||
+        event?.quoted?.id ||
+        event?.quoted?.key?.id ||
+        m?.key?.id ||
+        m?.id ||
+        ""
     )
 }
 
 
 /*
  * ============================================================
- * CONSTRUIR WEBMESSAGE
+ * OBTENER REMITENTE
  * ============================================================
  */
 
-function makeWebMessage(
+function getRawSender(
+    m,
+    raw
+) {
+
+    return (
+        raw?.key?.participant ||
+        raw?.participant ||
+        m?.sender ||
+        m?.key?.participant ||
+        ""
+    )
+}
+
+
+async function getOriginalSender(
+    conn,
     m,
     event
 ) {
 
+    const possible = [
+        event?.sender,
+        event?.rawMessage
+            ?.key
+            ?.participant,
+        event?.rawMessage
+            ?.participant,
+        event?.quoted
+            ?.sender,
+        event?.quoted
+            ?.participant,
+        m?.sender,
+        m?.key?.participant
+    ].filter(
+        Boolean
+    )
+
+
+    /*
+     * En grupos intentamos resolver
+     * contra los participantes.
+     */
+
     try {
 
-        const message =
-            event?.raw ||
-            m?.message
+        const metadata =
+            await conn.groupMetadata(
+                m.chat
+            )
 
-        if (
-            !message
+        const participants =
+            metadata?.participants ||
+            []
+
+        for (
+            const candidate of
+            possible
         ) {
-            return null
+
+            const found =
+                participants.find(
+                    p =>
+                        p?.id ===
+                            candidate ||
+                        p?.jid ===
+                            candidate ||
+                        p?.lid ===
+                            candidate ||
+                        p?.phoneNumber ===
+                            candidate
+                )
+
+            if (
+                found
+            ) {
+
+                return (
+                    found.phoneNumber ||
+                    found.jid ||
+                    found.id ||
+                    candidate
+                )
+            }
         }
 
-        return {
-            key: {
-                remoteJid:
-                    m?.chat ||
-                    m?.key
-                        ?.remoteJid ||
-                    "",
-                fromMe:
-                    false,
-                id:
-                    event?.id ||
-                    m?.key?.id ||
-                    ""
-            },
-            message,
-            participant:
-                event?.sender ||
-                m?.sender ||
-                m?.key?.participant
-        }
+    } catch {}
 
-    } catch {
 
-        return null
-    }
+    return (
+        possible[0] ||
+        ""
+    )
 }
 
 
 /*
  * ============================================================
- * CAPTION
+ * TELÉFONO
  * ============================================================
  */
 
-function getCaption(
-    source
+async function getPhoneInfo(
+    conn,
+    chat,
+    sender
 ) {
 
-    if (
-        !source
-    ) {
-        return ""
-    }
+    try {
 
-    return (
-        source?.caption ||
-        source
-            ?.imageMessage
-            ?.caption ||
-        source
-            ?.videoMessage
-            ?.caption ||
-        source
-            ?.documentMessage
-            ?.caption ||
-        ""
-    )
+        if (
+            !sender
+        ) {
+
+            return {
+                number:
+                    "",
+                country:
+                    "Desconocido",
+                flag:
+                    "🌐"
+            }
+        }
+
+
+        let participants =
+            []
+
+        try {
+
+            const metadata =
+                await conn.groupMetadata(
+                    chat
+                )
+
+            participants =
+                metadata
+                    ?.participants ||
+                []
+
+        } catch {}
+
+
+        const participant =
+            participants.find(
+                p =>
+                    p?.id ===
+                        sender ||
+                    p?.jid ===
+                        sender ||
+                    p?.lid ===
+                        sender ||
+                    p?.phoneNumber ===
+                        sender
+            )
+
+
+        const raw =
+            participant?.phoneNumber ||
+            participant?.jid ||
+            participant?.id ||
+            sender
+
+
+        const number =
+            String(
+                raw
+            )
+                .split("@")[0]
+                .split(":")[0]
+                .replace(
+                    /\D/g,
+                    ""
+                )
+
+
+        if (
+            !number
+        ) {
+
+            return {
+                number:
+                    "",
+                country:
+                    "Desconocido",
+                flag:
+                    "🌐"
+            }
+        }
+
+
+        const pn =
+            new PhoneNumber(
+                "+" +
+                number
+            )
+
+
+        const region =
+            pn.getRegionCode() ||
+            ""
+
+
+        return {
+            number:
+                "+" +
+                number,
+            country:
+                getCountryName(
+                    region
+                ),
+            flag:
+                getFlagEmoji(
+                    region
+                )
+        }
+
+    } catch {
+
+        return {
+            number:
+                "",
+            country:
+                "Desconocido",
+            flag:
+                "🌐"
+        }
+    }
 }
 
 
@@ -1728,7 +1440,7 @@ async function getName(
     try {
 
         if (
-            typeof conn?.getName ===
+            typeof conn.getName ===
                 "function"
         ) {
 
@@ -1736,7 +1448,8 @@ async function getName(
                 await conn.getName(
                     jid
                 )
-            ) || jid
+            ) ||
+            jid
         }
 
     } catch {}
@@ -1747,138 +1460,11 @@ async function getName(
 
 /*
  * ============================================================
- * NÚMERO REAL + PAÍS
- * ============================================================
- */
-
-async function getRealPhone(
-    conn,
-    chat,
-    sender
-) {
-
-    try {
-
-        if (
-            !sender
-        ) {
-
-            return {
-                number: "",
-                country:
-                    "Desconocido",
-                flag:
-                    "🌐"
-            }
-        }
-
-        let participants =
-            []
-
-        try {
-
-            const metadata =
-                await conn.groupMetadata(
-                    chat
-                )
-
-            participants =
-                metadata
-                    ?.participants ||
-                []
-
-        } catch {}
-
-        const participant =
-            participants.find(
-                p =>
-                    p?.id ===
-                        sender ||
-                    p?.jid ===
-                        sender ||
-                    p?.lid ===
-                        sender ||
-                    p?.phoneNumber ===
-                        sender
-            )
-
-        const raw =
-            participant
-                ?.phoneNumber ||
-            participant
-                ?.jid ||
-            participant
-                ?.id ||
-            sender
-
-        const number =
-            String(
-                raw
-            )
-                .split("@")[0]
-                .split(":")[0]
-                .replace(
-                    /\D/g,
-                    ""
-                )
-
-        if (
-            !number
-        ) {
-
-            return {
-                number: "",
-                country:
-                    "Desconocido",
-                flag:
-                    "🌐"
-            }
-        }
-
-        const parsed =
-            new PhoneNumber(
-                "+" +
-                number
-            )
-
-        const region =
-            parsed.getRegionCode() ||
-            ""
-
-        return {
-            number:
-                "+" +
-                number,
-            country:
-                getCountry(
-                    region
-                ),
-            flag:
-                getFlag(
-                    region
-                )
-        }
-
-    } catch {
-
-        return {
-            number: "",
-            country:
-                "Desconocido",
-            flag:
-                "🌐"
-        }
-    }
-}
-
-
-/*
- * ============================================================
  * PAÍS
  * ============================================================
  */
 
-function getCountry(
+function getCountryName(
     code
 ) {
 
@@ -1919,7 +1505,7 @@ function getCountry(
  * ============================================================
  */
 
-function getFlag(
+function getFlagEmoji(
     code
 ) {
 
@@ -1947,6 +1533,711 @@ function getFlag(
 
 /*
  * ============================================================
+ * MENCIÓN
+ * ============================================================
+ */
+
+function makeMention(
+    jid
+) {
+
+    if (
+        !jid
+    ) {
+        return "@desconocido"
+    }
+
+    const number =
+        String(
+            jid
+        )
+            .split("@")[0]
+            .split(":")[0]
+            .replace(
+                /\D/g,
+                ""
+            )
+
+    return (
+        "@" +
+        (
+            number ||
+            "desconocido"
+        )
+    )
+}
+
+
+/*
+ * ============================================================
+ * CITAR MENSAJE ORIGINAL
+ * ============================================================
+ *
+ * Para automático intentamos citar el mensaje original
+ * usando la referencia disponible.
+ *
+ * Si no existe una referencia válida, simplemente
+ * mandamos la ficha sin quote.
+ */
+
+function getQuoteMessage(
+    m,
+    event
+) {
+
+    if (
+        event?.place ===
+            "citado"
+    ) {
+
+        if (
+            event?.quoted
+        ) {
+            return event.quoted
+        }
+    }
+
+    if (
+        event?.serialized
+    ) {
+
+        return event.serialized
+    }
+
+    return m
+}
+
+
+/*
+ * ============================================================
+ * DETECTAR COMANDO
+ * ============================================================
+ */
+
+function isCommandMessage(
+    m,
+    cmd,
+    prefijo
+) {
+
+    const text =
+        String(
+            m?.text ||
+            m?.body ||
+            ""
+        ).trim()
+
+    if (
+        !text
+    ) {
+        return false
+    }
+
+    if (
+        !prefijo
+    ) {
+        return false
+    }
+
+    const prefix =
+        String(
+            prefijo
+        )
+
+    if (
+        !text.startsWith(
+            prefix
+        )
+    ) {
+        return false
+    }
+
+    return Boolean(
+        cmd
+    )
+}
+
+
+/*
+ * ============================================================
+ * CONTEXT INFO
+ * ============================================================
+ */
+
+function getContextInfo(
+    m
+) {
+
+    if (
+        m?.msg?.contextInfo
+    ) {
+        return m.msg.contextInfo
+    }
+
+
+    const messages = [
+        m?.message,
+        m?.vM?.message,
+        m?.fakeObj?.message
+    ]
+
+
+    for (
+        const message of
+        messages
+    ) {
+
+        const found =
+            findContextInfo(
+                message
+            )
+
+        if (
+            found
+        ) {
+            return found
+        }
+    }
+
+
+    return null
+}
+
+
+function findContextInfo(
+    message,
+    depth = 0
+) {
+
+    if (
+        !message ||
+        typeof message !==
+            "object" ||
+        depth > 20
+    ) {
+        return null
+    }
+
+
+    for (
+        const type of [
+            "imageMessage",
+            "videoMessage",
+            "audioMessage",
+            "documentMessage",
+            "extendedTextMessage"
+        ]
+    ) {
+
+        if (
+            message?.[type]
+                ?.contextInfo
+        ) {
+
+            return (
+                message[type]
+                    .contextInfo
+            )
+        }
+    }
+
+
+    for (
+        const wrapper of [
+            "viewOnceMessage",
+            "viewOnceMessageV2",
+            "viewOnceMessageV2Extension",
+            "ephemeralMessage",
+            "documentWithCaptionMessage",
+            "editedMessage",
+            "deviceSentMessage",
+            "futureproofMessage",
+            "associatedChildMessage"
+        ]
+    ) {
+
+        const inner =
+            message?.[wrapper]
+                ?.message
+
+        if (
+            inner
+        ) {
+
+            const found =
+                findContextInfo(
+                    inner,
+                    depth + 1
+                )
+
+            if (
+                found
+            ) {
+                return found
+            }
+        }
+    }
+
+
+    return null
+}
+
+
+/*
+ * ============================================================
+ * MENSAJES DEL BOT
+ * ============================================================
+ *
+ * Aquí guardamos los IDs de las fichas enviadas.
+ *
+ * Cuando alguien responde a una de ellas:
+ *
+ * m.quoted.id === botMessageId
+ *
+ * y podemos saber exactamente a qué ViewOnce
+ * corresponde.
+ */
+
+function rememberBotNotice(
+    conn,
+    chat,
+    messageId,
+    data
+) {
+
+    const map =
+        conn._autoViewNotices ||
+        (
+            conn._autoViewNotices =
+                new Map()
+        )
+
+
+    cleanupBotNotices(
+        map
+    )
+
+
+    map.set(
+        `${chat}:${messageId}`,
+        {
+            ...data,
+            chat,
+            messageId,
+            at:
+                Date.now()
+        }
+    )
+
+
+    while (
+        map.size >
+        RESPONSE_LIMIT
+    ) {
+
+        const first =
+            map.keys()
+                .next()
+                .value
+
+        if (
+            first
+        ) {
+            map.delete(
+                first
+            )
+        } else {
+            break
+        }
+    }
+}
+
+
+function getBotNotice(
+    conn,
+    chat,
+    messageId
+) {
+
+    const map =
+        conn._autoViewNotices
+
+    if (
+        !map
+    ) {
+        return null
+    }
+
+
+    cleanupBotNotices(
+        map
+    )
+
+
+    return (
+        map.get(
+            `${chat}:${messageId}`
+        ) ||
+        null
+    )
+}
+
+
+function cleanupBotNotices(
+    map
+) {
+
+    const now =
+        Date.now()
+
+
+    for (
+        const [
+            key,
+            value
+        ] of map
+    ) {
+
+        if (
+            now -
+            value.at >
+            RESPONSE_TTL
+        ) {
+
+            map.delete(
+                key
+            )
+        }
+    }
+}
+
+
+/*
+ * ============================================================
+ * PROCESAR RESPUESTAS A LA FICHA
+ * ============================================================
+ */
+
+async function processBotResponse(
+    m,
+    conn
+) {
+
+    try {
+
+        /*
+         * No puede ser el mismo mensaje del bot.
+         */
+
+        if (
+            m?.key?.fromMe ||
+            m?.fromMe
+        ) {
+            return false
+        }
+
+
+        /*
+         * Necesitamos una cita.
+         */
+
+        const quotedId =
+            m?.quoted?.id ||
+            m?.msg
+                ?.contextInfo
+                ?.stanzaId ||
+            getContextInfo(
+                m
+            )?.stanzaId ||
+            ""
+
+
+        if (
+            !quotedId
+        ) {
+            return false
+        }
+
+
+        /*
+         * Buscar la ficha que mandó el bot.
+         */
+
+        const notice =
+            getBotNotice(
+                conn,
+                m.chat,
+                quotedId
+            )
+
+
+        if (
+            !notice
+        ) {
+            return false
+        }
+
+
+        /*
+         * ====================================================
+         * TEXTO DE LA RESPUESTA
+         * ====================================================
+         */
+
+        const responseText =
+            getMessageText(
+                m
+            )
+
+
+        /*
+         * Si respondió con algo que no tiene texto,
+         * igualmente informamos del mensaje.
+         */
+
+        const sender =
+            m?.sender ||
+            m?.key?.participant ||
+            ""
+
+
+        const phone =
+            await getPhoneInfo(
+                conn,
+                m.chat,
+                sender
+            )
+
+
+        const mention =
+            makeMention(
+                sender
+            )
+
+
+        /*
+         * ====================================================
+         * INFORMACIÓN DE LA RESPUESTA
+         * ====================================================
+         */
+
+        const text = [
+            "💬 *RESPUESTA AL VIEW ONCE*",
+            "",
+            `👤 *Usuario:* ${mention}`,
+            `📱 *Número:* ${
+                phone.number ||
+                "No disponible"
+            }`,
+            `🌎 *País:* ${
+                phone.country ||
+                "Desconocido"
+            } ${phone.flag || "🌐"}`,
+            "",
+            `💬 *Respuesta:* ${
+                responseText ||
+                "Mensaje multimedia"
+            }`
+        ].join("\n")
+
+
+        /*
+         * ====================================================
+         * ENVIAR RESPUESTA CITANDO LA FICHA DEL BOT
+         * ====================================================
+         */
+
+        const targets =
+            getNotifyTargets()
+
+
+        for (
+            const target of targets
+        ) {
+
+            /*
+             * Solo queremos procesar respuestas
+             * dentro del grupo donde está la ficha.
+             */
+
+            if (
+                target !==
+                m.chat
+            ) {
+                continue
+            }
+
+
+            try {
+
+                await conn.sendMessage(
+                    target,
+                    {
+                        text,
+                        mentions:
+                            sender
+                                ? [sender]
+                                : []
+                    },
+                    {
+                        quoted:
+                            m?.quoted ||
+                            null
+                    }
+                )
+
+            } catch (e) {
+
+                console.error(
+                    "[AUTOVIEW] Error enviando respuesta:",
+                    e?.stack ||
+                    e?.message ||
+                    e
+                )
+            }
+        }
+
+
+        /*
+         * Si el grupo donde se respondió no es
+         * el grupo de avisos, enviamos al grupo
+         * de avisos citando la ficha original.
+         */
+
+        if (
+            !targets.includes(
+                m.chat
+            )
+        ) {
+
+            for (
+                const target of targets
+            ) {
+
+                try {
+
+                    const originalNotice =
+                        await getStoredNoticeMessage(
+                            conn,
+                            target,
+                            notice.messageId
+                        )
+
+                    await conn.sendMessage(
+                        target,
+                        {
+                            text,
+                            mentions:
+                                sender
+                                    ? [sender]
+                                    : []
+                        },
+                        {
+                            quoted:
+                                originalNotice ||
+                                undefined
+                        }
+                    )
+
+                } catch (e) {
+
+                    console.error(
+                        "[AUTOVIEW] Error enviando respuesta externa:",
+                        e?.message ||
+                        e
+                    )
+                }
+            }
+        }
+
+
+        return true
+
+    } catch (e) {
+
+        console.error(
+            "[AUTOVIEW] processBotResponse:",
+            e?.stack ||
+            e?.message ||
+            e
+        )
+
+        return false
+    }
+}
+
+
+/*
+ * ============================================================
+ * TEXTO DEL MENSAJE
+ * ============================================================
+ */
+
+function getMessageText(
+    m
+) {
+
+    return (
+        m?.text ||
+        m?.body ||
+        m?.message
+            ?.conversation ||
+        m?.message
+            ?.extendedTextMessage
+            ?.text ||
+        m?.message
+            ?.imageMessage
+            ?.caption ||
+        m?.message
+            ?.videoMessage
+            ?.caption ||
+        m?.message
+            ?.documentMessage
+            ?.caption ||
+        ""
+    ).trim()
+}
+
+
+/*
+ * ============================================================
+ * MENSAJE GUARDADO
+ * ============================================================
+ *
+ * Si el bot responde en otro grupo, intentamos
+ * recuperar la ficha original del store.
+ *
+ * No todos los bots tienen store disponible,
+ * por eso esto es solo respaldo.
+ */
+
+async function getStoredNoticeMessage(
+    conn,
+    target,
+    messageId
+) {
+
+    try {
+
+        if (
+            typeof conn?.loadMessage ===
+                "function"
+        ) {
+
+            return await conn.loadMessage(
+                target,
+                messageId
+            )
+        }
+
+    } catch {}
+
+    return null
+}
+
+
+/*
+ * ============================================================
  * DUPLICADOS
  * ============================================================
  */
@@ -1956,61 +2247,74 @@ function alreadySeen(
     key
 ) {
 
+    const map =
+        conn._autoViewSeen ||
+        (
+            conn._autoViewSeen =
+                new Map()
+        )
+
+
     const now =
         Date.now()
 
-    const cache =
-        conn._autoviewSeen ||
-        (
-            conn._autoviewSeen =
-                new Map()
-        )
 
     for (
         const [
             id,
             time
-        ] of cache
+        ] of map
     ) {
 
         if (
-            now - time >
+            now -
+            time >
             SEEN_TTL
         ) {
 
-            cache.delete(
+            map.delete(
                 id
             )
         }
     }
 
+
     if (
-        cache.has(
+        map.has(
             key
         )
     ) {
         return true
     }
 
-    cache.set(
+
+    map.set(
         key,
         now
     )
 
+
     while (
-        cache.size >
+        map.size >
         SEEN_LIMIT
     ) {
 
         const first =
-            cache.keys()
+            map.keys()
                 .next()
                 .value
 
-        cache.delete(
+        if (
             first
-        )
+        ) {
+            map.delete(
+                first
+            )
+        } else {
+            break
+        }
     }
+
 
     return false
 }
@@ -2033,6 +2337,7 @@ function getNotifyTargets() {
                 Boolean
             )
 
+
     if (
         configured.length
     ) {
@@ -2044,12 +2349,14 @@ function getNotifyTargets() {
         ]
     }
 
+
     const owners =
         Array.isArray(
             global.owner
         )
             ? global.owner
             : []
+
 
     return [
         ...new Set(
@@ -2082,11 +2389,13 @@ function normalizeJid(
             ""
         ).trim()
 
+
     if (
         !raw
     ) {
         return ""
     }
+
 
     if (
         raw.includes("@")
@@ -2094,11 +2403,13 @@ function normalizeJid(
         return raw
     }
 
+
     const number =
         raw.replace(
             /\D/g,
             ""
         )
+
 
     return number
         ? `${number}@s.whatsapp.net`
@@ -2108,35 +2419,57 @@ function normalizeJid(
 
 /*
  * ============================================================
- * OBJETOS ÚNICOS
+ * UTILIDADES
  * ============================================================
  */
 
-function uniqueObjects(
-    values
+function isViewOnceNode(
+    node
 ) {
 
-    const result =
-        []
-
-    for (
-        const value of
-        values
+    if (
+        !node ||
+        typeof node !==
+            "object"
     ) {
-
-        if (
-            !value ||
-            result.includes(
-                value
-            )
-        ) {
-            continue
-        }
-
-        result.push(
-            value
-        )
+        return false
     }
 
-    return result
+    return Boolean(
+        node.viewOnce ===
+            true ||
+        node.isViewOnce ===
+            true
+    )
+}
+
+
+function makeMention(
+    jid
+) {
+
+    if (
+        !jid
+    ) {
+        return "@desconocido"
+    }
+
+    const number =
+        String(
+            jid
+        )
+            .split("@")[0]
+            .split(":")[0]
+            .replace(
+                /\D/g,
+                ""
+            )
+
+    return (
+        "@" +
+        (
+            number ||
+            "desconocido"
+        )
+    )
 }
