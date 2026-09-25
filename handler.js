@@ -264,6 +264,9 @@ export async function handler(chatUpdate) {
   if (!chatUpdate.messages?.length) {
     return
   }
+
+  // WhatsApp puede entregar varios mensajes en un mismo upsert.
+  // Procesamos todos sin bloquear unos chats por culpa de otro.
   const messages = chatUpdate.messages.filter(Boolean)
   if (!messages.length) return
 
@@ -307,6 +310,9 @@ async function processMessage(m, chatUpdate) {
   m = smsg(this, m) || m
 
   if (!m) return
+
+  // La impresión de consola nunca debe bloquear el procesamiento del comando.
+  // Algunos contactos/grupos con JID LID pueden hacer que getName tarde mucho.
   try {
     await Promise.race([
       print(m, this),
@@ -560,6 +566,12 @@ async function processMessage(m, chatUpdate) {
       premiumNumbers.includes(number)
     ) ||
     _user.premium
+
+  // IMPORTANTE: el sistema antiguo creaba un setInterval() por cada mensaje
+  // cuando `queque` estaba activo. Esos intervalos no se destruían correctamente
+  // y, después de horas, podían acumularse hasta llevar el CPU al 100%, dejando
+  // al bot prácticamente mudo. La cola por chat ahora se gestiona en `handler()`
+  // con Promises, sin crear timers por mensaje.
 
   for (
     const name of Object.keys(
