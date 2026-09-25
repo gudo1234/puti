@@ -1,64 +1,108 @@
+import fetch from 'node-fetch'
+import sharp from 'sharp'
+import { generateWAMessageFromContent } from '@whiskeysockets/baileys'
+
 let handler = async (m, { conn }) => {
-  const baileys = await import('@whiskeysockets/baileys')
 
-  const participants = global.db?.data?.chats?.[m.chat]?.participants || []
-  const subject = conn.chats?.[m.chat]?.subject || 'Grupo'
+  let thumb = null
 
-  const jpegThumbnail = await (await fetch(icono)).buffer()
+  try {
+    const res = await fetch(icono)
 
-  const msg = baileys.generateWAMessageFromContent(m.chat, {
-    buttonsMessage: {
-      locationMessage: {
-        degreesLatitude: 0,
-        degreesLongitude: 0,
-        name: 'Hola',
-        address: global.botname || 'Bot',
-        jpegThumbnail
-      },
-      contextInfo: {
-        mentionedJid: participants.map(v => v.phoneNumber ?? v.id)
-      },
-      contentText: subject,
-      footerText: 'Test',
-      buttons: [
-        {
-          buttonId: '~',
-          buttonText: {
-            displayText: '≣ Menu'
-          },
-          type: 1,
-          nativeFlowInfo: {
-            name: 'single_select',
-            paramsJson: JSON.stringify({
-              title: 'test',
-              sections: [
-                {
-                  title: 'Sections',
-                  highlight_label: 'Top',
-                  rows: [
-                    {
-                      title: 'Menu.',
-                      id: '.menu'
-                    }
-                  ]
-                }
-              ]
-            })
-          }
-        },
-        {
-          buttonId: '.i',
-          buttonText: {
-            displayText: '⊳ Infobot'
-          },
-          type: 1
-        }
-      ],
-      headerType: 6
+    if (res.ok) {
+      const buff = Buffer.from(await res.arrayBuffer())
+
+      thumb = await sharp(buff)
+        .resize(300, 300, {
+          fit: 'cover'
+        })
+        .jpeg({
+          quality: 80
+        })
+        .toBuffer()
     }
-  }, {})
+  } catch (e) {
+    console.error('❌ Error preparando icono:', e)
+  }
 
-  await conn.relayMessage(m.chat, msg.message, {})
+  const msg = generateWAMessageFromContent(
+    m.chat,
+    {
+      buttonsMessage: {
+        locationMessage: {
+          degreesLatitude: 0,
+          degreesLongitude: 0,
+          name: 'Hola',
+          address: global.botname || 'Bot',
+          ...(thumb ? { jpegThumbnail: thumb } : {})
+        },
+
+        contextInfo: {
+          mentionedJid: []
+        },
+
+        contentText:
+          conn.chats?.[m.chat]?.subject ||
+          'Grupo',
+
+        footerText: 'Test',
+
+        buttons: [
+          {
+            buttonId: '~',
+            buttonText: {
+              displayText: '≣ Menu'
+            },
+            type: 1,
+            nativeFlowInfo: {
+              name: 'single_select',
+              paramsJson: JSON.stringify({
+                title: 'test',
+                sections: [
+                  {
+                    title: 'Sections',
+                    highlight_label: 'Top',
+                    rows: [
+                      {
+                        title: 'Menu.',
+                        id: '.menu'
+                      }
+                    ]
+                  }
+                ]
+              })
+            }
+          },
+
+          {
+            buttonId: '.i',
+            buttonText: {
+              displayText: '⊳ Infobot'
+            },
+            type: 1
+          }
+        ],
+
+        headerType: 6
+      }
+    },
+    {
+      userJid: conn.user.id,
+      quoted: m
+    }
+  )
+
+  /*
+   * ENVIAR
+   */
+
+  await conn.relayMessage(
+    m.chat,
+    msg.message,
+    {
+      messageId: msg.key.id
+    }
+  )
 }
 
 handler.help = ['testbutton']
