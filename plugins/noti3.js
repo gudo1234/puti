@@ -177,9 +177,9 @@ let handler = async (m, { conn }) => {
 
         if (!text?.trim())
             return m.reply(
-                `${m.e.warn} Usa:\n\n` +
-                `${prefijo + cmd} <link grupo/canal> | <texto> | <botón> | <sitio web>\n` +
-                `${prefijo + cmd} <texto> | <botón> | <sitio web>`
+                `${e} Usa:\n\n` +
+                `.noti3 <link grupo/canal> | <texto> | <botón> | <sitio web>\n` +
+                `.noti3 <texto> | <botón> | <sitio web>`
             )
 
         const partes =
@@ -205,9 +205,9 @@ let handler = async (m, { conn }) => {
 
             if (partes.length < 4)
                 return m.reply(
-                    `${m.e.warn} Formato incorrecto.\n\n` +
+                    `${e} Formato incorrecto.\n\n` +
                     `Usa:\n` +
-                    `${prefijo + cmd} link del canal | texto | botón | sitio web`
+                    `.noti3 link del canal | texto | botón | sitio web`
                 )
 
             const channelCode =
@@ -269,9 +269,9 @@ let handler = async (m, { conn }) => {
 
                 if (partes.length < 4)
                     return m.reply(
-                        `${m.e.warn} Formato incorrecto.\n\n` +
+                        `${e} Formato incorrecto.\n\n` +
                         `Usa:\n` +
-                        `${prefijo + cmd} link del grupo | texto | botón | sitio web`
+                        `.noti3 link del grupo | texto | botón | sitio web`
                     )
 
                 const groupCode =
@@ -336,9 +336,9 @@ let handler = async (m, { conn }) => {
 
                 if (partes.length < 3)
                     return m.reply(
-                        `${m.e.warn} Formato incorrecto.\n\n` +
+                        `${e} Formato incorrecto.\n\n` +
                         `Usa:\n` +
-                        `${prefijo + cmd} texto | botón | sitio web`
+                        `.noti3 texto | botón | sitio web`
                     )
 
                 targetChat =
