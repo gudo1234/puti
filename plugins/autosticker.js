@@ -6,14 +6,10 @@ handler.before = async function (m) {
   const chat = db.data.chats[m.chat]
   const user = db.data.users[m.sender]
 
+  if (m.key?.fromMe) return
+
   if (chat.autosticker && m.isGroup) {
     const q = m
-
-    const botJid = conn.user?.id?.split(':')[0] + '@s.whatsapp.net'
-    const sender = m.sender?.split(':')[0] + '@s.whatsapp.net'
-
-    if (sender === botJid) return
-
     let stiker = false
     const mime = (q.msg || q).mimetype || q.mediaType || ''
 
@@ -22,16 +18,30 @@ handler.before = async function (m) {
     if (/image/g.test(mime)) {
       const img = await q.download?.()
       if (!img) return
-      stiker = await sticker(img, false, packname, author)
+
+      stiker = await sticker(
+        img,
+        false,
+        packname,
+        author
+      )
 
     } else if (/video/g.test(mime)) {
-      const seconds = Number((q.msg || q).seconds || 0)
+      const seconds = Number(
+        (q.msg || q).seconds || 0
+      )
 
       if (seconds > 6) return
 
-      const img = await q.download()
+      const img = await q.download?.()
       if (!img) return
-      stiker = await sticker(img, false, packname, author)
+
+      stiker = await sticker(
+        img,
+        false,
+        packname,
+        author
+      )
 
     } else if (m.text?.split(/\n| /i)[0]) {
       const url = m.text.split(/\n| /i)[0]
