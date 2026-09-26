@@ -264,58 +264,31 @@ export async function handler(chatUpdate) {
   if (!chatUpdate.messages?.length) {
     return
   }
-
-  const messages =
-    chatUpdate.messages.filter(Boolean)
-
+  const messages = chatUpdate.messages.filter(Boolean)
   if (!messages.length) return
 
   this._chatQueues ||= new Map()
 
   const tasks = messages.map(message => {
-    const chatId =
-      message?.key?.remoteJid ||
-      message?.remoteJid ||
-      'unknown'
-
-    const previous =
-      this._chatQueues.get(chatId) ||
-      Promise.resolve()
+    const chatId = message?.key?.remoteJid || message?.remoteJid || 'unknown'
+    const previous = this._chatQueues.get(chatId) || Promise.resolve()
 
     let release
+    const current = new Promise(resolve => {
+      release = resolve
+    })
 
-    const current =
-      new Promise(resolve => {
-        release = resolve
-      })
-
-    this._chatQueues.set(
-      chatId,
-      current
-    )
+    this._chatQueues.set(chatId, current)
 
     return previous
       .catch(() => {})
-      .then(() =>
-        processMessage.call(
-          this,
-          message,
-          chatUpdate
-        )
-      )
+      .then(() => processMessage.call(this, message, chatUpdate))
       .catch(error => {
-        console.error(
-          '[HANDLER] Error procesando mensaje:',
-          error?.stack || error
-        )
+        console.error('[HANDLER] Error procesando mensaje:', error?.stack || error)
       })
       .finally(() => {
         release()
-
-        if (
-          this._chatQueues.get(chatId) ===
-          current
-        ) {
+        if (this._chatQueues.get(chatId) === current) {
           this._chatQueues.delete(chatId)
         }
       })
@@ -324,12 +297,8 @@ export async function handler(chatUpdate) {
   await Promise.allSettled(tasks)
 }
 
-async function processMessage(
-  m,
-  chatUpdate
-) {
-  this.pushMessage([m])
-    .catch(console.error)
+async function processMessage(m, chatUpdate) {
+  this.pushMessage([m]).catch(console.error)
 
   if (!global.db.data) {
     await global.loadDatabase()
@@ -338,19 +307,13 @@ async function processMessage(
   m = smsg(this, m) || m
 
   if (!m) return
-
   try {
     await Promise.race([
       print(m, this),
-      new Promise(resolve =>
-        setTimeout(resolve, 5000)
-      )
+      new Promise(resolve => setTimeout(resolve, 5000))
     ])
   } catch (error) {
-    console.error(
-      '[PRINT] Error:',
-      error?.message || error
-    )
+    console.error('[PRINT] Error:', error?.message || error)
   }
 
   m.exp = 0
@@ -358,8 +321,7 @@ async function processMessage(
 
   const user = getUser(m.sender)
   const chat = getChat(m.chat)
-  const settings =
-    getSettings(this.user.jid)
+  const settings = getSettings(this.user.jid)
 
   const ts =
     (m.messageTimestamp || 0) * 1000
@@ -383,18 +345,13 @@ async function processMessage(
 
   setTimeout(
     () =>
-      this._messageCache.delete(
-        m.key.id
-      ),
+      this._messageCache.delete(m.key.id),
     30000
   )
 
   if (
     global.opts?.nyimak ||
-    (
-      !m.fromMe &&
-      global.opts?.self
-    ) ||
+    (!m.fromMe && global.opts?.self) ||
     (
       global.opts?.swonly &&
       m.chat !== 'status@broadcast'
@@ -408,155 +365,6 @@ async function processMessage(
   }
 
   if (m.isBaileys) {
-    return
-  }
-
-  const unbanMatch =
-    m.isGroup &&
-    m.text?.match(
-      /^(?:\.|#|\/|!)?(unbanchat|desbanearbot)(?:\s|$)/i
-    )
-
-  if (unbanMatch) {
-    const groupMeta =
-      await global.cachedGroupMetadata(
-        m.chat
-      )
-
-    const participants =
-      groupMeta?.participants || []
-
-    const participantsMap =
-      new Map()
-
-    for (const participant of participants) {
-      const keys =
-        getParticipantKeys(
-          this,
-          participant
-        )
-
-      for (const key of keys) {
-        participantsMap.set(
-          key,
-          participant
-        )
-      }
-    }
-
-    let userInGroup =
-      participantsMap.get(
-        m.sender
-      )
-
-    if (!userInGroup) {
-      try {
-        userInGroup =
-          participantsMap.get(
-            this.decodeJid(
-              m.sender
-            )
-          )
-      } catch {}
-    }
-
-    if (!userInGroup) {
-      const senderNumber =
-        m.sender
-          ?.split('@')[0]
-          ?.replace(/\D/g, '')
-
-      if (senderNumber) {
-        userInGroup =
-          participantsMap.get(
-            `${senderNumber}@s.whatsapp.net`
-          )
-      }
-    }
-
-    userInGroup ||= {}
-
-    const isRAdmin =
-      userInGroup.admin ===
-      'superadmin'
-
-    const isAdmin =
-      isRAdmin ||
-      userInGroup.admin === 'admin'
-
-    const ownerNumbers = [
-      ...(Array.isArray(global.owner)
-        ? global.owner
-        : [])
-    ]
-      .map(v =>
-        Array.isArray(v)
-          ? v[0]
-          : v
-      )
-      .map(v =>
-        String(v || '')
-          .replace(/\D/g, '')
-      )
-      .filter(Boolean)
-
-    const realUserNumber =
-      getRealNumber(
-        userInGroup
-      )
-
-    const senderNumbers = [
-      realUserNumber,
-      m.sender
-        ?.split('@')[0]
-        ?.replace(/\D/g, '')
-    ]
-      .filter(Boolean)
-
-    const isROwner =
-      m.fromMe ||
-      senderNumbers.some(number =>
-        ownerNumbers.includes(number)
-      )
-
-    if (!(isAdmin || isROwner)) {
-      await this.reply(
-        m.chat,
-        '❌ Solo administradores o el dueño pueden desbanear este grupo.',
-        m
-      )
-
-      try {
-        await m.react('❌')
-      } catch {}
-
-      return
-    }
-    chat.isBanned = false
-    global.dbDirty = true
-    if (
-      typeof global.db.write === 'function'
-    ) {
-      try {
-        await global.db.write()
-      } catch (error) {
-        console.error(
-          '[DB] Error guardando unban:',
-          error?.message || error
-        )
-      }
-    }
-
-    await this.reply(
-      m.chat,
-      '🚩 Bot activo en este grupo.',
-      m
-    )
-
-    try {
-      await m.react('✅')
-    } catch {}
-
     return
   }
 
@@ -581,8 +389,7 @@ async function processMessage(
   const participants =
     groupMeta?.participants || []
 
-  const participantsMap =
-    new Map()
+  const participantsMap = new Map()
 
   for (const participant of participants) {
     const keys =
@@ -600,9 +407,7 @@ async function processMessage(
   }
 
   let userInGroup =
-    participantsMap.get(
-      m.sender
-    )
+    participantsMap.get(m.sender)
 
   if (!userInGroup) {
     try {
@@ -631,9 +436,7 @@ async function processMessage(
 
   let botInGroup =
     participantsMap.get(
-      this.decodeJid(
-        this.user.jid
-      )
+      this.decodeJid(this.user.jid)
     )
 
   if (!botInGroup) {
@@ -646,15 +449,11 @@ async function processMessage(
   botInGroup ||= {}
 
   const realUserNumber =
-    getRealNumber(
-      userInGroup
-    )
+    getRealNumber(userInGroup)
 
   const resolvedSender =
     realUserNumber
-      ? phoneToJid(
-          realUserNumber
-        )
+      ? phoneToJid(realUserNumber)
       : (
           userInGroup.jid ||
           userInGroup.id ||
@@ -667,13 +466,10 @@ async function processMessage(
     )
 
   const _user =
-    getUser(
-      normalizedSender
-    )
+    getUser(normalizedSender)
 
   const isRAdmin =
-    userInGroup.admin ===
-    'superadmin'
+    userInGroup.admin === 'superadmin'
 
   const isAdmin =
     isRAdmin ||
@@ -843,14 +639,11 @@ async function processMessage(
 
     if (!match) continue
 
-    const [usedPrefix] =
-      match
+    const [usedPrefix] = match
 
     const noPref =
       m.text
-        .slice(
-          usedPrefix.length
-        )
+        .slice(usedPrefix.length)
         .trim()
 
     const [
@@ -893,15 +686,24 @@ async function processMessage(
 
     m.plugin = name
 
-    if (chat.isBanned) {
+    if (
+      chat.isBanned &&
+      name !== 'unbanchat.js'
+    ) {
       return
     }
 
-    if (user.banned) {
+    if (
+      user.banned &&
+      name !== 'owner-unbanuser.js'
+    ) {
       return
     }
 
-    if (settings.banned) {
+    if (
+      settings.banned &&
+      name !== 'owner-unbanbot.js'
+    ) {
       return
     }
 
@@ -1075,8 +877,7 @@ async function processMessage(
 
       console.error(e)
 
-      let errText =
-        format(e)
+      let errText = format(e)
 
       Object.values(
         global.APIKeys || {}
