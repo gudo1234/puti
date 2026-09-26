@@ -8,6 +8,12 @@ handler.before = async function (m) {
 
   if (chat.autosticker && m.isGroup) {
     const q = m
+
+    const botJid = conn.user?.id?.split(':')[0] + '@s.whatsapp.net'
+    const sender = m.sender?.split(':')[0] + '@s.whatsapp.net'
+
+    if (sender === botJid) return
+
     let stiker = false
     const mime = (q.msg || q).mimetype || q.mediaType || ''
 
@@ -19,7 +25,9 @@ handler.before = async function (m) {
       stiker = await sticker(img, false, packname, author)
 
     } else if (/video/g.test(mime)) {
-      if ((q.msg || q).seconds > 8) return
+      const seconds = Number((q.msg || q).seconds || 0)
+
+      if (seconds > 6) return
 
       const img = await q.download()
       if (!img) return
@@ -42,13 +50,13 @@ handler.before = async function (m) {
 
     if (stiker) {
       await conn.sendFile(
-  m.chat,
-  stiker,
-  'sticker.webp',
-  '',
-  null,
-  true
-)
+        m.chat,
+        stiker,
+        'sticker.webp',
+        '',
+        null,
+        true
+      )
     }
   }
 
