@@ -6,7 +6,7 @@ import {
 const WATCH_GROUPS = new Set([])
 
 const NOTIFY_JIDS = [
-    "120363407073055516@g.us"
+    "120363428593802799@g.us"
 ]
 
 const SEEN_TTL = 10 * 60 * 1000
@@ -108,11 +108,23 @@ async function getRealParticipant(conn, chat, jid) {
         })
 
         if (!participant) {
+            let code = "??"
+
+            try {
+                if (inputNumber) {
+                    const pn = new PhoneNumber("+" + inputNumber)
+                    code = pn.getRegionCode() || "??"
+                }
+            } catch {
+                code = "??"
+            }
+
             return {
                 jid: normalizeJid(jid),
                 number: inputNumber || "?",
-                country: "??",
-                flag: "🌐"
+                country: code,
+                flag: banderaEmoji(code),
+                name: ""
             }
         }
 
@@ -144,7 +156,12 @@ async function getRealParticipant(conn, chat, jid) {
             jid: normalizeJid(realJid),
             number: number || "?",
             country: code,
-            flag: banderaEmoji(code)
+            flag: banderaEmoji(code),
+            name:
+                participant.notify ||
+                participant.name ||
+                participant.pushName ||
+                ""
         }
     } catch {
         let code = "??"
@@ -162,9 +179,36 @@ async function getRealParticipant(conn, chat, jid) {
             jid: normalizeJid(jid),
             number: inputNumber || "?",
             country: code,
-            flag: banderaEmoji(code)
+            flag: banderaEmoji(code),
+            name: ""
         }
     }
+}
+
+async function getGroupName(conn, chat) {
+    if (!chat?.endsWith("@g.us")) {
+        return ""
+    }
+
+    try {
+        const metadata = await conn
+            .groupMetadata(chat)
+            .catch(() => null)
+
+        return metadata?.subject || ""
+    } catch {
+        return ""
+    }
+}
+
+function getPushName(m) {
+    return (
+        m?.quoted?.pushName ||
+        m?.quoted?.fakeObj?.pushName ||
+        m?.quoted?.vM?.pushName ||
+        m?.pushName ||
+        ""
+    )
 }
 
 function isCommand(m) {
@@ -341,7 +385,6 @@ function getOriginalQuoted(m) {
     return (
         m?.quoted?.fakeObj ||
         m?.quoted?.vM ||
-        m?.quoted?.message ||
         null
     )
 }
@@ -523,6 +566,11 @@ handler.before = async function (m) {
         citer
     )
 
+    const groupName = await getGroupName(
+        conn,
+        m.chat
+    )
+
     const originalQuoted = getOriginalQuoted(m)
 
     const revealedMessage = await sendMedia(
@@ -540,14 +588,22 @@ handler.before = async function (m) {
         {
             revealedMessage,
             target,
-            originalJid: originalInfo.jid
+            originalJid: originalInfo.jid,
+            originalNumber: originalInfo.number,
+            groupName
         }
     )
 
     const response = getMessageText(m)
 
+    const originalName =
+        originalInfo.name ||
+        getPushName(m) ||
+        originalInfo.number
+
     const notification =
 `👁️ *VIEW ONCE DETECTADO*
+🪀 *Remitente:* @${originalInfo.number} ${originalInfo.flag}
 
 👤 *Citado por:* @${citerInfo.number}
 📱 *Número:* +${citerInfo.number} ${citerInfo.flag}
@@ -558,6 +614,7 @@ handler.before = async function (m) {
         {
             text: notification,
             mentions: [
+                originalInfo.jid,
                 citerInfo.jid
             ]
         },
