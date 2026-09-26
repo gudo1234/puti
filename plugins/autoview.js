@@ -6,7 +6,7 @@ import {
 const WATCH_GROUPS = new Set([])
 
 const NOTIFY_JIDS = [
-    "120363428593802799@g.us"
+    "120363407073055516@g.us"
 ]
 
 const SEEN_TTL = 10 * 60 * 1000
