@@ -12,10 +12,6 @@ const NOTIFY_JIDS = [
 const SEEN_TTL = 10 * 60 * 1000
 const SEEN_LIMIT = 500
 
-const regionNames = new Intl.DisplayNames(["es"], {
-    type: "region"
-})
-
 const banderaEmoji = c =>
     !c || c.length !== 2
         ? "🌐"
@@ -341,6 +337,15 @@ async function sendMedia(conn, target, data, quoted) {
     return null
 }
 
+function getOriginalQuoted(m) {
+    return (
+        m?.quoted?.fakeObj ||
+        m?.quoted?.vM ||
+        m?.quoted?.message ||
+        null
+    )
+}
+
 function getQuotedId(m) {
     const context = getContextInfo(m)
 
@@ -518,11 +523,13 @@ handler.before = async function (m) {
         citer
     )
 
+    const originalQuoted = getOriginalQuoted(m)
+
     const revealedMessage = await sendMedia(
         conn,
         target,
         mediaData,
-        m
+        originalQuoted
     )
 
     if (!revealedMessage) return
