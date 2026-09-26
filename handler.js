@@ -264,31 +264,57 @@ export async function handler(chatUpdate) {
   if (!chatUpdate.messages?.length) {
     return
   }
+
   const messages = chatUpdate.messages.filter(Boolean)
+
   if (!messages.length) return
 
   this._chatQueues ||= new Map()
 
   const tasks = messages.map(message => {
-    const chatId = message?.key?.remoteJid || message?.remoteJid || 'unknown'
-    const previous = this._chatQueues.get(chatId) || Promise.resolve()
+    const chatId =
+      message?.key?.remoteJid ||
+      message?.remoteJid ||
+      'unknown'
+
+    const previous =
+      this._chatQueues.get(chatId) ||
+      Promise.resolve()
 
     let release
-    const current = new Promise(resolve => {
-      release = resolve
-    })
 
-    this._chatQueues.set(chatId, current)
+    const current =
+      new Promise(resolve => {
+        release = resolve
+      })
+
+    this._chatQueues.set(
+      chatId,
+      current
+    )
 
     return previous
       .catch(() => {})
-      .then(() => processMessage.call(this, message, chatUpdate))
+      .then(() =>
+        processMessage.call(
+          this,
+          message,
+          chatUpdate
+        )
+      )
       .catch(error => {
-        console.error('[HANDLER] Error procesando mensaje:', error?.stack || error)
+        console.error(
+          '[HANDLER] Error procesando mensaje:',
+          error?.stack || error
+        )
       })
       .finally(() => {
         release()
-        if (this._chatQueues.get(chatId) === current) {
+
+        if (
+          this._chatQueues.get(chatId) ===
+          current
+        ) {
           this._chatQueues.delete(chatId)
         }
       })
@@ -307,13 +333,19 @@ async function processMessage(m, chatUpdate) {
   m = smsg(this, m) || m
 
   if (!m) return
+
   try {
     await Promise.race([
       print(m, this),
-      new Promise(resolve => setTimeout(resolve, 5000))
+      new Promise(resolve =>
+        setTimeout(resolve, 5000)
+      )
     ])
   } catch (error) {
-    console.error('[PRINT] Error:', error?.message || error)
+    console.error(
+      '[PRINT] Error:',
+      error?.message || error
+    )
   }
 
   m.exp = 0
@@ -345,7 +377,9 @@ async function processMessage(m, chatUpdate) {
 
   setTimeout(
     () =>
-      this._messageCache.delete(m.key.id),
+      this._messageCache.delete(
+        m.key.id
+      ),
     30000
   )
 
@@ -436,7 +470,9 @@ async function processMessage(m, chatUpdate) {
 
   let botInGroup =
     participantsMap.get(
-      this.decodeJid(this.user.jid)
+      this.decodeJid(
+        this.user.jid
+      )
     )
 
   if (!botInGroup) {
@@ -453,7 +489,9 @@ async function processMessage(m, chatUpdate) {
 
   const resolvedSender =
     realUserNumber
-      ? phoneToJid(realUserNumber)
+      ? phoneToJid(
+          realUserNumber
+        )
       : (
           userInGroup.jid ||
           userInGroup.id ||
@@ -469,7 +507,8 @@ async function processMessage(m, chatUpdate) {
     getUser(normalizedSender)
 
   const isRAdmin =
-    userInGroup.admin === 'superadmin'
+    userInGroup.admin ===
+    'superadmin'
 
   const isAdmin =
     isRAdmin ||
@@ -664,6 +703,58 @@ async function processMessage(m, chatUpdate) {
       continue
     }
 
+    /*
+     * El chat está baneado.
+     * Solamente se permiten los comandos
+     * encargados de quitar el baneo.
+     *
+     * Ya no dependemos del nombre del archivo
+     * del plugin.
+     */
+    if (
+      chat.isBanned &&
+      ![
+        'unbanchat',
+        'desbanearbot'
+      ].includes(
+        String(command).toLowerCase()
+      )
+    ) {
+      return
+    }
+
+    /*
+     * Usuario baneado.
+     * Solamente se permite el comando
+     * encargado de quitar el baneo.
+     */
+    if (
+      user.banned &&
+      ![
+        'unbanuser'
+      ].includes(
+        String(command).toLowerCase()
+      )
+    ) {
+      return
+    }
+
+    /*
+     * Bot baneado.
+     * Solamente se permite el comando
+     * encargado de quitar el baneo.
+     */
+    if (
+      settings.banned &&
+      ![
+        'unbanbot'
+      ].includes(
+        String(command).toLowerCase()
+      )
+    ) {
+      return
+    }
+
     if (
       plugin.before &&
       await plugin.before.call(
@@ -685,27 +776,6 @@ async function processMessage(m, chatUpdate) {
     }
 
     m.plugin = name
-
-    if (
-      chat.isBanned &&
-      name !== 'unbanchat.js'
-    ) {
-      return
-    }
-
-    if (
-      user.banned &&
-      name !== 'owner-unbanuser.js'
-    ) {
-      return
-    }
-
-    if (
-      settings.banned &&
-      name !== 'owner-unbanbot.js'
-    ) {
-      return
-    }
 
     const fail =
       plugin.fail ||
