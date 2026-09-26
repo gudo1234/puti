@@ -12,6 +12,21 @@ const NOTIFY_JIDS = [
 const SEEN_TTL = 10 * 60 * 1000
 const SEEN_LIMIT = 500
 
+const regionNames = new Intl.DisplayNames(["es"], {
+    type: "region"
+})
+
+const banderaEmoji = c =>
+    !c || c.length !== 2
+        ? "🌐"
+        : [...c.toUpperCase()]
+            .map(x =>
+                String.fromCodePoint(
+                    0x1F1E6 - 65 + x.charCodeAt(0)
+                )
+            )
+            .join("")
+
 function getContextInfo(m) {
     return (
         m?.message?.extendedTextMessage?.contextInfo ||
@@ -52,7 +67,11 @@ function getSender(m) {
 
 function normalizeJid(jid = "") {
     if (!jid) return ""
-    if (jid.includes("@")) return jid
+
+    if (jid.includes("@")) {
+        return jid
+    }
+
     return `${jid}@s.whatsapp.net`
 }
 
@@ -62,74 +81,92 @@ function getNumber(jid = "") {
         .replace(/\D/g, "")
 }
 
-function getFlag(country = "") {
-    if (!country || country.length !== 2) return "🌐"
-
-    return [...country.toUpperCase()]
-        .map(x => String.fromCodePoint(127397 + x.charCodeAt(0)))
-        .join("")
-}
-
-async function getRealPhone(conn, chat, jid) {
-    const fallback = getNumber(jid)
+async function getRealParticipant(conn, chat, jid) {
+    const input = String(jid || "")
+    const inputNumber = getNumber(input)
 
     try {
-        let participants = []
+        const metadata = await conn
+            .groupMetadata(chat)
+            .catch(() => null)
 
-        if (chat?.endsWith("@g.us")) {
-            const metadata = await conn
-                .groupMetadata(chat)
-                .catch(() => null)
+        const participants = metadata?.participants || []
 
-            participants = metadata?.participants || []
-        }
-
-        const participant = participants.find(p => {
+        const participant = participants.find(v => {
             const values = [
-                p?.id,
-                p?.jid,
-                p?.lid,
-                p?.phoneNumber,
-                p?.phone
-            ]
+                v?.phoneNumber,
+                v?.jid,
+                v?.id,
+                v?.lid
+            ].filter(Boolean)
 
-            return values.some(value =>
-                value === jid ||
-                value === normalizeJid(jid) ||
-                getNumber(value) === fallback
-            )
+            return values.some(value => {
+                const valueString = String(value)
+
+                return (
+                    valueString === input ||
+                    valueString === normalizeJid(input) ||
+                    getNumber(valueString) === inputNumber
+                )
+            })
         })
 
-        const possible = [
-            participant?.phoneNumber,
-            participant?.phone,
-            getNumber(participant?.id),
-            getNumber(participant?.jid),
-            fallback
-        ]
-
-        const number = String(
-            possible.find(Boolean) || fallback
-        ).replace(/\D/g, "")
-
-        if (!number) {
+        if (!participant) {
             return {
-                number: "?",
+                jid: normalizeJid(jid),
+                number: inputNumber || "?",
+                country: "??",
                 flag: "🌐"
             }
         }
 
-        const phone = new PhoneNumber(`+${number}`)
-        const country = phone.getRegionCode() || ""
+        const realJid =
+            participant.phoneNumber ||
+            participant.jid ||
+            participant.id ||
+            participant.lid ||
+            input
+
+        const number =
+            getNumber(participant.phoneNumber) ||
+            getNumber(participant.jid) ||
+            getNumber(participant.id) ||
+            getNumber(realJid)
+
+        let code = "??"
+
+        try {
+            if (number) {
+                const pn = new PhoneNumber("+" + number)
+                code = pn.getRegionCode() || "??"
+            }
+        } catch {
+            code = "??"
+        }
 
         return {
-            number,
-            flag: getFlag(country)
+            jid: normalizeJid(realJid),
+            number: number || "?",
+            country: code,
+            flag: banderaEmoji(code)
         }
     } catch {
+        let code = "??"
+
+        try {
+            if (inputNumber) {
+                const pn = new PhoneNumber("+" + inputNumber)
+                code = pn.getRegionCode() || "??"
+            }
+        } catch {
+            code = "??"
+        }
+
         return {
-            number: fallback || "?",
-            flag: "🌐"
+            jid: normalizeJid(jid),
+            number: inputNumber || "?",
+            country: code,
+            flag: banderaEmoji(code)
         }
     }
 }
@@ -346,8 +383,8 @@ function cleanup(conn) {
 
     const now = Date.now()
 
-    for (const [key, time] of conn._viewOnceSeen) {
-        if (now - time > SEEN_TTL) {
+    for (const [key, value] of conn._viewOnceSeen) {
+        if (now - value.time > SEEN_TTL) {
             conn._viewOnceSeen.delete(key)
         }
     }
@@ -361,16 +398,51 @@ function cleanup(conn) {
     }
 }
 
-function hasBeenRevealed(conn, id) {
+function getSeen(conn, id) {
     cleanup(conn)
 
-    return conn._viewOnceSeen.has(id)
+    return conn._viewOnceSeen.get(id)
 }
 
-function markRevealed(conn, id) {
+function saveSeen(conn, id, data) {
     cleanup(conn)
 
-    conn._viewOnceSeen.set(id, Date.now())
+    conn._viewOnceSeen.set(id, {
+        ...data,
+        time: Date.now()
+    })
+}
+
+async function sendResponse(conn, target, revealedMessage, m) {
+    const responder = getSender(m)
+
+    if (!responder) return
+
+    const responderInfo = await getRealParticipant(
+        conn,
+        m.chat,
+        responder
+    )
+
+    const response = getMessageText(m)
+
+    if (!response) return
+
+    const text =
+`👤 *Citado por:* @${responderInfo.number}
+📱 *Número:* +${responderInfo.number} ${responderInfo.flag}
+🍁 *Respuesta:* ${response}`
+
+    await conn.sendMessage(
+        target,
+        {
+            text,
+            mentions: [responderInfo.jid]
+        },
+        {
+            quoted: revealedMessage
+        }
+    )
 }
 
 let handler = async () => {}
@@ -407,44 +479,22 @@ handler.before = async function (m) {
         quotedMessage
     )
 
-    if (!originalSender) return
-
     const citer = getSender(m)
 
-    if (!citer) return
+    if (!originalSender || !citer) return
 
-    const originalJid = normalizeJid(originalSender)
-    const citerJid = normalizeJid(citer)
-
-    const originalNumber = getNumber(originalJid)
-    const citerNumber = getNumber(citerJid)
-
-    if (!originalNumber || !citerNumber) return
+    const seen = getSeen(conn, quotedId)
 
     const target =
         NOTIFY_JIDS[0] ||
         m.chat
 
-    const response = getMessageText(m)
-
-    if (hasBeenRevealed(conn, quotedId)) {
-        const citerPhone = await getRealPhone(
+    if (seen) {
+        await sendResponse(
             conn,
-            m.chat,
-            citer
-        )
-
-        const text =
-`👤 *Citado por:* @${citerNumber}
-📱 *Número:* +${citerNumber} ${citerPhone.flag}
-🍁 *Respuesta:* ${response || "Sin texto"}`
-
-        await conn.sendMessage(
             target,
-            {
-                text,
-                mentions: [citerJid]
-            }
+            seen.revealedMessage,
+            m
         )
 
         return
@@ -456,35 +506,48 @@ handler.before = async function (m) {
 
     if (!mediaData) return
 
-    markRevealed(conn, quotedId)
-
-    const originalPhone = await getRealPhone(
+    const originalInfo = await getRealParticipant(
         conn,
         m.chat,
         originalSender
     )
 
-    const citerPhone = await getRealPhone(
+    const citerInfo = await getRealParticipant(
         conn,
         m.chat,
         citer
     )
 
-    await sendMedia(
+    const revealedMessage = await sendMedia(
         conn,
         target,
         mediaData,
         m
     )
 
+    if (!revealedMessage) return
+
+    saveSeen(
+        conn,
+        quotedId,
+        {
+            revealedMessage,
+            target,
+            originalJid: originalInfo.jid,
+            originalNumber: originalInfo.number
+        }
+    )
+
+    const response = getMessageText(m)
+
     const notification =
 `👁️ *VIEW ONCE DETECTADO*
 
-👤 *Remitente:* @${originalNumber}
-📱 *Número:* +${originalNumber} ${originalPhone.flag}
+👤 *Remitente:* @${originalInfo.number}
+📱 *Número:* +${originalInfo.number} ${originalInfo.flag}
 
-👤 *Citado por:* @${citerNumber}
-📱 *Número:* +${citerNumber} ${citerPhone.flag}
+👤 *Citado por:* @${citerInfo.number}
+📱 *Número:* +${citerInfo.number} ${citerInfo.flag}
 🍁 *Respuesta:* ${response || "Sin texto"}`
 
     await conn.sendMessage(
@@ -492,9 +555,12 @@ handler.before = async function (m) {
         {
             text: notification,
             mentions: [
-                originalJid,
-                citerJid
+                originalInfo.jid,
+                citerInfo.jid
             ]
+        },
+        {
+            quoted: revealedMessage
         }
     )
 }
