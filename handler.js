@@ -264,31 +264,57 @@ export async function handler(chatUpdate) {
   if (!chatUpdate.messages?.length) {
     return
   }
-  const messages = chatUpdate.messages.filter(Boolean)
+
+  const messages =
+    chatUpdate.messages.filter(Boolean)
+
   if (!messages.length) return
 
   this._chatQueues ||= new Map()
 
   const tasks = messages.map(message => {
-    const chatId = message?.key?.remoteJid || message?.remoteJid || 'unknown'
-    const previous = this._chatQueues.get(chatId) || Promise.resolve()
+    const chatId =
+      message?.key?.remoteJid ||
+      message?.remoteJid ||
+      'unknown'
+
+    const previous =
+      this._chatQueues.get(chatId) ||
+      Promise.resolve()
 
     let release
+
     const current = new Promise(resolve => {
       release = resolve
     })
 
-    this._chatQueues.set(chatId, current)
+    this._chatQueues.set(
+      chatId,
+      current
+    )
 
     return previous
       .catch(() => {})
-      .then(() => processMessage.call(this, message, chatUpdate))
+      .then(() =>
+        processMessage.call(
+          this,
+          message,
+          chatUpdate
+        )
+      )
       .catch(error => {
-        console.error('[HANDLER] Error procesando mensaje:', error?.stack || error)
+        console.error(
+          '[HANDLER] Error procesando mensaje:',
+          error?.stack || error
+        )
       })
       .finally(() => {
         release()
-        if (this._chatQueues.get(chatId) === current) {
+
+        if (
+          this._chatQueues.get(chatId) ===
+          current
+        ) {
           this._chatQueues.delete(chatId)
         }
       })
@@ -307,13 +333,19 @@ async function processMessage(m, chatUpdate) {
   m = smsg(this, m) || m
 
   if (!m) return
+
   try {
     await Promise.race([
       print(m, this),
-      new Promise(resolve => setTimeout(resolve, 5000))
+      new Promise(resolve =>
+        setTimeout(resolve, 5000)
+      )
     ])
   } catch (error) {
-    console.error('[PRINT] Error:', error?.message || error)
+    console.error(
+      '[PRINT] Error:',
+      error?.message || error
+    )
   }
 
   m.exp = 0
@@ -321,7 +353,9 @@ async function processMessage(m, chatUpdate) {
 
   const user = getUser(m.sender)
   const chat = getChat(m.chat)
-  const settings = getSettings(this.user.jid)
+  const settings = getSettings(
+    this.user.jid
+  )
 
   const ts =
     (m.messageTimestamp || 0) * 1000
@@ -351,7 +385,10 @@ async function processMessage(m, chatUpdate) {
 
   if (
     global.opts?.nyimak ||
-    (!m.fromMe && global.opts?.self) ||
+    (
+      !m.fromMe &&
+      global.opts?.self
+    ) ||
     (
       global.opts?.swonly &&
       m.chat !== 'status@broadcast'
@@ -688,7 +725,11 @@ async function processMessage(m, chatUpdate) {
 
     if (
       chat.isBanned &&
-      name !== 'unbanchat.js'
+      !isOwner &&
+      !(
+        isAdmin &&
+        command === 'unbanchat'
+      )
     ) {
       return
     }
