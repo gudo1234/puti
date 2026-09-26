@@ -115,6 +115,7 @@ function detectPrefix(text, prefix) {
 
   if (prefix instanceof RegExp) {
     const match = prefix.exec(text)
+
     return match?.[0]
       ? [match[0], prefix]
       : null
@@ -176,8 +177,8 @@ function phoneToJid(value) {
     return ''
   }
 
-  const number = value
-    .replace(/\D/g, '')
+  const number =
+    value.replace(/\D/g, '')
 
   return number
     ? `${number}@s.whatsapp.net`
@@ -201,9 +202,10 @@ function getRealNumber(participant) {
     if (
       value.endsWith('@s.whatsapp.net')
     ) {
-      const number = value
-        .split('@')[0]
-        .replace(/\D/g, '')
+      const number =
+        value
+          .split('@')[0]
+          .replace(/\D/g, '')
 
       if (number) {
         return number
@@ -214,8 +216,8 @@ function getRealNumber(participant) {
       value.startsWith('+') ||
       /^\d+$/.test(value)
     ) {
-      const number = value
-        .replace(/\D/g, '')
+      const number =
+        value.replace(/\D/g, '')
 
       if (number) {
         return number
@@ -248,12 +250,15 @@ function getParticipantKeys(conn, participant) {
       keys.add(conn.decodeJid(value))
     } catch {}
 
-    const number = value
-      .split('@')[0]
-      .replace(/\D/g, '')
+    const number =
+      value
+        .split('@')[0]
+        .replace(/\D/g, '')
 
     if (number) {
-      keys.add(`${number}@s.whatsapp.net`)
+      keys.add(
+        `${number}@s.whatsapp.net`
+      )
     }
   }
 
@@ -356,8 +361,12 @@ async function processMessage(
   m.exp = 0
   m.limit = false
 
-  const user = getUser(m.sender)
-  const chat = getChat(m.chat)
+  const user =
+    getUser(m.sender)
+
+  const chat =
+    getChat(m.chat)
+
   const settings =
     getSettings(this.user.jid)
 
@@ -407,37 +416,49 @@ async function processMessage(
     m.text = extractText(m)
   }
 
-  if (m.isBaileys) {
+  /*
+   * ==========================================================
+   * ÚNICA EXCEPCIÓN DEL CHAT BANEADO
+   * ==========================================================
+   *
+   * Cuando el chat está baneado, solamente se permite:
+   *
+   * .unbanchat
+   *
+   * Todo lo demás continúa bloqueado.
+   */
+
+  const isUnbanChat =
+    m.isGroup &&
+    /^(?:\.|#|\/|!)?unbanchat(?:\s|$)/i.test(
+      String(m.text || '').trim()
+    )
+
+  if (
+    chat.isBanned &&
+    !isUnbanChat
+  ) {
     return
   }
 
   /*
-   * ==========================================================
-   * DESBANEAR GRUPO DIRECTAMENTE DESDE EL HANDLER
-   * ==========================================================
+   * .unbanchat se procesa aquí, antes de:
    *
-   * Estos comandos se ejecutan antes de cualquier filtro
-   * de chat.isBanned.
+   * - m.isBaileys
+   * - plugins
+   * - filtros
+   * - permisos de plugins
    *
-   * Puedes eliminar completamente:
-   *
-   * plugins/unbachat.js
-   *
-   * Comandos:
-   *
-   * .unbanchat
-   * .desbanearbot
-   *
-   * Solo administrador o dueño.
+   * De esta manera puede ejecutarse aunque
+   * el chat esté baneado.
    */
 
-  const unbanMatch =
-    m.isGroup &&
-    m.text?.match(
-      /^(?:\.|#|\/|!)?(unbanchat|desbanearbot)(?:\s|$)/i
-    )
+  if (isUnbanChat) {
 
-  if (unbanMatch) {
+    if (m.isBaileys) {
+      return
+    }
+
     const groupMeta =
       await global.cachedGroupMetadata(
         m.chat
@@ -450,6 +471,7 @@ async function processMessage(
       new Map()
 
     for (const participant of participants) {
+
       const keys =
         getParticipantKeys(
           this,
@@ -481,6 +503,7 @@ async function processMessage(
     }
 
     if (!userInGroup) {
+
       const senderNumber =
         m.sender
           ?.split('@')[0]
@@ -496,13 +519,14 @@ async function processMessage(
 
     userInGroup ||= {}
 
-    const isRAdmin =
-      userInGroup.admin ===
-      'superadmin'
-
     const isAdmin =
-      isRAdmin ||
-      userInGroup.admin === 'admin'
+      userInGroup.admin === 'admin' ||
+      userInGroup.admin === 'superadmin'
+
+    const realUserNumber =
+      getRealNumber(
+        userInGroup
+      )
 
     const ownerNumbers = [
       ...(Array.isArray(global.owner)
@@ -520,11 +544,6 @@ async function processMessage(
       )
       .filter(Boolean)
 
-    const realUserNumber =
-      getRealNumber(
-        userInGroup
-      )
-
     const senderNumbers = [
       realUserNumber,
       m.sender
@@ -534,12 +553,12 @@ async function processMessage(
       .filter(Boolean)
 
     const isROwner =
-      m.fromMe ||
       senderNumbers.some(number =>
         ownerNumbers.includes(number)
       )
 
     if (!(isAdmin || isROwner)) {
+
       await this.reply(
         m.chat,
         '❌ Solo administradores o el dueño pueden desbanear este grupo.',
@@ -554,20 +573,19 @@ async function processMessage(
     }
 
     /*
-     * Usamos el mismo objeto `chat` que ya fue
-     * obtenido arriba con getChat(m.chat).
+     * Desbanear directamente el objeto
+     * que ya tenemos en memoria.
      */
     chat.isBanned = false
 
     /*
-     * Avisamos al sistema de persistencia que
-     * la base de datos cambió.
+     * Marcar la DB como modificada.
      */
     global.dbDirty = true
 
     /*
-     * Si la DB dispone de write(), guardamos
-     * inmediatamente.
+     * Guardar inmediatamente si existe
+     * el método write().
      */
     if (
       typeof global.db.write === 'function'
@@ -595,16 +613,25 @@ async function processMessage(
     return
   }
 
+  /*
+   * Desde aquí continúa el handler normal.
+   */
+
+  if (m.isBaileys) {
+    return
+  }
+
   m.exp += Math.ceil(
     Math.random() * 10
   )
 
-  const pluginDir = path.join(
-    path.dirname(
-      fileURLToPath(import.meta.url)
-    ),
-    './plugins'
-  )
+  const pluginDir =
+    path.join(
+      path.dirname(
+        fileURLToPath(import.meta.url)
+      ),
+      './plugins'
+    )
 
   const groupMeta =
     m.isGroup
@@ -620,6 +647,7 @@ async function processMessage(
     new Map()
 
   for (const participant of participants) {
+
     const keys =
       getParticipantKeys(
         this,
@@ -643,12 +671,15 @@ async function processMessage(
     try {
       userInGroup =
         participantsMap.get(
-          this.decodeJid(m.sender)
+          this.decodeJid(
+            m.sender
+          )
         )
     } catch {}
   }
 
   if (!userInGroup) {
+
     const senderNumber =
       m.sender
         ?.split('@')[0]
@@ -805,6 +836,7 @@ async function processMessage(
       global.plugins
     )
   ) {
+
     const plugin =
       global.plugins[name]
 
@@ -929,14 +961,11 @@ async function processMessage(
     m.plugin = name
 
     /*
-     * ==========================================================
-     * BLOQUEOS
-     * ==========================================================
+     * Si llega aquí y el chat está baneado,
+     * no se ejecuta ningún plugin.
      *
-     * El unban ya se ejecutó arriba, por lo que aquí podemos
-     * bloquear normalmente los chats que sigan baneados.
+     * .unbanchat ya fue procesado arriba.
      */
-
     if (chat.isBanned) {
       return
     }
@@ -1065,6 +1094,7 @@ async function processMessage(
         : 17
 
     try {
+
       await plugin.call(
         this,
         m,
@@ -1114,7 +1144,9 @@ async function processMessage(
           m
         )
       }
+
     } catch (e) {
+
       m.error = e
 
       console.error(e)
@@ -1125,6 +1157,7 @@ async function processMessage(
       Object.values(
         global.APIKeys || {}
       ).forEach(k => {
+
         errText =
           errText.replace(
             new RegExp(k, 'g'),
@@ -1137,7 +1170,9 @@ async function processMessage(
         errText,
         m
       )
+
     } finally {
+
       if (plugin.after) {
         await plugin.after
           .call(this, m)
@@ -1154,6 +1189,7 @@ global.dfail = (
   m,
   conn
 ) => {
+
   const msg = {
     rowner:
       'Solo dueño principal.',
@@ -1201,6 +1237,7 @@ watchFile(
     true
   ),
   async () => {
+
     unwatchFile(
       global.__filename(
         import.meta.url,
