@@ -112,8 +112,13 @@ async function getRealParticipant(conn, chat, jid) {
 
             try {
                 if (inputNumber) {
-                    const pn = new PhoneNumber("+" + inputNumber)
-                    code = pn.getRegionCode() || "??"
+                    const pn = new PhoneNumber(
+                        "+" + inputNumber
+                    )
+
+                    code =
+                        pn.getRegionCode() ||
+                        "??"
                 }
             } catch {
                 code = "??"
@@ -124,19 +129,34 @@ async function getRealParticipant(conn, chat, jid) {
                 number: inputNumber || "?",
                 country: code,
                 flag: banderaEmoji(code),
-                name: ""
+                name: "",
+                lid: input.includes("@lid")
+                    ? input
+                    : ""
             }
         }
 
-        const realJid =
+        const phoneNumber =
             participant.phoneNumber ||
+            ""
+
+        const realJid =
+            phoneNumber ||
             participant.jid ||
             participant.id ||
-            participant.lid ||
             input
 
+        const realLid =
+            participant.lid ||
+            (
+                String(participant.id || "")
+                    .includes("@lid")
+                    ? participant.id
+                    : ""
+            )
+
         const number =
-            getNumber(participant.phoneNumber) ||
+            getNumber(phoneNumber) ||
             getNumber(participant.jid) ||
             getNumber(participant.id) ||
             getNumber(realJid)
@@ -145,8 +165,13 @@ async function getRealParticipant(conn, chat, jid) {
 
         try {
             if (number) {
-                const pn = new PhoneNumber("+" + number)
-                code = pn.getRegionCode() || "??"
+                const pn = new PhoneNumber(
+                    "+" + number
+                )
+
+                code =
+                    pn.getRegionCode() ||
+                    "??"
             }
         } catch {
             code = "??"
@@ -161,15 +186,21 @@ async function getRealParticipant(conn, chat, jid) {
                 participant.notify ||
                 participant.name ||
                 participant.pushName ||
-                ""
+                "",
+            lid: realLid
         }
     } catch {
         let code = "??"
 
         try {
             if (inputNumber) {
-                const pn = new PhoneNumber("+" + inputNumber)
-                code = pn.getRegionCode() || "??"
+                const pn = new PhoneNumber(
+                    "+" + inputNumber
+                )
+
+                code =
+                    pn.getRegionCode() ||
+                    "??"
             }
         } catch {
             code = "??"
@@ -180,35 +211,12 @@ async function getRealParticipant(conn, chat, jid) {
             number: inputNumber || "?",
             country: code,
             flag: banderaEmoji(code),
-            name: ""
+            name: "",
+            lid: input.includes("@lid")
+                ? input
+                : ""
         }
     }
-}
-
-async function getGroupName(conn, chat) {
-    if (!chat?.endsWith("@g.us")) {
-        return ""
-    }
-
-    try {
-        const metadata = await conn
-            .groupMetadata(chat)
-            .catch(() => null)
-
-        return metadata?.subject || ""
-    } catch {
-        return ""
-    }
-}
-
-function getPushName(m) {
-    return (
-        m?.quoted?.pushName ||
-        m?.quoted?.fakeObj?.pushName ||
-        m?.quoted?.vM?.pushName ||
-        m?.pushName ||
-        ""
-    )
 }
 
 function isCommand(m) {
@@ -235,7 +243,8 @@ function getViewOnce(message = {}) {
     }
 
     if (message.ephemeralMessage?.message) {
-        const inner = message.ephemeralMessage.message
+        const inner =
+            message.ephemeralMessage.message
 
         if (inner.viewOnceMessage?.message) {
             return inner.viewOnceMessage.message
@@ -245,8 +254,13 @@ function getViewOnce(message = {}) {
             return inner.viewOnceMessageV2.message
         }
 
-        if (inner.viewOnceMessageV2Extension?.message) {
-            return inner.viewOnceMessageV2Extension.message
+        if (
+            inner.viewOnceMessageV2Extension
+                ?.message
+        ) {
+            return inner
+                .viewOnceMessageV2Extension
+                .message
         }
     }
 
@@ -303,10 +317,11 @@ async function downloadViewOnce(message) {
     if (!media) return null
 
     try {
-        const stream = await downloadContentFromMessage(
-            media.message,
-            media.type
-        )
+        const stream =
+            await downloadContentFromMessage(
+                media.message,
+                media.type
+            )
 
         const chunks = []
 
@@ -324,7 +339,80 @@ async function downloadViewOnce(message) {
     }
 }
 
-async function sendMedia(conn, target, data, quoted) {
+function getOriginalQuoted(m) {
+    return (
+        m?.quoted?.fakeObj ||
+        m?.quoted?.vM ||
+        null
+    )
+}
+
+function createViewOnceQuote(
+    m,
+    originalInfo,
+    quotedMessage
+) {
+    const originalQuote =
+        getOriginalQuoted(m)
+
+    const originalKey =
+        originalQuote?.key ||
+        m?.quoted?.key ||
+        {}
+
+    const sourceChat =
+        originalKey.remoteJid ||
+        m?.chat ||
+        ""
+
+    const messageId =
+        originalKey.id ||
+        m?.quoted?.id ||
+        ""
+
+    const originalLid =
+        originalInfo?.lid ||
+        originalKey.participantAlt ||
+        m?.quoted?.participant ||
+        ""
+
+    const originalJid =
+        originalInfo?.jid ||
+        ""
+
+    const quote = {
+        key: {
+            remoteJid: sourceChat,
+            fromMe: false,
+            id: messageId,
+            participant: originalJid
+        },
+        message: quotedMessage,
+        participant: originalJid
+    }
+
+    if (originalLid) {
+        quote.key.participantAlt =
+            originalLid
+
+        quote.participantAlt =
+            originalLid
+    }
+
+    if (originalInfo?.number) {
+        quote.pushName =
+            originalInfo.number
+    }
+
+    return quote
+}
+
+async function sendMedia(
+    conn,
+    target,
+    data,
+    quoted
+) {
     if (!data?.buffer) return null
 
     if (data.type === "image") {
@@ -332,9 +420,12 @@ async function sendMedia(conn, target, data, quoted) {
             target,
             {
                 image: data.buffer,
-                caption: data.message?.caption || ""
+                caption:
+                    data.message?.caption || ""
             },
-            { quoted }
+            {
+                quoted
+            }
         )
     }
 
@@ -343,10 +434,15 @@ async function sendMedia(conn, target, data, quoted) {
             target,
             {
                 video: data.buffer,
-                caption: data.message?.caption || "",
-                mimetype: data.message?.mimetype || "video/mp4"
+                caption:
+                    data.message?.caption || "",
+                mimetype:
+                    data.message?.mimetype ||
+                    "video/mp4"
             },
-            { quoted }
+            {
+                quoted
+            }
         )
     }
 
@@ -355,10 +451,16 @@ async function sendMedia(conn, target, data, quoted) {
             target,
             {
                 audio: data.buffer,
-                mimetype: data.message?.mimetype || "audio/mpeg",
-                ptt: Boolean(data.message?.ptt)
+                mimetype:
+                    data.message?.mimetype ||
+                    "audio/mpeg",
+                ptt: Boolean(
+                    data.message?.ptt
+                )
             },
-            { quoted }
+            {
+                quoted
+            }
         )
     }
 
@@ -374,19 +476,13 @@ async function sendMedia(conn, target, data, quoted) {
                     data.message?.fileName ||
                     "viewonce"
             },
-            { quoted }
+            {
+                quoted
+            }
         )
     }
 
     return null
-}
-
-function getOriginalQuoted(m) {
-    return (
-        m?.quoted?.fakeObj ||
-        m?.quoted?.vM ||
-        null
-    )
 }
 
 function getQuotedId(m) {
@@ -418,8 +514,11 @@ function getOriginalSender(m, message) {
         m?.quoted?.sender ||
         m?.quoted?.participant ||
         m?.quoted?.key?.participant ||
+        m?.quoted?.key?.participantAlt ||
         message?.key?.participant ||
+        message?.key?.participantAlt ||
         context?.participant ||
+        context?.participantAlt ||
         ""
     )
 }
@@ -431,14 +530,27 @@ function cleanup(conn) {
 
     const now = Date.now()
 
-    for (const [key, value] of conn._viewOnceSeen) {
-        if (now - value.time > SEEN_TTL) {
+    for (
+        const [key, value]
+        of conn._viewOnceSeen
+    ) {
+        if (
+            now - value.time >
+            SEEN_TTL
+        ) {
             conn._viewOnceSeen.delete(key)
         }
     }
 
-    while (conn._viewOnceSeen.size > SEEN_LIMIT) {
-        const first = conn._viewOnceSeen.keys().next().value
+    while (
+        conn._viewOnceSeen.size >
+        SEEN_LIMIT
+    ) {
+        const first =
+            conn._viewOnceSeen
+                .keys()
+                .next()
+                .value
 
         if (!first) break
 
@@ -455,24 +567,35 @@ function getSeen(conn, id) {
 function saveSeen(conn, id, data) {
     cleanup(conn)
 
-    conn._viewOnceSeen.set(id, {
-        ...data,
-        time: Date.now()
-    })
+    conn._viewOnceSeen.set(
+        id,
+        {
+            ...data,
+            time: Date.now()
+        }
+    )
 }
 
-async function sendResponse(conn, target, revealedMessage, m) {
-    const responder = getSender(m)
+async function sendResponse(
+    conn,
+    target,
+    revealedMessage,
+    m
+) {
+    const responder =
+        getSender(m)
 
     if (!responder) return
 
-    const responderInfo = await getRealParticipant(
-        conn,
-        m.chat,
-        responder
-    )
+    const responderInfo =
+        await getRealParticipant(
+            conn,
+            m.chat,
+            responder
+        )
 
-    const response = getMessageText(m)
+    const response =
+        getMessageText(m)
 
     if (!response) return
 
@@ -485,17 +608,21 @@ async function sendResponse(conn, target, revealedMessage, m) {
         target,
         {
             text,
-            mentions: [responderInfo.jid]
+            mentions: [
+                responderInfo.jid
+            ]
         },
         {
-            quoted: revealedMessage
+            quoted:
+                revealedMessage
         }
     )
 }
 
 let handler = async () => {}
 
-handler.before = async function (m) {
+handler.before =
+async function (m) {
     const conn = this
 
     if (!m?.chat) return
@@ -510,28 +637,44 @@ handler.before = async function (m) {
         return
     }
 
-    const quotedId = getQuotedId(m)
+    const quotedId =
+        getQuotedId(m)
 
     if (!quotedId) return
 
-    const quotedMessage = getQuotedMessage(m)
+    const quotedMessage =
+        getQuotedMessage(m)
 
     if (!quotedMessage) return
 
-    const viewOnce = getViewOnce(quotedMessage)
+    const viewOnce =
+        getViewOnce(
+            quotedMessage
+        )
 
     if (!viewOnce) return
 
-    const originalSender = getOriginalSender(
-        m,
-        quotedMessage
-    )
+    const originalSender =
+        getOriginalSender(
+            m,
+            quotedMessage
+        )
 
-    const citer = getSender(m)
+    const citer =
+        getSender(m)
 
-    if (!originalSender || !citer) return
+    if (
+        !originalSender ||
+        !citer
+    ) {
+        return
+    }
 
-    const seen = getSeen(conn, quotedId)
+    const seen =
+        getSeen(
+            conn,
+            quotedId
+        )
 
     const target =
         NOTIFY_JIDS[0] ||
@@ -548,37 +691,41 @@ handler.before = async function (m) {
         return
     }
 
-    const mediaData = await downloadViewOnce(
-        quotedMessage
-    )
+    const mediaData =
+        await downloadViewOnce(
+            quotedMessage
+        )
 
     if (!mediaData) return
 
-    const originalInfo = await getRealParticipant(
-        conn,
-        m.chat,
-        originalSender
-    )
+    const originalInfo =
+        await getRealParticipant(
+            conn,
+            m.chat,
+            originalSender
+        )
 
-    const citerInfo = await getRealParticipant(
-        conn,
-        m.chat,
-        citer
-    )
+    const citerInfo =
+        await getRealParticipant(
+            conn,
+            m.chat,
+            citer
+        )
 
-    const groupName = await getGroupName(
-        conn,
-        m.chat
-    )
+    const originalQuote =
+        createViewOnceQuote(
+            m,
+            originalInfo,
+            quotedMessage
+        )
 
-    const originalQuoted = getOriginalQuoted(m)
-
-    const revealedMessage = await sendMedia(
-        conn,
-        target,
-        mediaData,
-        originalQuoted
-    )
+    const revealedMessage =
+        await sendMedia(
+            conn,
+            target,
+            mediaData,
+            originalQuote
+        )
 
     if (!revealedMessage) return
 
@@ -588,18 +735,17 @@ handler.before = async function (m) {
         {
             revealedMessage,
             target,
-            originalJid: originalInfo.jid,
-            originalNumber: originalInfo.number,
-            groupName
+            originalJid:
+                originalInfo.jid,
+            originalNumber:
+                originalInfo.number,
+            originalLid:
+                originalInfo.lid
         }
     )
 
-    const response = getMessageText(m)
-
-    const originalName =
-        originalInfo.name ||
-        getPushName(m) ||
-        originalInfo.number
+    const response =
+        getMessageText(m)
 
     const notification =
 `👁️ *VIEW ONCE DETECTADO*
@@ -619,7 +765,8 @@ handler.before = async function (m) {
             ]
         },
         {
-            quoted: revealedMessage
+            quoted:
+                revealedMessage
         }
     )
 }
