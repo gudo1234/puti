@@ -1,7 +1,6 @@
 import PhoneNumber from "awesome-phonenumber"
 import {
-    downloadContentFromMessage,
-    downloadMediaMessage
+    downloadContentFromMessage
 } from "@whiskeysockets/baileys"
 
 const WATCH_GROUPS = new Set([])
@@ -12,7 +11,6 @@ const NOTIFY_JIDS = [
 
 const SEEN_TTL = 10 * 60 * 1000
 const SEEN_LIMIT = 500
-const NOTICE_TTL = 24 * 60 * 60 * 1000
 
 function getContextInfo(m) {
     return (
@@ -42,7 +40,7 @@ function getMessageText(m) {
     ).trim()
 }
 
-function getMessageSender(m) {
+function getSender(m) {
     return (
         m?.sender ||
         m?.key?.participant ||
@@ -58,82 +56,65 @@ function normalizeJid(jid = "") {
     return `${jid}@s.whatsapp.net`
 }
 
-function normalizeMention(jid = "") {
-    const value = normalizeJid(jid)
-    if (value.endsWith("@lid")) return value
-    return value
+function getNumber(jid = "") {
+    return String(jid)
+        .split("@")[0]
+        .replace(/\D/g, "")
 }
 
-function getNumberFromJid(jid = "") {
-    const value = String(jid || "")
-    const number = value.split("@")[0].replace(/\D/g, "")
-    return number
-}
-
-function flagFromCountry(country = "") {
+function getFlag(country = "") {
     if (!country || country.length !== 2) return "🌐"
 
     return [...country.toUpperCase()]
-        .map(char =>
-            String.fromCodePoint(127397 + char.charCodeAt(0))
-        )
+        .map(x => String.fromCodePoint(127397 + x.charCodeAt(0)))
         .join("")
 }
 
 async function getRealPhone(conn, chat, jid) {
-    const fallback = getNumberFromJid(jid)
+    const fallback = getNumber(jid)
 
     try {
         let participants = []
 
         if (chat?.endsWith("@g.us")) {
-            const metadata = await conn.groupMetadata(chat).catch(() => null)
+            const metadata = await conn
+                .groupMetadata(chat)
+                .catch(() => null)
+
             participants = metadata?.participants || []
         }
 
-        const normalized = normalizeJid(jid)
+        const participant = participants.find(p => {
+            const values = [
+                p?.id,
+                p?.jid,
+                p?.lid,
+                p?.phoneNumber,
+                p?.phone
+            ]
 
-        let participant = participants.find(p =>
-            p?.id === jid ||
-            p?.id === normalized ||
-            p?.jid === jid ||
-            p?.jid === normalized ||
-            p?.lid === jid ||
-            p?.lid === normalized
-        )
+            return values.some(value =>
+                value === jid ||
+                value === normalizeJid(jid) ||
+                getNumber(value) === fallback
+            )
+        })
 
-        if (!participant && fallback) {
-            participant = participants.find(p => {
-                const values = [
-                    p?.id,
-                    p?.jid,
-                    p?.lid,
-                    p?.phoneNumber,
-                    p?.phone
-                ]
-
-                return values.some(value =>
-                    getNumberFromJid(value) === fallback
-                )
-            })
-        }
-
-        const possibleNumbers = [
+        const possible = [
             participant?.phoneNumber,
             participant?.phone,
-            getNumberFromJid(participant?.id),
-            getNumberFromJid(participant?.jid),
+            getNumber(participant?.id),
+            getNumber(participant?.jid),
             fallback
         ]
 
-        let number = possibleNumbers.find(Boolean) || fallback
-
-        number = String(number).replace(/\D/g, "")
+        const number = String(
+            possible.find(Boolean) || fallback
+        ).replace(/\D/g, "")
 
         if (!number) {
             return {
                 number: "?",
-                country: "",
                 flag: "🌐"
             }
         }
@@ -143,19 +124,17 @@ async function getRealPhone(conn, chat, jid) {
 
         return {
             number,
-            country,
-            flag: flagFromCountry(country)
+            flag: getFlag(country)
         }
     } catch {
         return {
             number: fallback || "?",
-            country: "",
             flag: "🌐"
         }
     }
 }
 
-function isPrefixedMessage(m) {
+function isCommand(m) {
     const text = getMessageText(m)
 
     if (!text) return false
@@ -163,8 +142,8 @@ function isPrefixedMessage(m) {
     return /^[!/#.$%&*+?]/.test(text)
 }
 
-function getViewOnceMessage(message = {}) {
-    if (!message || typeof message !== "object") return null
+function getViewOnce(message = {}) {
+    if (!message) return null
 
     if (message.viewOnceMessage?.message) {
         return message.viewOnceMessage.message
@@ -205,33 +184,53 @@ function getViewOnceMessage(message = {}) {
     return null
 }
 
-function getMediaType(message = {}) {
-    if (message.imageMessage) return "image"
-    if (message.videoMessage) return "video"
-    if (message.audioMessage) return "audio"
-    if (message.documentMessage) return "document"
-    return null
-}
+function getMedia(viewOnce = {}) {
+    if (viewOnce.imageMessage) {
+        return {
+            type: "image",
+            message: viewOnce.imageMessage
+        }
+    }
 
-function getMediaMessage(message = {}) {
-    if (message.imageMessage) return message.imageMessage
-    if (message.videoMessage) return message.videoMessage
-    if (message.audioMessage) return message.audioMessage
-    if (message.documentMessage) return message.documentMessage
+    if (viewOnce.videoMessage) {
+        return {
+            type: "video",
+            message: viewOnce.videoMessage
+        }
+    }
+
+    if (viewOnce.audioMessage) {
+        return {
+            type: "audio",
+            message: viewOnce.audioMessage
+        }
+    }
+
+    if (viewOnce.documentMessage) {
+        return {
+            type: "document",
+            message: viewOnce.documentMessage
+        }
+    }
+
     return null
 }
 
 async function downloadViewOnce(message) {
-    const inner = getViewOnceMessage(message)
-    if (!inner) return null
+    const viewOnce = getViewOnce(message)
 
-    const type = getMediaType(inner)
-    const media = getMediaMessage(inner)
+    if (!viewOnce) return null
 
-    if (!type || !media) return null
+    const media = getMedia(viewOnce)
+
+    if (!media) return null
 
     try {
-        const stream = await downloadContentFromMessage(media, type)
+        const stream = await downloadContentFromMessage(
+            media.message,
+            media.type
+        )
+
         const chunks = []
 
         for await (const chunk of stream) {
@@ -240,61 +239,63 @@ async function downloadViewOnce(message) {
 
         return {
             buffer: Buffer.concat(chunks),
-            type,
-            media
+            type: media.type,
+            message: media.message
         }
     } catch {
         return null
     }
 }
 
-async function sendViewOnce(conn, target, mediaData, quoted) {
-    if (!mediaData?.buffer) return null
+async function sendMedia(conn, target, data, quoted) {
+    if (!data?.buffer) return null
 
-    const { buffer, type, media } = mediaData
-
-    if (type === "image") {
+    if (data.type === "image") {
         return await conn.sendMessage(
             target,
             {
-                image: buffer,
-                caption: media?.caption || ""
+                image: data.buffer,
+                caption: data.message?.caption || ""
             },
             { quoted }
         )
     }
 
-    if (type === "video") {
+    if (data.type === "video") {
         return await conn.sendMessage(
             target,
             {
-                video: buffer,
-                caption: media?.caption || "",
-                mimetype: media?.mimetype || "video/mp4"
+                video: data.buffer,
+                caption: data.message?.caption || "",
+                mimetype: data.message?.mimetype || "video/mp4"
             },
             { quoted }
         )
     }
 
-    if (type === "audio") {
+    if (data.type === "audio") {
         return await conn.sendMessage(
             target,
             {
-                audio: buffer,
-                mimetype: media?.mimetype || "audio/mpeg",
-                ptt: Boolean(media?.ptt)
+                audio: data.buffer,
+                mimetype: data.message?.mimetype || "audio/mpeg",
+                ptt: Boolean(data.message?.ptt)
             },
             { quoted }
         )
     }
 
-    if (type === "document") {
+    if (data.type === "document") {
         return await conn.sendMessage(
             target,
             {
-                document: buffer,
-                mimetype: media?.mimetype || "application/octet-stream",
-                fileName: media?.fileName || "viewonce"
+                document: data.buffer,
+                mimetype:
+                    data.message?.mimetype ||
+                    "application/octet-stream",
+                fileName:
+                    data.message?.fileName ||
+                    "viewonce"
             },
             { quoted }
         )
@@ -303,30 +304,7 @@ async function sendViewOnce(conn, target, mediaData, quoted) {
     return null
 }
 
-function getQuotedMessageObject(m) {
-    return (
-        m?.quoted?.vM?.message ||
-        m?.quoted?.fakeObj?.message ||
-        m?.quoted?.message ||
-        m?.quoted?.msg ||
-        null
-    )
-}
-
-function getOriginalSender(m, quotedMessage) {
-    const context = getContextInfo(m)
-
-    return (
-        m?.quoted?.sender ||
-        m?.quoted?.participant ||
-        m?.quoted?.key?.participant ||
-        context?.participant ||
-        quotedMessage?.key?.participant ||
-        ""
-    )
-}
-
-function getOriginalId(m) {
+function getQuotedId(m) {
     const context = getContextInfo(m)
 
     return (
@@ -337,200 +315,62 @@ function getOriginalId(m) {
     )
 }
 
-function getCiter(m) {
+function getQuotedMessage(m) {
     return (
-        m?.sender ||
-        m?.key?.participant ||
-        m?.participant ||
-        m?.key?.remoteJidAlt ||
+        m?.quoted?.vM?.message ||
+        m?.quoted?.fakeObj?.message ||
+        m?.quoted?.message ||
+        m?.quoted?.msg ||
+        getContextInfo(m)?.quotedMessage ||
+        null
+    )
+}
+
+function getOriginalSender(m, message) {
+    const context = getContextInfo(m)
+
+    return (
+        m?.quoted?.sender ||
+        m?.quoted?.participant ||
+        m?.quoted?.key?.participant ||
+        message?.key?.participant ||
+        context?.participant ||
         ""
     )
 }
 
-function ensureCaches(conn) {
-    if (!conn._autoviewSeen) {
-        conn._autoviewSeen = new Map()
+function cleanup(conn) {
+    if (!conn._viewOnceSeen) {
+        conn._viewOnceSeen = new Map()
     }
 
-    if (!conn._autoviewNotices) {
-        conn._autoviewNotices = new Map()
-    }
-}
-
-function cleanupSeen(conn) {
     const now = Date.now()
-    const cache = conn._autoviewSeen
 
-    for (const [key, time] of cache) {
+    for (const [key, time] of conn._viewOnceSeen) {
         if (now - time > SEEN_TTL) {
-            cache.delete(key)
+            conn._viewOnceSeen.delete(key)
         }
     }
 
-    while (cache.size > SEEN_LIMIT) {
-        const first = cache.keys().next().value
+    while (conn._viewOnceSeen.size > SEEN_LIMIT) {
+        const first = conn._viewOnceSeen.keys().next().value
 
         if (!first) break
 
-        cache.delete(first)
+        conn._viewOnceSeen.delete(first)
     }
 }
 
-function cleanupNotices(conn) {
-    const now = Date.now()
-    const cache = conn._autoviewNotices
+function hasBeenRevealed(conn, id) {
+    cleanup(conn)
 
-    for (const [id, data] of cache) {
-        if (now - data.time > NOTICE_TTL) {
-            cache.delete(id)
-        }
-    }
+    return conn._viewOnceSeen.has(id)
 }
 
-function alreadySeen(conn, key) {
-    ensureCaches(conn)
-    cleanupSeen(conn)
+function markRevealed(conn, id) {
+    cleanup(conn)
 
-    if (conn._autoviewSeen.has(key)) {
-        return true
-    }
-
-    conn._autoviewSeen.set(key, Date.now())
-    return false
-}
-
-function rememberNotice(conn, message, data) {
-    ensureCaches(conn)
-
-    const id =
-        message?.key?.id ||
-        message?.id ||
-        ""
-
-    if (!id) return
-
-    conn._autoviewNotices.set(id, {
-        ...data,
-        time: Date.now(),
-        message
-    })
-
-    cleanupNotices(conn)
-}
-
-function findNoticeByViewOnce(conn, viewOnceId) {
-    ensureCaches(conn)
-    cleanupNotices(conn)
-
-    for (const notice of conn._autoviewNotices.values()) {
-        if (notice.viewOnceId === viewOnceId) {
-            return notice
-        }
-    }
-
-    return null
-}
-
-async function sendAdditionalResponse(m, conn, notice) {
-    const response = getMessageText(m)
-
-    if (!response) return true
-
-    const responder = getCiter(m)
-
-    if (!responder) return true
-
-    const responderNumber = getNumberFromJid(responder)
-
-    if (!responderNumber) return true
-
-    const responderPhone = await getRealPhone(
-        conn,
-        m.chat,
-        responder
-    )
-
-    const responderJid = normalizeMention(responder)
-
-    const text =
-`👤 *Citado por:* @${responderNumber}
-📱 *Número:* +${responderNumber} ${responderPhone.flag}
-🍁 *Respuesta:* ${response}`
-
-    await conn.sendMessage(
-        notice.target,
-        {
-            text,
-            mentions: [responderJid]
-        },
-        {
-            quoted: notice.message
-        }
-    )
-
-    return true
-}
-
-async function processNoticeReply(m, conn) {
-    const cache = conn._autoviewNotices
-
-    if (!cache?.size) return false
-
-    cleanupNotices(conn)
-
-    const contextInfo = getContextInfo(m)
-
-    const quotedId =
-        contextInfo?.stanzaId ||
-        m?.quoted?.id ||
-        m?.quoted?.key?.id ||
-        ""
-
-    if (!quotedId) return false
-
-    const notice = cache.get(quotedId)
-
-    if (!notice) return false
-
-    if (Date.now() - notice.time > NOTICE_TTL) {
-        cache.delete(quotedId)
-        return false
-    }
-
-    if (isPrefixedMessage(m)) return false
-
-    return await sendAdditionalResponse(m, conn, notice)
-}
-
-async function detectQuotedViewOnce(m) {
-    const quotedMessage = getQuotedMessageObject(m)
-
-    const context = getContextInfo(m)
-
-    const contextQuoted = context?.quotedMessage
-
-    const candidates = [
-        quotedMessage,
-        contextQuoted,
-        m?.quoted?.message,
-        m?.quoted?.msg,
-        m?.quoted?.vM?.message
-    ]
-
-    for (const candidate of candidates) {
-        const viewOnce = getViewOnceMessage(candidate)
-
-        if (viewOnce) {
-            return {
-                message: candidate,
-                viewOnce,
-                originalId: getOriginalId(m),
-                originalSender: getOriginalSender(m, candidate)
-            }
-        }
-    }
-
-    return null
+    conn._viewOnceSeen.set(id, Date.now())
 }
 
 let handler = async () => {}
@@ -540,13 +380,7 @@ handler.before = async function (m) {
 
     if (!m?.chat) return
 
-    ensureCaches(conn)
-
-    const handledNotice = await processNoticeReply(m, conn)
-
-    if (handledNotice) return
-
-    if (isPrefixedMessage(m)) return
+    if (isCommand(m)) return
 
     if (
         WATCH_GROUPS.size &&
@@ -556,28 +390,73 @@ handler.before = async function (m) {
         return
     }
 
-    const detected = await detectQuotedViewOnce(m)
+    const quotedId = getQuotedId(m)
 
-    if (!detected) return
+    if (!quotedId) return
+
+    const quotedMessage = getQuotedMessage(m)
+
+    if (!quotedMessage) return
+
+    const viewOnce = getViewOnce(quotedMessage)
+
+    if (!viewOnce) return
+
+    const originalSender = getOriginalSender(
+        m,
+        quotedMessage
+    )
+
+    if (!originalSender) return
+
+    const citer = getSender(m)
+
+    if (!citer) return
+
+    const originalJid = normalizeJid(originalSender)
+    const citerJid = normalizeJid(citer)
+
+    const originalNumber = getNumber(originalJid)
+    const citerNumber = getNumber(citerJid)
+
+    if (!originalNumber || !citerNumber) return
+
+    const target =
+        NOTIFY_JIDS[0] ||
+        m.chat
 
     const response = getMessageText(m)
 
-    const originalSender =
-        detected.originalSender ||
-        m?.quoted?.sender ||
-        ""
+    if (hasBeenRevealed(conn, quotedId)) {
+        const citerPhone = await getRealPhone(
+            conn,
+            m.chat,
+            citer
+        )
 
-    const citer = getCiter(m)
+        const text =
+`👤 *Citado por:* @${citerNumber}
+📱 *Número:* +${citerNumber} ${citerPhone.flag}
+🍁 *Respuesta:* ${response || "Sin texto"}`
 
-    if (!originalSender || !citer) return
+        await conn.sendMessage(
+            target,
+            {
+                text,
+                mentions: [citerJid]
+            }
+        )
 
-    const originalJid = normalizeMention(originalSender)
-    const citerJid = normalizeMention(citer)
+        return
+    }
 
-    const originalNumber = getNumberFromJid(originalSender)
-    const citerNumber = getNumberFromJid(citer)
+    const mediaData = await downloadViewOnce(
+        quotedMessage
+    )
 
-    if (!originalNumber || !citerNumber) return
+    if (!mediaData) return
+
+    markRevealed(conn, quotedId)
 
     const originalPhone = await getRealPhone(
         conn,
@@ -591,39 +470,7 @@ handler.before = async function (m) {
         citer
     )
 
-    const originalId = detected.originalId
-
-    const seenKey =
-        `${m.chat}:${originalId || originalJid}`
-
-    if (alreadySeen(conn, seenKey)) {
-        const existing = findNoticeByViewOnce(
-            conn,
-            originalId
-        )
-
-        if (existing) {
-            await sendAdditionalResponse(
-                m,
-                conn,
-                existing
-            )
-        }
-
-        return
-    }
-
-    const mediaData = await downloadViewOnce(
-        detected.message
-    )
-
-    if (!mediaData) return
-
-    const target =
-        NOTIFY_JIDS[0] ||
-        m.chat
-
-    await sendViewOnce(
+    await sendMedia(
         conn,
         target,
         mediaData,
@@ -640,7 +487,7 @@ handler.before = async function (m) {
 📱 *Número:* +${citerNumber} ${citerPhone.flag}
 🍁 *Respuesta:* ${response || "Sin texto"}`
 
-    const sent = await conn.sendMessage(
+    await conn.sendMessage(
         target,
         {
             text: notification,
@@ -648,21 +495,6 @@ handler.before = async function (m) {
                 originalJid,
                 citerJid
             ]
-        },
-        {
-            quoted: m
-        }
-    )
-
-    rememberNotice(
-        conn,
-        sent,
-        {
-            target,
-            sourceChat: m.chat,
-            viewOnceId: originalId,
-            sender: originalJid,
-            senderNumber: originalNumber
         }
     )
 }
