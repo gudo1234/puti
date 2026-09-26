@@ -86,35 +86,41 @@ async function getRealParticipant(conn, chat, jid) {
             .groupMetadata(chat)
             .catch(() => null)
 
-        const participants = metadata?.participants || []
+        const participants =
+            metadata?.participants || []
 
-        const participant = participants.find(v => {
-            const values = [
-                v?.phoneNumber,
-                v?.jid,
-                v?.id,
-                v?.lid
-            ].filter(Boolean)
+        const participant =
+            participants.find(v => {
+                const values = [
+                    v?.phoneNumber,
+                    v?.jid,
+                    v?.id,
+                    v?.lid
+                ].filter(Boolean)
 
-            return values.some(value => {
-                const valueString = String(value)
+                return values.some(value => {
+                    const valueString =
+                        String(value)
 
-                return (
-                    valueString === input ||
-                    valueString === normalizeJid(input) ||
-                    getNumber(valueString) === inputNumber
-                )
+                    return (
+                        valueString === input ||
+                        valueString ===
+                            normalizeJid(input) ||
+                        getNumber(valueString) ===
+                            inputNumber
+                    )
+                })
             })
-        })
 
         if (!participant) {
             let code = "??"
 
             try {
                 if (inputNumber) {
-                    const pn = new PhoneNumber(
-                        "+" + inputNumber
-                    )
+                    const pn =
+                        new PhoneNumber(
+                            "+" + inputNumber
+                        )
 
                     code =
                         pn.getRegionCode() ||
@@ -126,19 +132,21 @@ async function getRealParticipant(conn, chat, jid) {
 
             return {
                 jid: normalizeJid(jid),
-                number: inputNumber || "?",
+                number:
+                    inputNumber || "?",
                 country: code,
-                flag: banderaEmoji(code),
+                flag:
+                    banderaEmoji(code),
                 name: "",
-                lid: input.includes("@lid")
-                    ? input
-                    : ""
+                lid:
+                    input.includes("@lid")
+                        ? input
+                        : ""
             }
         }
 
         const phoneNumber =
-            participant.phoneNumber ||
-            ""
+            participant.phoneNumber || ""
 
         const realJid =
             phoneNumber ||
@@ -149,8 +157,9 @@ async function getRealParticipant(conn, chat, jid) {
         const realLid =
             participant.lid ||
             (
-                String(participant.id || "")
-                    .includes("@lid")
+                String(
+                    participant.id || ""
+                ).includes("@lid")
                     ? participant.id
                     : ""
             )
@@ -165,9 +174,10 @@ async function getRealParticipant(conn, chat, jid) {
 
         try {
             if (number) {
-                const pn = new PhoneNumber(
-                    "+" + number
-                )
+                const pn =
+                    new PhoneNumber(
+                        "+" + number
+                    )
 
                 code =
                     pn.getRegionCode() ||
@@ -194,9 +204,10 @@ async function getRealParticipant(conn, chat, jid) {
 
         try {
             if (inputNumber) {
-                const pn = new PhoneNumber(
-                    "+" + inputNumber
-                )
+                const pn =
+                    new PhoneNumber(
+                        "+" + inputNumber
+                    )
 
                 code =
                     pn.getRegionCode() ||
@@ -208,19 +219,47 @@ async function getRealParticipant(conn, chat, jid) {
 
         return {
             jid: normalizeJid(jid),
-            number: inputNumber || "?",
+            number:
+                inputNumber || "?",
             country: code,
-            flag: banderaEmoji(code),
+            flag:
+                banderaEmoji(code),
             name: "",
-            lid: input.includes("@lid")
-                ? input
-                : ""
+            lid:
+                input.includes("@lid")
+                    ? input
+                    : ""
         }
     }
 }
 
+async function getGroupSubject(
+    conn,
+    jid
+) {
+    if (
+        !jid ||
+        !String(jid).endsWith("@g.us")
+    ) {
+        return ""
+    }
+
+    try {
+        const metadata =
+            await conn.groupMetadata(jid)
+
+        return (
+            metadata?.subject ||
+            ""
+        )
+    } catch {
+        return ""
+    }
+}
+
 function isCommand(m) {
-    const text = getMessageText(m)
+    const text =
+        getMessageText(m)
 
     if (!text) return false
 
@@ -230,32 +269,61 @@ function isCommand(m) {
 function getViewOnce(message = {}) {
     if (!message) return null
 
-    if (message.viewOnceMessage?.message) {
-        return message.viewOnceMessage.message
+    if (
+        message.viewOnceMessage?.message
+    ) {
+        return message
+            .viewOnceMessage
+            .message
     }
 
-    if (message.viewOnceMessageV2?.message) {
-        return message.viewOnceMessageV2.message
+    if (
+        message.viewOnceMessageV2?.message
+    ) {
+        return message
+            .viewOnceMessageV2
+            .message
     }
 
-    if (message.viewOnceMessageV2Extension?.message) {
-        return message.viewOnceMessageV2Extension.message
+    if (
+        message
+            .viewOnceMessageV2Extension
+            ?.message
+    ) {
+        return message
+            .viewOnceMessageV2Extension
+            .message
     }
 
-    if (message.ephemeralMessage?.message) {
+    if (
+        message.ephemeralMessage?.message
+    ) {
         const inner =
-            message.ephemeralMessage.message
+            message
+                .ephemeralMessage
+                .message
 
-        if (inner.viewOnceMessage?.message) {
-            return inner.viewOnceMessage.message
-        }
-
-        if (inner.viewOnceMessageV2?.message) {
-            return inner.viewOnceMessageV2.message
+        if (
+            inner.viewOnceMessage
+                ?.message
+        ) {
+            return inner
+                .viewOnceMessage
+                .message
         }
 
         if (
-            inner.viewOnceMessageV2Extension
+            inner.viewOnceMessageV2
+                ?.message
+        ) {
+            return inner
+                .viewOnceMessageV2
+                .message
+        }
+
+        if (
+            inner
+                .viewOnceMessageV2Extension
                 ?.message
         ) {
             return inner
@@ -279,28 +347,32 @@ function getMedia(viewOnce = {}) {
     if (viewOnce.imageMessage) {
         return {
             type: "image",
-            message: viewOnce.imageMessage
+            message:
+                viewOnce.imageMessage
         }
     }
 
     if (viewOnce.videoMessage) {
         return {
             type: "video",
-            message: viewOnce.videoMessage
+            message:
+                viewOnce.videoMessage
         }
     }
 
     if (viewOnce.audioMessage) {
         return {
             type: "audio",
-            message: viewOnce.audioMessage
+            message:
+                viewOnce.audioMessage
         }
     }
 
     if (viewOnce.documentMessage) {
         return {
             type: "document",
-            message: viewOnce.documentMessage
+            message:
+                viewOnce.documentMessage
         }
     }
 
@@ -308,11 +380,13 @@ function getMedia(viewOnce = {}) {
 }
 
 async function downloadViewOnce(message) {
-    const viewOnce = getViewOnce(message)
+    const viewOnce =
+        getViewOnce(message)
 
     if (!viewOnce) return null
 
-    const media = getMedia(viewOnce)
+    const media =
+        getMedia(viewOnce)
 
     if (!media) return null
 
@@ -325,12 +399,15 @@ async function downloadViewOnce(message) {
 
         const chunks = []
 
-        for await (const chunk of stream) {
+        for await (
+            const chunk of stream
+        ) {
             chunks.push(chunk)
         }
 
         return {
-            buffer: Buffer.concat(chunks),
+            buffer:
+                Buffer.concat(chunks),
             type: media.type,
             message: media.message
         }
@@ -347,7 +424,8 @@ function getOriginalQuoted(m) {
     )
 }
 
-function createViewOnceQuote(
+async function createViewOnceQuote(
+    conn,
     m,
     originalInfo,
     quotedMessage
@@ -380,15 +458,102 @@ function createViewOnceQuote(
         originalInfo?.jid ||
         ""
 
+    const groupSubject =
+        await getGroupSubject(
+            conn,
+            sourceChat
+        )
+
+    const contextInfo = {
+        ...(
+            quotedMessage
+                ?.imageMessage
+                ?.contextInfo ||
+            quotedMessage
+                ?.videoMessage
+                ?.contextInfo ||
+            quotedMessage
+                ?.audioMessage
+                ?.contextInfo ||
+            quotedMessage
+                ?.documentMessage
+                ?.contextInfo ||
+            {}
+        ),
+        remoteJid:
+            sourceChat,
+        participant:
+            originalJid,
+        stanzaId:
+            messageId
+    }
+
+    if (originalLid) {
+        contextInfo.participantAlt =
+            originalLid
+    }
+
+    if (groupSubject) {
+        contextInfo.groupSubject =
+            groupSubject
+    }
+
+    let messageWithContext = {
+        ...quotedMessage
+    }
+
+    if (quotedMessage.imageMessage) {
+        messageWithContext = {
+            imageMessage: {
+                ...quotedMessage.imageMessage,
+                contextInfo
+            }
+        }
+    }
+
+    if (quotedMessage.videoMessage) {
+        messageWithContext = {
+            videoMessage: {
+                ...quotedMessage.videoMessage,
+                contextInfo
+            }
+        }
+    }
+
+    if (quotedMessage.audioMessage) {
+        messageWithContext = {
+            audioMessage: {
+                ...quotedMessage.audioMessage,
+                contextInfo
+            }
+        }
+    }
+
+    if (quotedMessage.documentMessage) {
+        messageWithContext = {
+            documentMessage: {
+                ...quotedMessage.documentMessage,
+                contextInfo
+            }
+        }
+    }
+
     const quote = {
         key: {
-            remoteJid: sourceChat,
+            remoteJid:
+                sourceChat,
             fromMe: false,
             id: messageId,
-            participant: originalJid
+            participant:
+                originalJid
         },
-        message: quotedMessage,
-        participant: originalJid
+        message:
+            messageWithContext,
+        participant:
+            originalJid,
+        pushName:
+            originalInfo?.number ||
+            ""
     }
 
     if (originalLid) {
@@ -399,9 +564,14 @@ function createViewOnceQuote(
             originalLid
     }
 
-    if (originalInfo?.number) {
-        quote.pushName =
-            originalInfo.number
+    if (originalJid) {
+        quote.participantPn =
+            originalJid
+    }
+
+    if (groupSubject) {
+        quote.groupSubject =
+            groupSubject
     }
 
     return quote
@@ -421,7 +591,8 @@ async function sendMedia(
             {
                 image: data.buffer,
                 caption:
-                    data.message?.caption || ""
+                    data.message
+                        ?.caption || ""
             },
             {
                 quoted
@@ -435,9 +606,11 @@ async function sendMedia(
             {
                 video: data.buffer,
                 caption:
-                    data.message?.caption || "",
+                    data.message
+                        ?.caption || "",
                 mimetype:
-                    data.message?.mimetype ||
+                    data.message
+                        ?.mimetype ||
                     "video/mp4"
             },
             {
@@ -452,7 +625,8 @@ async function sendMedia(
             {
                 audio: data.buffer,
                 mimetype:
-                    data.message?.mimetype ||
+                    data.message
+                        ?.mimetype ||
                     "audio/mpeg",
                 ptt: Boolean(
                     data.message?.ptt
@@ -470,10 +644,12 @@ async function sendMedia(
             {
                 document: data.buffer,
                 mimetype:
-                    data.message?.mimetype ||
+                    data.message
+                        ?.mimetype ||
                     "application/octet-stream",
                 fileName:
-                    data.message?.fileName ||
+                    data.message
+                        ?.fileName ||
                     "viewonce"
             },
             {
@@ -486,7 +662,8 @@ async function sendMedia(
 }
 
 function getQuotedId(m) {
-    const context = getContextInfo(m)
+    const context =
+        getContextInfo(m)
 
     return (
         m?.quoted?.id ||
@@ -502,13 +679,18 @@ function getQuotedMessage(m) {
         m?.quoted?.fakeObj?.message ||
         m?.quoted?.message ||
         m?.quoted?.msg ||
-        getContextInfo(m)?.quotedMessage ||
+        getContextInfo(m)
+            ?.quotedMessage ||
         null
     )
 }
 
-function getOriginalSender(m, message) {
-    const context = getContextInfo(m)
+function getOriginalSender(
+    m,
+    message
+) {
+    const context =
+        getContextInfo(m)
 
     return (
         m?.quoted?.sender ||
@@ -525,7 +707,8 @@ function getOriginalSender(m, message) {
 
 function cleanup(conn) {
     if (!conn._viewOnceSeen) {
-        conn._viewOnceSeen = new Map()
+        conn._viewOnceSeen =
+            new Map()
     }
 
     const now = Date.now()
@@ -538,7 +721,9 @@ function cleanup(conn) {
             now - value.time >
             SEEN_TTL
         ) {
-            conn._viewOnceSeen.delete(key)
+            conn._viewOnceSeen.delete(
+                key
+            )
         }
     }
 
@@ -554,17 +739,25 @@ function cleanup(conn) {
 
         if (!first) break
 
-        conn._viewOnceSeen.delete(first)
+        conn._viewOnceSeen.delete(
+            first
+        )
     }
 }
 
 function getSeen(conn, id) {
     cleanup(conn)
 
-    return conn._viewOnceSeen.get(id)
+    return conn._viewOnceSeen.get(
+        id
+    )
 }
 
-function saveSeen(conn, id, data) {
+function saveSeen(
+    conn,
+    id,
+    data
+) {
     cleanup(conn)
 
     conn._viewOnceSeen.set(
@@ -713,7 +906,8 @@ async function (m) {
         )
 
     const originalQuote =
-        createViewOnceQuote(
+        await createViewOnceQuote(
+            conn,
             m,
             originalInfo,
             quotedMessage
