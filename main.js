@@ -33,22 +33,31 @@ serialize()
 global.__filename = function filename(pathURL = import.meta.url, rmPrefix = platform !== 'win32') {
   return rmPrefix ? /file:\/\/\//.test(pathURL) ? fileURLToPath(pathURL) : pathURL : pathToFileURL(pathURL).toString()
 }
+
 global.__dirname = function dirname(pathURL) {
   return path.dirname(global.__filename(pathURL, true))
 }
+
 global.__require = function require(dir = import.meta.url) {
   return createRequire(dir)
 }
 
 const __dirname = global.__dirname(import.meta.url)
 const argv = process.argv.slice(2)
+
 global.opts = {}
+
 for (let i = 0; i < argv.length; i++) {
   const arg = argv[i]
+
   if (!arg.startsWith('--')) continue
+
   const key = arg.slice(2)
+
   if (!key) continue
+
   const next = argv[i + 1]
+
   if (next && !next.startsWith('--')) {
     global.opts[key] = next
     i++
@@ -58,10 +67,17 @@ for (let i = 0; i < argv.length; i++) {
 }
 
 const prefixValue = global.opts.prefix || '‎z/#$%.\\-'
-global.prefix = new RegExp('^[' + String(prefixValue).replace(/[|\\{}()[\]^$+*?.\-\^]/g, '\\$&') + ']')
+
+global.prefix = new RegExp(
+  '^[' +
+  String(prefixValue).replace(/[|\\{}()[\]^$+*?.\-\^]/g, '\\$&') +
+  ']'
+)
 
 const storageDir = join(__dirname, 'storage', 'databases')
+
 mkdirSync(storageDir, { recursive: true })
+
 const dbFile = join(storageDir, 'database.json')
 
 global.db = new Low(new JSONFile(dbFile))
@@ -82,10 +98,16 @@ global.loadDatabase = async function loadDatabase() {
   if (global.db.data !== null) return global.db.data
 
   global.db.READ = true
+
   try {
     await global.db.read()
   } catch (error) {
-    if (error?.code !== 'ENOENT') console.error('[DB] Error leyendo database.json:', error)
+    if (error?.code !== 'ENOENT') {
+      console.error(
+        '[DB] Error leyendo database.json:',
+        error?.message || error
+      )
+    }
   } finally {
     global.db.READ = false
   }
@@ -99,17 +121,24 @@ global.loadDatabase = async function loadDatabase() {
     settings: {},
     ...(global.db.data || {})
   }
+
   global.db.chain = chain(global.db.data)
+
   return global.db.data
 }
 
 await global.loadDatabase()
 
 const sessionsDir = join(__dirname, 'sessions')
+
 mkdirSync(sessionsDir, { recursive: true })
 
 const question = text => new Promise(resolve => {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  })
+
   rl.question(text, answer => {
     rl.close()
     resolve(answer)
@@ -118,36 +147,69 @@ const question = text => new Promise(resolve => {
 
 const { state, saveCreds } = await useMultiFileAuthState(sessionsDir)
 
-const msgRetryCounterCache = new NodeCache({ stdTTL: 0, checkperiod: 0, useClones: false })
-const userDevicesCache = new NodeCache({ stdTTL: 0, checkperiod: 0, useClones: false })
-const mediaCache = new NodeCache({ stdTTL: 0, checkperiod: 0, useClones: false })
-global.groupMetadataCache = new NodeCache({ stdTTL: 60, checkperiod: 30, useClones: false })
+const msgRetryCounterCache = new NodeCache({
+  stdTTL: 0,
+  checkperiod: 0,
+  useClones: false
+})
+
+const userDevicesCache = new NodeCache({
+  stdTTL: 0,
+  checkperiod: 0,
+  useClones: false
+})
+
+const mediaCache = new NodeCache({
+  stdTTL: 0,
+  checkperiod: 0,
+  useClones: false
+})
+
+global.groupMetadataCache = new NodeCache({
+  stdTTL: 60,
+  checkperiod: 30,
+  useClones: false
+})
 
 global.cachedGroupMetadata = async function (jid) {
   if (!jid?.endsWith('@g.us')) return {}
+
   const cached = global.groupMetadataCache.get(jid)
+
   if (cached) return cached
 
   try {
     const metadata = await global.conn.groupMetadata(jid)
+
     global.groupMetadataCache.set(jid, metadata)
+
     return metadata
   } catch (error) {
-    console.error('[cachedGroupMetadata]', error?.message || error)
+    console.error(
+      '[cachedGroupMetadata]',
+      error?.message || error
+    )
+
     return {}
   }
 }
 
-const logger = pino({ level: process.env.LOG_LEVEL || 'silent' })
+const logger = pino({
+  level: process.env.LOG_LEVEL || 'silent'
+})
 
 let baileysVersion
+
 try {
   if (fetchLatestBaileysVersion) {
     const latest = await fetchLatestBaileysVersion()
     baileysVersion = latest?.version
   }
 } catch (error) {
-  console.warn('[Baileys] No se pudo consultar la versión más reciente:', error?.message || error)
+  console.warn(
+    '[Baileys] No se pudo consultar la versión más reciente:',
+    error?.message || error
+  )
 }
 
 const connectionOptions = {
@@ -190,6 +252,7 @@ let watchdogTimer = null
 
 function getDisconnectCode(update = {}) {
   const error = update?.lastDisconnect?.error
+
   return (
     error?.output?.statusCode ??
     error?.output?.payload?.statusCode ??
@@ -201,59 +264,105 @@ function getDisconnectCode(update = {}) {
 
 function closeSocket(socket) {
   if (!socket) return
-  try { socket.ev?.removeAllListeners?.() } catch {}
-  try { socket.ws?.close?.() } catch {}
-  try { socket.end?.(new Error('Reinicio de conexión')) } catch {}
+
+  try {
+    socket.ev?.removeAllListeners?.()
+  } catch {}
+
+  try {
+    socket.ws?.close?.()
+  } catch {}
+
+  try {
+    socket.end?.(
+      new Error('Reinicio de conexión')
+    )
+  } catch {}
 }
 
 function scheduleReconnect(reason = 'desconocido', delay = null) {
-  if (reconnectTimer) return
+  if (reconnectTimer || restarting) {
+    reconnectPending = true
+    return
+  }
 
   reconnectPending = true
   reconnectAttempt++
 
-  const wait = delay ?? Math.min(30000, 3000 * Math.min(reconnectAttempt, 5))
-  console.warn(chalk.yellow(`🔄 Reconexión programada en ${Math.ceil(wait / 1000)}s · motivo: ${reason} · intento ${reconnectAttempt}`))
+  const wait = 0
+
+  console.warn(
+    chalk.yellow(
+      `🔄 Reconexión inmediata · motivo: ${reason} · intento ${reconnectAttempt}`
+    )
+  )
 
   reconnectTimer = setTimeout(async () => {
     reconnectTimer = null
     reconnectPending = false
+
     await restartConnection(reason)
   }, wait)
 }
 
 async function createConnection() {
   const previous = conn
+
   connectionGeneration++
+
   const generation = connectionGeneration
 
-  if (previous) closeSocket(previous)
+  if (previous) {
+    closeSocket(previous)
+  }
 
   conn = global.conn = makeWASocket(connectionOptions)
+
   conn.__generation = generation
   conn.__createdAt = Date.now()
-  lastSocketActivity = Date.now()
   conn.isInit = false
   conn.well = false
 
+  lastSocketActivity = Date.now()
+
   if (!state.creds.registered) {
-    let phoneNumber = await question(chalk.blue('Ingresa el número de WhatsApp para vincular el bot (ej. 504XXXXXXXX):\n'))
+    let phoneNumber = await question(
+      chalk.blue(
+        'Ingresa el número de WhatsApp para vincular el bot (ej. 504XXXXXXXX):\n'
+      )
+    )
+
     phoneNumber = phoneNumber.replace(/\D/g, '')
 
-    if (!phoneNumber) throw new Error('Número de WhatsApp inválido.')
-
-    if (!conn.requestPairingCode) {
-      throw new Error('Esta versión de Baileys no soporta código de vinculación.')
+    if (!phoneNumber) {
+      throw new Error('Número de WhatsApp inválido.')
     }
 
-    await new Promise(resolve => setTimeout(resolve, 3000))
+    if (!conn.requestPairingCode) {
+      throw new Error(
+        'Esta versión de Baileys no soporta código de vinculación.'
+      )
+    }
 
     try {
       const code = await conn.requestPairingCode(phoneNumber)
-      console.log(chalk.magenta(`Código de vinculación: ${String(code).match(/.{1,4}/g)?.join('-') || code}`))
+
+      console.log(
+        chalk.magenta(
+          `Código de vinculación: ${String(code).match(/.{1,4}/g)?.join('-') || code}`
+        )
+      )
     } catch (error) {
-      console.error(chalk.red('❌ No se pudo solicitar el código de vinculación:', error?.message || error))
-      scheduleReconnect('fallo solicitando código de vinculación', 5000)
+      console.error(
+        chalk.red(
+          '❌ No se pudo solicitar el código de vinculación:',
+          error?.message || error
+        )
+      )
+
+      scheduleReconnect(
+        'fallo solicitando código de vinculación'
+      )
     }
   }
 
@@ -264,19 +373,44 @@ async function connectionUpdate(update) {
   const { connection, isNewLogin } = update || {}
 
   lastSocketActivity = Date.now()
-  if (this !== conn || this?.__generation !== connectionGeneration) return
 
-  if (isNewLogin) conn.isInit = true
+  if (
+    this !== conn ||
+    this?.__generation !== connectionGeneration
+  ) {
+    return
+  }
+
+  if (isNewLogin) {
+    conn.isInit = true
+  }
 
   if (connection === 'open') {
     global.botStartTime = Math.floor(Date.now() / 1000)
+
     lastSocketActivity = Date.now()
     lastMessageActivity = Date.now()
+
     reconnectAttempt = 0
     reconnectPending = false
+
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+
     conn.isInit = true
-    console.log(chalk.green('✅ Conectado correctamente.'))
-    console.log(chalk.gray(`📡 WebSocket activo · generación ${connectionGeneration}`))
+
+    console.log(
+      chalk.green('✅ Conectado correctamente.')
+    )
+
+    console.log(
+      chalk.gray(
+        `📡 WebSocket activo · generación ${connectionGeneration}`
+      )
+    )
+
     return
   }
 
@@ -285,13 +419,26 @@ async function connectionUpdate(update) {
   const code = getDisconnectCode(update)
 
   if (code === DisconnectReason?.loggedOut) {
-    console.error(chalk.red('❌ Sesión cerrada. No se borrarán las credenciales automáticamente.'))
+    console.error(
+      chalk.red(
+        '❌ Sesión cerrada. No se borrarán las credenciales automáticamente.'
+      )
+    )
+
     return
   }
 
-  console.warn(chalk.yellow(`⚠️ Conexión cerrada${code ? ` (código ${code})` : ''}. Reconectando...`))
+  console.warn(
+    chalk.yellow(
+      `⚠️ Conexión cerrada${code ? ` (código ${code})` : ''}. Reconectando inmediatamente...`
+    )
+  )
 
-  scheduleReconnect(code ? `código ${code}` : 'conexión cerrada', code === 408 ? 3000 : 5000)
+  scheduleReconnect(
+    code
+      ? `código ${code}`
+      : 'conexión cerrada'
+  )
 }
 
 async function restartConnection(reason = 'reinicio') {
@@ -303,11 +450,16 @@ async function restartConnection(reason = 'reinicio') {
   restarting = true
 
   try {
-    console.log(chalk.gray(`🔁 Iniciando reconexión · ${reason}`))
+    console.log(
+      chalk.gray(
+        `🔁 Iniciando reconexión inmediata · ${reason}`
+      )
+    )
 
     closeSocket(conn)
 
     const newConn = await createConnection()
+
     if (newConn === conn) {
       await attachHandlers()
     }
@@ -315,18 +467,34 @@ async function restartConnection(reason = 'reinicio') {
     lastSocketActivity = Date.now()
     lastMessageActivity = Date.now()
   } catch (error) {
-    console.error('[RESTART]', error?.stack || error)
-    scheduleReconnect('error creando conexión', 5000)
+    console.error(
+      '[RESTART]',
+      error?.stack || error
+    )
+
+    scheduleReconnect(
+      'error creando conexión'
+    )
   } finally {
     restarting = false
   }
-  if (reconnectPending && !reconnectTimer && conn) {
-    scheduleReconnect('reconexión pendiente', 3000)
+
+  if (
+    reconnectPending &&
+    !reconnectTimer &&
+    conn
+  ) {
+    reconnectPending = false
+    scheduleReconnect(
+      'reconexión pendiente'
+    )
   }
 }
 
 async function attachHandlers() {
-  if (!handler) handler = await import('./handler.js')
+  if (!handler) {
+    handler = await import('./handler.js')
+  }
 
   try {
     if (conn.__handlersAttached) return
@@ -339,67 +507,148 @@ async function attachHandlers() {
     if (
       currentConn !== conn ||
       currentGeneration !== connectionGeneration
-    ) return
+    ) {
+      return
+    }
 
     lastMessageActivity = Date.now()
     lastSocketActivity = Date.now()
 
     try {
-      await handler.handler.call(currentConn, update)
+      await handler.handler.call(
+        currentConn,
+        update
+      )
     } catch (error) {
       console.error(
-        chalk.red('❌ Error procesando messages.upsert:'),
+        chalk.red(
+          '❌ Error procesando messages.upsert:'
+        ),
         error?.stack || error
       )
     }
   }
 
-  currentConn.connectionUpdate = connectionUpdate.bind(currentConn)
+  currentConn.connectionUpdate =
+    connectionUpdate.bind(currentConn)
+
   currentConn.credsUpdate = saveCreds
 
-  currentConn.ev.on('messages.upsert', currentConn.handler)
-  currentConn.ev.on('connection.update', currentConn.connectionUpdate)
-  currentConn.ev.on('creds.update', currentConn.credsUpdate)
+  currentConn.ev.on(
+    'messages.upsert',
+    currentConn.handler
+  )
 
-  currentConn.ev.on('groups.update', updates => {
-    try {
-      for (const update of Array.isArray(updates) ? updates : []) {
-        if (update?.id) global.groupMetadataCache?.del(update.id)
-      }
-    } catch {}
-  })
+  currentConn.ev.on(
+    'connection.update',
+    currentConn.connectionUpdate
+  )
 
-  currentConn.ev.on('group-participants.update', update => {
-    try {
-      if (update?.id) global.groupMetadataCache?.del(update.id)
-    } catch {}
-  })
+  currentConn.ev.on(
+    'creds.update',
+    currentConn.credsUpdate
+  )
+
+  currentConn.ev.on(
+    'groups.update',
+    updates => {
+      try {
+        for (
+          const update of
+          Array.isArray(updates)
+            ? updates
+            : []
+        ) {
+          if (update?.id) {
+            global.groupMetadataCache?.del(
+              update.id
+            )
+          }
+        }
+      } catch {}
+    }
+  )
+
+  currentConn.ev.on(
+    'group-participants.update',
+    update => {
+      try {
+        if (update?.id) {
+          global.groupMetadataCache?.del(
+            update.id
+          )
+        }
+      } catch {}
+    }
+  )
 
   currentConn.__handlersAttached = true
+
   isInit = true
 }
 
 global.reloadHandler = async function (restart = false) {
   try {
-    const Handler = await import(`./handler.js?update=${Date.now()}`)
-    if (Handler?.handler) handler = Handler
+    const Handler = await import(
+      `./handler.js?update=${Date.now()}`
+    )
+
+    if (Handler?.handler) {
+      handler = Handler
+    }
   } catch (error) {
-    console.error('[HANDLER] No se pudo recargar:', error)
+    console.error(
+      '[HANDLER] No se pudo recargar:',
+      error
+    )
+
     return false
   }
 
   if (restart) {
-    scheduleReconnect('reloadHandler', 1000)
+    scheduleReconnect(
+      'reloadHandler'
+    )
+
     return true
   }
 
   if (conn && isInit) {
-    try { conn.ev.off('messages.upsert', conn.handler) } catch {}
-    try { conn.ev.off('connection.update', conn.connectionUpdate) } catch {}
-    try { conn.ev.off('creds.update', conn.credsUpdate) } catch {}
-    try { conn.ev.removeAllListeners('groups.update') } catch {}
-    try { conn.ev.removeAllListeners('group-participants.update') } catch {}
+    try {
+      conn.ev.off(
+        'messages.upsert',
+        conn.handler
+      )
+    } catch {}
+
+    try {
+      conn.ev.off(
+        'connection.update',
+        conn.connectionUpdate
+      )
+    } catch {}
+
+    try {
+      conn.ev.off(
+        'creds.update',
+        conn.credsUpdate
+      )
+    } catch {}
+
+    try {
+      conn.ev.removeAllListeners(
+        'groups.update'
+      )
+    } catch {}
+
+    try {
+      conn.ev.removeAllListeners(
+        'group-participants.update'
+      )
+    } catch {}
+
     conn.__handlersAttached = false
+
     await attachHandlers()
   }
 
@@ -412,9 +661,21 @@ watchdogTimer = setInterval(() => {
   const ws = conn.ws
   const readyState = ws?.readyState
 
-  if (ws && typeof readyState === 'number' && readyState !== 1) {
-    console.warn(chalk.yellow(`⚠️ Watchdog: WebSocket no está abierto (estado ${readyState}). Reconectando...`))
-    scheduleReconnect(`watchdog estado ${readyState}`, 2000)
+  if (
+    ws &&
+    typeof readyState === 'number' &&
+    readyState !== 1
+  ) {
+    console.warn(
+      chalk.yellow(
+        `⚠️ Watchdog: WebSocket no está abierto (estado ${readyState}). Reconectando inmediatamente...`
+      )
+    )
+
+    scheduleReconnect(
+      `watchdog estado ${readyState}`
+    )
+
     return
   }
 
@@ -422,53 +683,103 @@ watchdogTimer = setInterval(() => {
     ws &&
     typeof readyState === 'number' &&
     readyState === 1 &&
-    Date.now() - lastSocketActivity > 10 * 60 * 1000
+    Date.now() - lastSocketActivity >
+      10 * 60 * 1000
   ) {
-    console.log(chalk.gray('🩺 Watchdog: 10 min sin eventos; comprobando conexión...'))
+    console.log(
+      chalk.gray(
+        '🩺 Watchdog: 10 min sin eventos; comprobando conexión...'
+      )
+    )
 
     try {
-      const result = conn.sendPresenceUpdate?.('available')
+      const result =
+        conn.sendPresenceUpdate?.(
+          'available'
+        )
+
       if (result?.catch) {
         result.catch(error => {
-          console.warn(chalk.yellow('⚠️ Watchdog: el socket no respondió. Reconectando...'))
-          scheduleReconnect(`watchdog sin respuesta: ${error?.message || error}`, 2000)
+          console.warn(
+            chalk.yellow(
+              '⚠️ Watchdog: el socket no respondió. Reconectando inmediatamente...'
+            )
+          )
+
+          scheduleReconnect(
+            `watchdog sin respuesta: ${error?.message || error}`
+          )
         })
       }
     } catch (error) {
-      console.warn(chalk.yellow('⚠️ Watchdog: error comprobando socket. Reconectando...'))
-      scheduleReconnect(`watchdog: ${error?.message || error}`, 2000)
+      console.warn(
+        chalk.yellow(
+          '⚠️ Watchdog: error comprobando socket. Reconectando inmediatamente...'
+        )
+      )
+
+      scheduleReconnect(
+        `watchdog: ${error?.message || error}`
+      )
     }
 
     lastSocketActivity = Date.now()
   }
 }, 60 * 1000)
 
-const pluginFolder = join(__dirname, './plugins')
-const pluginFilter = filename => /\.js$/.test(filename)
+const pluginFolder = join(
+  __dirname,
+  './plugins'
+)
+
+const pluginFilter = filename =>
+  /\.js$/.test(filename)
+
 global.plugins = {}
 
 async function loadPlugin(filename) {
-  const dir = join(pluginFolder, filename)
+  const dir = join(
+    pluginFolder,
+    filename
+  )
 
   if (!existsSync(dir)) return false
 
   try {
-    const err = syntaxerror(readFileSync(dir), filename, {
-      sourceType: 'module',
-      allowAwaitOutsideFunction: true
-    })
+    const err = syntaxerror(
+      readFileSync(dir),
+      filename,
+      {
+        sourceType: 'module',
+        allowAwaitOutsideFunction: true
+      }
+    )
 
     if (err) {
-      console.error(`❗ Error de sintaxis en ${filename}:`, format(err))
+      console.error(
+        `❗ Error de sintaxis en ${filename}:`,
+        format(err)
+      )
+
       return false
     }
 
-    const module = await import(`${pathToFileURL(dir).href}?update=${Date.now()}`)
-    global.plugins[filename] = module.default || module
+    const module = await import(
+      `${pathToFileURL(dir).href}?update=${Date.now()}`
+    )
+
+    global.plugins[filename] =
+      module.default || module
+
     return true
   } catch (error) {
-    console.error(`❌ No se pudo cargar plugin ${filename}:`, error?.stack || error)
+    console.error(
+      `❌ No se pudo cargar plugin ${filename}:`,
+      error?.stack || error
+    )
+
     delete global.plugins[filename]
+
     return false
   }
 }
@@ -482,49 +793,77 @@ async function filesInit() {
     await loadPlugin(filename)
   }
 
-  console.log(chalk.cyan(`📦 Plugins cargados: ${Object.keys(global.plugins).length}/${files.length}`))
+  console.log(
+    chalk.cyan(
+      `📦 Plugins cargados: ${Object.keys(global.plugins).length}/${files.length}`
+    )
+  )
 }
 
 await filesInit()
 
 global.reload = async (_event, filename) => {
   if (!pluginFilter(filename)) return
+
   await loadPlugin(filename)
 }
 
 Object.freeze(global.reload)
 
 try {
-  watch(pluginFolder, global.reload)
+  watch(
+    pluginFolder,
+    global.reload
+  )
 } catch (error) {
-  console.error('[PLUGINS] No se pudo activar el watcher:', error)
+  console.error(
+    '[PLUGINS] No se pudo activar el watcher:',
+    error
+  )
 }
 
 global.dbDirty = false
 
 if (!global.opts.test) {
   setInterval(async () => {
-    if (!global.dbDirty || !global.db.data) return
+    if (
+      !global.dbDirty ||
+      !global.db.data
+    ) {
+      return
+    }
+
     try {
       await global.db.write()
       global.dbDirty = false
     } catch (error) {
-      console.error('[DB] Error guardando:', error)
+      console.error(
+        '[DB] Error guardando:',
+        error
+      )
     }
   }, 30000)
 }
 
 async function clearTmp() {
-  const dirs = [tmpdir(), join(__dirname, './tmp')]
+  const dirs = [
+    tmpdir(),
+    join(__dirname, './tmp')
+  ]
 
   for (const dir of dirs) {
     if (!existsSync(dir)) continue
 
     for (const file of readdirSync(dir)) {
       const full = join(dir, file)
+
       try {
         const stats = statSync(full)
-        if (stats.isFile() && Date.now() - stats.mtimeMs >= 60_000) {
+
+        if (
+          stats.isFile() &&
+          Date.now() - stats.mtimeMs >= 60_000
+        ) {
           unlinkSync(full)
         }
       } catch {}
@@ -532,17 +871,34 @@ async function clearTmp() {
   }
 }
 
-setInterval(() => clearTmp().catch?.(console.error), 5 * 60 * 1000)
+setInterval(
+  () => clearTmp().catch?.(console.error),
+  5 * 60 * 1000
+)
 
-process.on('uncaughtException', error => {
-  console.error('❌ uncaughtException:', error?.stack || error)
-})
+process.on(
+  'uncaughtException',
+  error => {
+    console.error(
+      '❌ uncaughtException:',
+      error?.stack || error
+    )
+  }
+)
 
-process.on('unhandledRejection', error => {
-  console.error('❌ unhandledRejection:', error?.stack || error)
-})
+process.on(
+  'unhandledRejection',
+  error => {
+    console.error(
+      '❌ unhandledRejection:',
+      error?.stack || error
+    )
+  }
+)
 
 await createConnection()
 await attachHandlers()
 
-console.log(chalk.green('🚀 Bot iniciado.'))
+console.log(
+  chalk.green('🚀 Bot iniciado.')
+)
