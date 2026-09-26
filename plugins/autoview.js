@@ -233,15 +233,12 @@ async function getRealParticipant(conn, chat, jid) {
     }
 }
 
-async function getGroupSubject(
-    conn,
-    jid
-) {
+async function getGroupName(conn, jid) {
     if (
         !jid ||
         !String(jid).endsWith("@g.us")
     ) {
-        return ""
+        return "Grupo desconocido"
     }
 
     try {
@@ -250,10 +247,10 @@ async function getGroupSubject(
 
         return (
             metadata?.subject ||
-            ""
+            "Grupo desconocido"
         )
     } catch {
-        return ""
+        return "Grupo desconocido"
     }
 }
 
@@ -286,8 +283,7 @@ function getViewOnce(message = {}) {
     }
 
     if (
-        message
-            .viewOnceMessageV2Extension
+        message.viewOnceMessageV2Extension
             ?.message
     ) {
         return message
@@ -322,8 +318,7 @@ function getViewOnce(message = {}) {
         }
 
         if (
-            inner
-                .viewOnceMessageV2Extension
+            inner.viewOnceMessageV2Extension
                 ?.message
         ) {
             return inner
@@ -458,44 +453,40 @@ async function createViewOnceQuote(
         originalInfo?.jid ||
         ""
 
-    const groupSubject =
-        await getGroupSubject(
+    const groupName =
+        await getGroupName(
             conn,
             sourceChat
         )
 
+    const originalMedia =
+        quotedMessage?.imageMessage ||
+        quotedMessage?.videoMessage ||
+        quotedMessage?.audioMessage ||
+        quotedMessage?.documentMessage ||
+        null
+
+    const oldContext =
+        originalMedia?.contextInfo ||
+        {}
+
     const contextInfo = {
-        ...(
-            quotedMessage
-                ?.imageMessage
-                ?.contextInfo ||
-            quotedMessage
-                ?.videoMessage
-                ?.contextInfo ||
-            quotedMessage
-                ?.audioMessage
-                ?.contextInfo ||
-            quotedMessage
-                ?.documentMessage
-                ?.contextInfo ||
-            {}
-        ),
+        ...oldContext,
         remoteJid:
             sourceChat,
         participant:
             originalJid,
+        participantPn:
+            originalJid,
         stanzaId:
-            messageId
+            messageId,
+        groupSubject:
+            groupName || "Grupo desconocido"
     }
 
     if (originalLid) {
         contextInfo.participantAlt =
             originalLid
-    }
-
-    if (groupSubject) {
-        contextInfo.groupSubject =
-            groupSubject
     }
 
     let messageWithContext = {
@@ -509,27 +500,27 @@ async function createViewOnceQuote(
                 contextInfo
             }
         }
-    }
-
-    if (quotedMessage.videoMessage) {
+    } else if (
+        quotedMessage.videoMessage
+    ) {
         messageWithContext = {
             videoMessage: {
                 ...quotedMessage.videoMessage,
                 contextInfo
             }
         }
-    }
-
-    if (quotedMessage.audioMessage) {
+    } else if (
+        quotedMessage.audioMessage
+    ) {
         messageWithContext = {
             audioMessage: {
                 ...quotedMessage.audioMessage,
                 contextInfo
             }
         }
-    }
-
-    if (quotedMessage.documentMessage) {
+    } else if (
+        quotedMessage.documentMessage
+    ) {
         messageWithContext = {
             documentMessage: {
                 ...quotedMessage.documentMessage,
@@ -543,7 +534,8 @@ async function createViewOnceQuote(
             remoteJid:
                 sourceChat,
             fromMe: false,
-            id: messageId,
+            id:
+                messageId,
             participant:
                 originalJid
         },
@@ -551,9 +543,14 @@ async function createViewOnceQuote(
             messageWithContext,
         participant:
             originalJid,
+        participantPn:
+            originalJid,
         pushName:
             originalInfo?.number ||
-            ""
+            "",
+        groupSubject:
+            groupName ||
+            "Grupo desconocido"
     }
 
     if (originalLid) {
@@ -562,16 +559,6 @@ async function createViewOnceQuote(
 
         quote.participantAlt =
             originalLid
-    }
-
-    if (originalJid) {
-        quote.participantPn =
-            originalJid
-    }
-
-    if (groupSubject) {
-        quote.groupSubject =
-            groupSubject
     }
 
     return quote
@@ -628,9 +615,10 @@ async function sendMedia(
                     data.message
                         ?.mimetype ||
                     "audio/mpeg",
-                ptt: Boolean(
-                    data.message?.ptt
-                )
+                ptt:
+                    Boolean(
+                        data.message?.ptt
+                    )
             },
             {
                 quoted
@@ -934,7 +922,10 @@ async function (m) {
             originalNumber:
                 originalInfo.number,
             originalLid:
-                originalInfo.lid
+                originalInfo.lid,
+            groupName:
+                originalQuote
+                    .groupSubject
         }
     )
 
