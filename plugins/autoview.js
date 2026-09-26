@@ -533,8 +533,7 @@ handler.before = async function (m) {
         {
             revealedMessage,
             target,
-            originalJid: originalInfo.jid,
-            originalNumber: originalInfo.number
+            originalJid: originalInfo.jid
         }
     )
 
@@ -542,9 +541,6 @@ handler.before = async function (m) {
 
     const notification =
 `👁️ *VIEW ONCE DETECTADO*
-
-👤 *Remitente:* @${originalInfo.number}
-📱 *Número:* +${originalInfo.number} ${originalInfo.flag}
 
 👤 *Citado por:* @${citerInfo.number}
 📱 *Número:* +${citerInfo.number} ${citerInfo.flag}
@@ -555,7 +551,6 @@ handler.before = async function (m) {
         {
             text: notification,
             mentions: [
-                originalInfo.jid,
                 citerInfo.jid
             ]
         },
