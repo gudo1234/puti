@@ -600,9 +600,9 @@ async function sendResponse(
     if (!response) return
 
     const text =
-`👤 *Citado por:* @${responderInfo.number}
-📱 *Número:* +${responderInfo.number} ${responderInfo.flag}
-🍁 *Respuesta:* ${response}`
+`☄ *Citado por:* @${responderInfo.number}
+ಠ *Número:* +${responderInfo.number} ${responderInfo.flag}
+✗ *Respuesta:* ${response}`
 
     await conn.sendMessage(
         target,
