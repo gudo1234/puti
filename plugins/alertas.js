@@ -1,20 +1,4 @@
 let WAMessageStubType = (await import('@whiskeysockets/baileys')).default
-const { default: PhoneNumber } = await import('awesome-phonenumber')
-
-const regionNames = new Intl.DisplayNames(['es'], {
-  type: 'region'
-})
-
-const banderaEmoji = c =>
-  !c || c.length !== 2
-    ? '🌐'
-    : [...c.toUpperCase()]
-        .map(x =>
-          String.fromCodePoint(
-            0x1F1E6 - 65 + x.charCodeAt(0)
-          )
-        )
-        .join('')
 
 let handler = m => m
 
@@ -32,203 +16,56 @@ handler.before = async function (m, { conn, participants }) {
     const first = jid =>
       safe(jid).split('@')[0]
 
-    /*
-     * Busca un participante por su JID/LID.
-     */
-    const buscarParticipante = jid => {
-      const id =
-        typeof jid === 'object'
-          ? jid?.id
-          : jid
+    const parseTarget = value => {
+      if (!value) return null
 
-      if (!id) return null
+      if (typeof value === 'object') {
+        return value
+      }
 
-      return (
-        participants?.find(p =>
-          p?.id === id ||
-          p?.jid === id ||
-          p?.phoneNumber === id
-        ) ||
+      if (typeof value === 'string') {
+        const text = value.trim()
 
-        participants?.find(p => {
-          const a =
-            safe(p?.id).split('@')[0]
+        if (
+          text.startsWith('{') &&
+          text.endsWith('}')
+        ) {
+          try {
+            return JSON.parse(text)
+          } catch {}
+        }
 
-          const b =
-            safe(p?.jid).split('@')[0]
+        return {
+          id: text
+        }
+      }
 
-          const c =
-            safe(p?.phoneNumber)
-
-          const x =
-            safe(id).split('@')[0]
-
-          return (
-            x &&
-            (
-              x === a ||
-              x === b ||
-              x === c
-            )
-          )
-        }) ||
-
-        null
-      )
+      return null
     }
 
-    /*
-     * Actor original.
-     *
-     * IMPORTANTE:
-     * Se conserva el @lid original para la mención.
-     */
     const actor =
       m?.sender ||
       m?.key?.participant ||
       m?.participant ||
       ''
 
-    /*
-     * El target puede venir como:
-     *
-     * "94880555879752@lid"
-     *
-     * o como:
-     *
-     * {
-     *   id: "94880555879752@lid",
-     *   phoneNumber: "50488723207"
-     * }
-     */
-    const targetData =
+    const targetRaw =
       m?.messageStubParameters?.[0]
+
+    if (!targetRaw) return
+
+    const targetData =
+      parseTarget(targetRaw)
 
     if (!targetData) return
 
     const target =
-      typeof targetData === 'object'
-        ? (
-            targetData?.id ||
-            targetData?.jid ||
-            ''
-          )
-        : targetData
+      targetData?.id ||
+      targetData?.jid ||
+      ''
 
     if (!target) return
 
-    /*
-     * Buscamos la información completa.
-     */
-    const actorParticipant =
-      buscarParticipante(actor)
-
-    const targetParticipant =
-      buscarParticipante(targetData)
-
-    /*
-     * Número real del ACTOR.
-     *
-     * Primero intentamos phoneNumber.
-     */
-    const actorPhone =
-      actorParticipant?.phoneNumber ||
-      actorParticipant?.pn ||
-      ''
-
-    /*
-     * Número real del TARGET.
-     *
-     * El propio evento puede traerlo directamente.
-     */
-    const targetPhone =
-      (
-        typeof targetData === 'object'
-          ? (
-              targetData?.phoneNumber ||
-              targetData?.pn ||
-              ''
-            )
-          : ''
-      ) ||
-
-      targetParticipant?.phoneNumber ||
-      targetParticipant?.pn ||
-      ''
-
-    /*
-     * Formatear número.
-     */
-    const formatearNumero = numero => {
-      const limpio =
-        safe(numero)
-          .replace(/\D/g, '')
-
-      return limpio
-        ? '+' + limpio
-        : 'Desconocido'
-    }
-
-    const actorNumber =
-      formatearNumero(actorPhone)
-
-    const targetNumber =
-      formatearNumero(targetPhone)
-
-    /*
-     * País.
-     */
-    const obtenerPais = numero => {
-      try {
-        const limpio =
-          safe(numero)
-            .replace(/\D/g, '')
-
-        if (!limpio) {
-          return {
-            pais: 'Desconocido',
-            bandera: '🌐'
-          }
-        }
-
-        const pn =
-          new PhoneNumber('+' + limpio)
-
-        const code =
-          pn.getRegionCode() || '??'
-
-        return {
-          pais:
-            code !== '??'
-              ? regionNames.of(code) || 'Desconocido'
-              : 'Desconocido',
-
-          bandera:
-            banderaEmoji(code)
-        }
-
-      } catch {
-        return {
-          pais: 'Desconocido',
-          bandera: '🌐'
-        }
-      }
-    }
-
-    const actorInfo =
-      obtenerPais(actorNumber)
-
-    const targetInfo =
-      obtenerPais(targetNumber)
-
-    /*
-     * Administradores.
-     *
-     * Aquí NO convertimos los JID.
-     * Conservamos exactamente p.id,
-     * porque esa es la forma que ya
-     * comprobaste que funciona.
-     */
     const adminJids =
       (participants || [])
         .filter(p =>
@@ -237,12 +74,6 @@ handler.before = async function (m, { conn, participants }) {
         )
         .map(p => p?.id)
         .filter(Boolean)
-
-    /*
-     * Menciones originales.
-     *
-     * NO convertir @lid.
-     */
     const mentions =
       Array.from(
         new Set([
@@ -252,70 +83,45 @@ handler.before = async function (m, { conn, participants }) {
         ].filter(Boolean))
       )
 
-    /*
-     * HIZO ADMIN
-     */
     if (m.messageStubType === 29) {
 
       await conn.sendMessage(
         m.chat,
         {
           text:
-`🎯 @${first(target)} ahora es *admin* del grupo.
-
-📱 Número real: *${targetNumber}*
-🌎 País: ${targetInfo.bandera} ${targetInfo.pais}
-
-> Acción realizada por: @${first(actor)}
-> 📱 Número real: *${actorNumber}*
-> 🌎 País: ${actorInfo.bandera} ${actorInfo.pais}`,
+`${e} El administrador @${first(actor)} le ha dado administración a el usuario: @${first(target)}`,
 
           mentions
         }
       )
     }
 
-    /*
-     * DEJÓ DE SER ADMIN
-     */
     if (m.messageStubType === 30) {
 
       await conn.sendMessage(
         m.chat,
         {
           text:
-`🏮 @${first(target)} *ya no es admin* del grupo.
-
-📱 Número real: *${targetNumber}*
-🌎 País: ${targetInfo.bandera} ${targetInfo.pais}
-
-> Acción realizada por: @${first(actor)}
-> 📱 Número real: *${actorNumber}*
-> 🌎 País: ${actorInfo.bandera} ${actorInfo.pais}`,
+`${e} El administrador @${first(actor)} le ha quitado la administración a el usuario: @${first(target)}`,
 
           mentions
         }
       )
     }
 
-  } catch (e) {
+  } catch (err) {
 
     console.error(
       '[detect-admin.before]',
-      e,
+      err,
       {
-        stub:
-          m?.messageStubType,
-
-        type:
-          WAMessageStubType?.[
-            m?.messageStubType
-          ],
-
+        stub: m?.messageStubType,
+        type: WAMessageStubType?.[
+          m?.messageStubType
+        ],
         actor:
           m?.sender ||
           m?.key?.participant,
-
         target:
           m?.messageStubParameters?.[0]
       }
