@@ -1,5 +1,5 @@
+let WAMessageStubType = (await import('@whiskeysockets/baileys')).default
 const { default: PhoneNumber } = await import('awesome-phonenumber')
-const { WAMessageStubType } = await import('@whiskeysockets/baileys')
 
 const regionNames = new Intl.DisplayNames(['es'], {
   type: 'region'
@@ -16,313 +16,284 @@ const banderaEmoji = c =>
         )
         .join('')
 
-const safe = v =>
-  typeof v === 'string' ? v : ''
-
-const limpiarId = jid =>
-  safe(jid)
-    .split('@')[0]
-    .replace(/\D/g, '')
-
-const obtenerNumeroReal = participante => {
-  if (!participante) return ''
-
-  const posibles = [
-    participante.phoneNumber,
-    participante.pn,
-    participante.jid,
-    participante.id
-  ]
-
-  for (const valor of posibles) {
-    const numero = limpiarId(valor)
-
-    if (numero && numero.length >= 7) {
-      return numero
-    }
-  }
-
-  return ''
-}
-
-const buscarParticipante = (participants, jid) => {
-  const buscado = safe(jid)
-
-  if (!buscado) return null
-
-  return (
-    participants.find(p =>
-      safe(p.id) === buscado ||
-      safe(p.jid) === buscado ||
-      safe(p.phoneNumber) === buscado ||
-      safe(p.pn) === buscado
-    ) ||
-
-    participants.find(p => {
-      const x = limpiarId(buscado)
-
-      const a = limpiarId(p.id)
-      const b = limpiarId(p.jid)
-      const c = limpiarId(p.phoneNumber)
-      const d = limpiarId(p.pn)
-
-      return (
-        x &&
-        (
-          x === a ||
-          x === b ||
-          x === c ||
-          x === d
-        )
-      )
-    }) ||
-
-    null
-  )
-}
-
-const numeroMostrar = (
-  participante,
-  fallback = ''
-) => {
-  const numero = obtenerNumeroReal(participante)
-
-  if (numero) {
-    return '+' + numero
-  }
-
-  const limpio = limpiarId(fallback)
-
-  return limpio
-    ? '+' + limpio
-    : 'Desconocido'
-}
-const obtenerJidMencion = (
-  participante,
-  fallback = ''
-) => {
-  const numero = obtenerNumeroReal(participante)
-
-  if (numero) {
-    return `${numero}@s.whatsapp.net`
-  }
-
-  const candidatos = [
-    participante?.jid,
-    participante?.id,
-    participante?.phoneNumber,
-    participante?.pn,
-    fallback
-  ]
-
-  for (const valor of candidatos) {
-    const jid = safe(valor)
-
-    if (!jid) continue
-
-    if (jid.endsWith('@s.whatsapp.net')) {
-      return jid
-    }
-    if (jid.endsWith('@c.us')) {
-      return jid.replace('@c.us', '@s.whatsapp.net')
-    }
-    if (
-      jid.endsWith('@lid') ||
-      jid.endsWith('@hosted.lid')
-    ) {
-      continue
-    }
-    const limpio = limpiarId(jid)
-
-    if (limpio && limpio.length >= 7) {
-      return `${limpio}@s.whatsapp.net`
-    }
-  }
-
-  return ''
-}
-
-const obtenerPais = numero => {
-  try {
-    const limpio = limpiarId(numero)
-
-    if (!limpio) {
-      return {
-        pais: 'Desconocido',
-        bandera: '🌐'
-      }
-    }
-
-    const pn = new PhoneNumber('+' + limpio)
-    const code = pn.getRegionCode() || '??'
-
-    return {
-      pais:
-        code !== '??'
-          ? regionNames.of(code) || 'Desconocido'
-          : 'Desconocido',
-
-      bandera: banderaEmoji(code)
-    }
-
-  } catch {
-    return {
-      pais: 'Desconocido',
-      bandera: '🌐'
-    }
-  }
-}
-
 let handler = m => m
 
-handler.before = async function (
-  m,
-  { conn, participants }
-) {
+handler.before = async function (m, { conn, participants }) {
   try {
-
     if (!m?.isGroup) return
+    if (![29, 30].includes(m.messageStubType)) return
 
-    if (
-      ![29, 30].includes(
-        m.messageStubType
-      )
-    ) return
-
-    const chat =
-      global?.db?.data?.chats?.[m.chat]
-
+    const chat = global?.db?.data?.chats?.[m.chat]
     if (!chat?.detect) return
 
-    let lista =
-      Array.isArray(participants)
-        ? participants
-        : []
-    if (!lista.length) {
-      try {
-        const metadata =
-          await conn.groupMetadata(m.chat)
+    const safe = v =>
+      typeof v === 'string' ? v : ''
 
-        lista =
-          metadata?.participants || []
+    const first = jid =>
+      safe(jid).split('@')[0]
 
-      } catch {}
+    /*
+     * Busca un participante por su JID/LID.
+     */
+    const buscarParticipante = jid => {
+      const id =
+        typeof jid === 'object'
+          ? jid?.id
+          : jid
+
+      if (!id) return null
+
+      return (
+        participants?.find(p =>
+          p?.id === id ||
+          p?.jid === id ||
+          p?.phoneNumber === id
+        ) ||
+
+        participants?.find(p => {
+          const a =
+            safe(p?.id).split('@')[0]
+
+          const b =
+            safe(p?.jid).split('@')[0]
+
+          const c =
+            safe(p?.phoneNumber)
+
+          const x =
+            safe(id).split('@')[0]
+
+          return (
+            x &&
+            (
+              x === a ||
+              x === b ||
+              x === c
+            )
+          )
+        }) ||
+
+        null
+      )
     }
 
-    const actorJid =
+    /*
+     * Actor original.
+     *
+     * IMPORTANTE:
+     * Se conserva el @lid original para la mención.
+     */
+    const actor =
       m?.sender ||
       m?.key?.participant ||
       m?.participant ||
       ''
 
-    const targetJid =
-      m?.messageStubParameters?.[0] ||
-      ''
+    /*
+     * El target puede venir como:
+     *
+     * "94880555879752@lid"
+     *
+     * o como:
+     *
+     * {
+     *   id: "94880555879752@lid",
+     *   phoneNumber: "50488723207"
+     * }
+     */
+    const targetData =
+      m?.messageStubParameters?.[0]
 
-    if (!targetJid) return
-
-    const actor =
-      buscarParticipante(
-        lista,
-        actorJid
-      )
+    if (!targetData) return
 
     const target =
-      buscarParticipante(
-        lista,
-        targetJid
-      )
+      typeof targetData === 'object'
+        ? (
+            targetData?.id ||
+            targetData?.jid ||
+            ''
+          )
+        : targetData
+
+    if (!target) return
+
+    /*
+     * Buscamos la información completa.
+     */
+    const actorParticipant =
+      buscarParticipante(actor)
+
+    const targetParticipant =
+      buscarParticipante(targetData)
+
+    /*
+     * Número real del ACTOR.
+     *
+     * Primero intentamos phoneNumber.
+     */
+    const actorPhone =
+      actorParticipant?.phoneNumber ||
+      actorParticipant?.pn ||
+      ''
+
+    /*
+     * Número real del TARGET.
+     *
+     * El propio evento puede traerlo directamente.
+     */
+    const targetPhone =
+      (
+        typeof targetData === 'object'
+          ? (
+              targetData?.phoneNumber ||
+              targetData?.pn ||
+              ''
+            )
+          : ''
+      ) ||
+
+      targetParticipant?.phoneNumber ||
+      targetParticipant?.pn ||
+      ''
+
+    /*
+     * Formatear número.
+     */
+    const formatearNumero = numero => {
+      const limpio =
+        safe(numero)
+          .replace(/\D/g, '')
+
+      return limpio
+        ? '+' + limpio
+        : 'Desconocido'
+    }
+
     const actorNumber =
-      numeroMostrar(
-        actor,
-        actorJid
-      )
+      formatearNumero(actorPhone)
 
     const targetNumber =
-      numeroMostrar(
-        target,
-        targetJid
-      )
-    const actorMention =
-      obtenerJidMencion(
-        actor,
-        actorJid
-      )
+      formatearNumero(targetPhone)
 
-    const targetMention =
-      obtenerJidMencion(
-        target,
-        targetJid
-      )
-    const adminJids =
-      lista
-        .filter(p =>
-          p?.admin === 'admin' ||
-          p?.admin === 'superadmin'
-        )
-        .map(p =>
-          obtenerJidMencion(
-            p
-          )
-        )
-        .filter(Boolean)
-    const mentions =
-      Array.from(
-        new Set(
-          [
-            ...adminJids,
-            actorMention,
-            targetMention
-          ].filter(Boolean)
-        )
-      )
+    /*
+     * País.
+     */
+    const obtenerPais = numero => {
+      try {
+        const limpio =
+          safe(numero)
+            .replace(/\D/g, '')
+
+        if (!limpio) {
+          return {
+            pais: 'Desconocido',
+            bandera: '🌐'
+          }
+        }
+
+        const pn =
+          new PhoneNumber('+' + limpio)
+
+        const code =
+          pn.getRegionCode() || '??'
+
+        return {
+          pais:
+            code !== '??'
+              ? regionNames.of(code) || 'Desconocido'
+              : 'Desconocido',
+
+          bandera:
+            banderaEmoji(code)
+        }
+
+      } catch {
+        return {
+          pais: 'Desconocido',
+          bandera: '🌐'
+        }
+      }
+    }
 
     const actorInfo =
       obtenerPais(actorNumber)
 
     const targetInfo =
       obtenerPais(targetNumber)
+
+    /*
+     * Administradores.
+     *
+     * Aquí NO convertimos los JID.
+     * Conservamos exactamente p.id,
+     * porque esa es la forma que ya
+     * comprobaste que funciona.
+     */
+    const adminJids =
+      (participants || [])
+        .filter(p =>
+          p?.admin === 'admin' ||
+          p?.admin === 'superadmin'
+        )
+        .map(p => p?.id)
+        .filter(Boolean)
+
+    /*
+     * Menciones originales.
+     *
+     * NO convertir @lid.
+     */
+    const mentions =
+      Array.from(
+        new Set([
+          ...adminJids,
+          actor,
+          target
+        ].filter(Boolean))
+      )
+
+    /*
+     * HIZO ADMIN
+     */
     if (m.messageStubType === 29) {
 
       await conn.sendMessage(
         m.chat,
         {
           text:
-`🎯 @${limpiarId(targetJid)} ahora es *admin* del grupo.
+`🎯 @${first(target)} ahora es *admin* del grupo.
 
 📱 Número real: *${targetNumber}*
 🌎 País: ${targetInfo.bandera} ${targetInfo.pais}
 
-> Acción realizada por: @${limpiarId(actorJid)}
+> Acción realizada por: @${first(actor)}
 > 📱 Número real: *${actorNumber}*
 > 🌎 País: ${actorInfo.bandera} ${actorInfo.pais}`,
 
           mentions
-        },
-        {
-          quoted: m
         }
       )
     }
+
+    /*
+     * DEJÓ DE SER ADMIN
+     */
     if (m.messageStubType === 30) {
 
       await conn.sendMessage(
         m.chat,
         {
           text:
-`🏮 @${limpiarId(targetJid)} *ya no es admin* del grupo.
+`🏮 @${first(target)} *ya no es admin* del grupo.
 
 📱 Número real: *${targetNumber}*
 🌎 País: ${targetInfo.bandera} ${targetInfo.pais}
 
-> Acción realizada por: @${limpiarId(actorJid)}
+> Acción realizada por: @${first(actor)}
 > 📱 Número real: *${actorNumber}*
 > 🌎 País: ${actorInfo.bandera} ${actorInfo.pais}`,
 
           mentions
-        },
-        {
-          quoted: m
         }
       )
     }
@@ -346,12 +317,7 @@ handler.before = async function (
           m?.key?.participant,
 
         target:
-          m?.messageStubParameters?.[0],
-
-        actorParticipant:
-          m?.sender
-            ? 'LID/PARTICIPANT'
-            : undefined
+          m?.messageStubParameters?.[0]
       }
     )
   }
