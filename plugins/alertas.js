@@ -19,25 +19,18 @@ handler.before = async function (m, { conn, participants }) {
     const parseTarget = value => {
       if (!value) return null
 
-      if (typeof value === 'object') {
-        return value
-      }
+      if (typeof value === 'object') return value
 
       if (typeof value === 'string') {
         const text = value.trim()
 
-        if (
-          text.startsWith('{') &&
-          text.endsWith('}')
-        ) {
+        if (text.startsWith('{') && text.endsWith('}')) {
           try {
             return JSON.parse(text)
           } catch {}
         }
 
-        return {
-          id: text
-        }
+        return { id: text }
       }
 
       return null
@@ -54,8 +47,7 @@ handler.before = async function (m, { conn, participants }) {
 
     if (!targetRaw) return
 
-    const targetData =
-      parseTarget(targetRaw)
+    const targetData = parseTarget(targetRaw)
 
     if (!targetData) return
 
@@ -74,58 +66,36 @@ handler.before = async function (m, { conn, participants }) {
         )
         .map(p => p?.id)
         .filter(Boolean)
-    const mentions =
-      Array.from(
-        new Set([
-          ...adminJids,
-          actor,
-          target
-        ].filter(Boolean))
-      )
 
-    if (m.messageStubType === 29) {
+    const mentions = Array.from(
+      new Set([
+        ...adminJids,
+        actor,
+        target
+      ].filter(Boolean))
+    )
 
-      await conn.sendMessage(
-        m.chat,
-        {
-          text:
-`${e} El administrador @${first(actor)} le ha dado administración a el usuario: @${first(target)}`,
+    const accion =
+      m.messageStubType === 29
+        ? 'le ha dado administración a el usuario:'
+        : 'le ha quitado la administración a el usuario:'
 
-          mentions
-        }
-      )
-    }
-
-    if (m.messageStubType === 30) {
-
-      await conn.sendMessage(
-        m.chat,
-        {
-          text:
-`${e} El administrador @${first(actor)} le ha quitado la administración a el usuario: @${first(target)}`,
-
-          mentions
-        }
-      )
-    }
-
-  } catch (err) {
-
-    console.error(
-      '[detect-admin.before]',
-      err,
+    await conn.sendMessage(
+      m.chat,
       {
-        stub: m?.messageStubType,
-        type: WAMessageStubType?.[
-          m?.messageStubType
-        ],
-        actor:
-          m?.sender ||
-          m?.key?.participant,
-        target:
-          m?.messageStubParameters?.[0]
+        text:
+`${e} _El administrador @${first(actor)} ${accion} @${first(target)}_`,
+        mentions
       }
     )
+
+  } catch (err) {
+    console.error('[detect-admin.before]', err, {
+      stub: m?.messageStubType,
+      type: WAMessageStubType?.[m?.messageStubType],
+      actor: m?.sender || m?.key?.participant,
+      target: m?.messageStubParameters?.[0]
+    })
   }
 }
 
