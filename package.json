@@ -30,7 +30,7 @@
   },
   "license": "GPL-3.0-or-later",
   "dependencies": {
-    "@whiskeysockets/baileys": "github:gudo1234/you",
+    "@whiskeysockets/baileys": "github:elrebelde21/baileys",
     "@bochilteam/scraper": "^4.2.4",
     "@vitalets/google-translate-api": "^8.0.0",
     "@nechlophomeriaa/spotifydl": "^1.0.7",
