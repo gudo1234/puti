@@ -77,14 +77,14 @@ handler.before = async function (m, { conn, participants }) {
 
     const accion =
       m.messageStubType === 29
-        ? 'le ha dado administración a el usuario:'
-        : 'le ha quitado la administración a el usuario:'
+        ? '*le ha dado administración a el usuario:*'
+        : '*le ha quitado la administración a el usuario:*'
 
     await conn.sendMessage(
       m.chat,
       {
         text:
-`${e} _El administrador @${first(actor)} ${accion} @${first(target)}_`,
+`${e} El administrador @${first(actor)} ${accion} @${first(target)}`,
         mentions
       }
     )
