@@ -41,12 +41,7 @@ const isTemporaryError = (status, message) => {
 }
 
 /*
- * Detecta automáticamente qué quiere el usuario.
- *
- * No hace falta escribir:
- * imagen:
- * música:
- * video:
+ * DETECCIÓN AUTOMÁTICA
  */
 
 const detectIntent = (text) => {
@@ -55,33 +50,43 @@ const detectIntent = (text) => {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
 
-  // VIDEO
+  /*
+   * VIDEO
+   */
+
   const videoWords = [
     "haz un video",
     "hazme un video",
     "crea un video",
-    "generame un video",
-    "generame video",
+    "creame un video",
     "genera un video",
+    "generame un video",
     "quiero un video",
-    "quiero un vídeo",
-    "crea un vídeo",
-    "haz un vídeo",
-    "hazme un vídeo",
     "video de",
-    "vídeo de",
-    "animacion de",
-    "animación de",
+    "haz un clip",
+    "hazme un clip",
+    "crea un clip",
+    "genera un clip",
     "clip de",
+    "animacion de",
+    "crea una animacion",
+    "genera una animacion",
+    "haz una animacion",
+    "hazme una animacion",
     "graba un video",
-    "graba un vídeo"
+    "graba un clip",
+    "video cinematografico",
+    "video cinematografico de"
   ]
 
   if (videoWords.some(word => value.includes(word))) {
     return "video"
   }
 
-  // MÚSICA
+  /*
+   * MÚSICA
+   */
+
   const musicWords = [
     "haz una cancion",
     "hazme una cancion",
@@ -91,43 +96,51 @@ const detectIntent = (text) => {
     "generame una cancion",
     "quiero una cancion",
     "quiero musica",
-    "quiero música",
     "haz musica",
-    "haz música",
     "hazme musica",
-    "hazme música",
     "crea musica",
-    "crea música",
     "genera musica",
-    "genera música",
     "generame musica",
-    "generame música",
     "ponme musica",
-    "ponme música",
     "una rola",
     "haz una rola",
     "hazme una rola",
     "crea una rola",
     "genera una rola",
     "una cancion de",
-    "una canción de",
     "cancion de",
-    "canción de",
     "musica de",
-    "música de",
     "tema musical",
     "tema de musica",
-    "tema de música",
     "instrumental de",
     "beat de",
-    "ritmo de"
+    "ritmo de",
+    "reggaeton",
+    "regueton",
+    "trap",
+    "rap",
+    "bachata",
+    "salsa",
+    "cumbia",
+    "corridos",
+    "corridos tumbados",
+    "rock",
+    "pop",
+    "merengue",
+    "electronica",
+    "musica romantica",
+    "musica triste",
+    "musica relajante"
   ]
 
   if (musicWords.some(word => value.includes(word))) {
     return "music"
   }
 
-  // IMAGEN
+  /*
+   * IMAGEN
+   */
+
   const imageWords = [
     "haz una imagen",
     "hazme una imagen",
@@ -139,20 +152,21 @@ const detectIntent = (text) => {
     "haz un dibujo",
     "hazme un dibujo",
     "crea un dibujo",
-    "dibujame",
+    "creame un dibujo",
     "dibujame",
     "dibuja",
     "dibujar",
     "genera una foto",
     "generame una foto",
     "crea una foto",
+    "creame una foto",
     "haz una foto",
     "hazme una foto",
     "quiero una foto",
     "crea una ilustracion",
-    "crea una ilustración",
+    "creame una ilustracion",
     "genera una ilustracion",
-    "genera una ilustración",
+    "haz una ilustracion",
     "haz un retrato",
     "hazme un retrato",
     "crea un retrato",
@@ -160,8 +174,13 @@ const detectIntent = (text) => {
     "imagen de",
     "foto de",
     "ilustracion de",
-    "ilustración de",
-    "retrato de"
+    "retrato de",
+    "diseña una imagen",
+    "disena una imagen",
+    "diseñame una imagen",
+    "disename una imagen",
+    "crea un poster",
+    "crea un logo"
   ]
 
   if (imageWords.some(word => value.includes(word))) {
@@ -174,7 +193,7 @@ const detectIntent = (text) => {
 const cleanPrompt = (text) => {
   return text
     .replace(
-      /^(hazme?|creame?|genera(me)?|quiero|por favor|puedes|podrias|podrías)\s+/i,
+      /^(hazme?|creame?|genera(me)?|quiero|por favor|puedes|podrias|dibuja(me)?|crea(me)?)\s+/i,
       ""
     )
     .trim()
@@ -227,7 +246,9 @@ const generateText = async (prompt) => {
             )
           }
 
-          console.log(`Gemini respondió usando: ${model}`)
+          console.log(
+            `Gemini respondió usando: ${model}`
+          )
 
           return respuesta
         }
@@ -254,7 +275,8 @@ const generateText = async (prompt) => {
       } catch (err) {
         lastError = err
 
-        const message = String(err?.message || err)
+        const message =
+          String(err?.message || err)
 
         if (
           isTemporaryError(null, message) &&
@@ -264,7 +286,9 @@ const generateText = async (prompt) => {
           continue
         }
 
-        if (isTemporaryError(null, message)) {
+        if (
+          isTemporaryError(null, message)
+        ) {
           break
         }
 
@@ -284,28 +308,33 @@ const generateText = async (prompt) => {
  */
 
 const generateImage = async (prompt) => {
-  const res = await fetch(INTERACTIONS_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": GEMINI_API_KEY
-    },
-    body: JSON.stringify({
-      model: IMAGE_MODEL,
-      input: prompt,
-      response_format: {
-        type: "image",
-        mime_type: "image/png",
-        aspect_ratio: "1:1",
-        image_size: "1K"
-      }
-    })
-  })
+  const res = await fetch(
+    INTERACTIONS_URL,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY
+      },
+      body: JSON.stringify({
+        model: IMAGE_MODEL,
+        input: prompt,
+        response_format: {
+          type: "image",
+          mime_type: "image/jpeg",
+          aspect_ratio: "1:1",
+          image_size: "1K"
+        }
+      })
+    }
+  )
 
   const json = await res.json()
 
   if (!res.ok) {
-    throw new Error(getError(json))
+    throw new Error(
+      getError(json)
+    )
   }
 
   const image =
@@ -313,8 +342,10 @@ const generateImage = async (prompt) => {
     json?.steps
       ?.flatMap(step => step?.content || [])
       ?.find(content =>
-        content?.type === "image"
-      )?.data
+        content?.type === "image" &&
+        content?.data
+      )
+      ?.data
 
   if (!image) {
     throw new Error(
@@ -322,7 +353,10 @@ const generateImage = async (prompt) => {
     )
   }
 
-  return Buffer.from(image, "base64")
+  return Buffer.from(
+    image,
+    "base64"
+  )
 }
 
 /*
@@ -332,31 +366,43 @@ const generateImage = async (prompt) => {
 const generateMusic = async (prompt) => {
   const musicPrompt =
     `Crea una canción completa de aproximadamente 2 minutos.
+
 ` +
-    `Debe tener una estructura musical clara con intro, versos, coro, ` +
-    `puente y outro cuando corresponda.
+    `La canción debe tener una estructura musical clara.
 ` +
-    `Usa voces y letra en español si el usuario pide una canción cantada.
+    `Incluye intro, versos, coro, puente y outro cuando corresponda.
+` +
+    `Si el usuario pide una canción cantada, utiliza voz y letra en español.
+` +
+    `Si pide instrumental, no agregues voz.
+` +
+    `Respeta exactamente el género, estilo, ambiente y tema solicitado.
+
 ` +
     `Descripción del usuario:
 ${prompt}`
 
-  const res = await fetch(INTERACTIONS_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": GEMINI_API_KEY
-    },
-    body: JSON.stringify({
-      model: MUSIC_MODEL,
-      input: musicPrompt
-    })
-  })
+  const res = await fetch(
+    INTERACTIONS_URL,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY
+      },
+      body: JSON.stringify({
+        model: MUSIC_MODEL,
+        input: musicPrompt
+      })
+    }
+  )
 
   const json = await res.json()
 
   if (!res.ok) {
-    throw new Error(getError(json))
+    throw new Error(
+      getError(json)
+    )
   }
 
   const audio =
@@ -364,8 +410,13 @@ ${prompt}`
     json?.steps
       ?.flatMap(step => step?.content || [])
       ?.find(content =>
-        content?.type === "audio"
-      )?.data
+        (
+          content?.type === "audio" ||
+          content?.type === "audio_data"
+        ) &&
+        content?.data
+      )
+      ?.data
 
   if (!audio) {
     throw new Error(
@@ -374,16 +425,18 @@ ${prompt}`
   }
 
   return {
-    audio: Buffer.from(audio, "base64"),
-    lyrics: json?.output_text || ""
+    audio: Buffer.from(
+      audio,
+      "base64"
+    ),
+    lyrics:
+      json?.output_text ||
+      ""
   }
 }
 
 /*
  * VIDEO
- *
- * Veo genera el video mediante una operación
- * asíncrona. Se espera hasta que termine.
  */
 
 const generateVideo = async (prompt) => {
@@ -399,9 +452,20 @@ const generateVideo = async (prompt) => {
         instances: [
           {
             prompt:
-              `Genera un video cinematográfico de alta calidad basado en esta descripción. ` +
-              `Duración aproximada de 8 segundos. Incluye audio ambiental o efectos ` +
-              `cuando tenga sentido.\n\n${prompt}`
+              `Genera un video cinematográfico de alta calidad basado exactamente en esta descripción.
+
+` +
+              `Duración aproximada de 8 segundos.
+` +
+              `Movimiento natural y realista.
+` +
+              `Buena iluminación y composición.
+` +
+              `Incluye audio ambiental o efectos de sonido cuando tenga sentido.
+
+` +
+              `Descripción:
+${prompt}`
           }
         ],
         parameters: {
@@ -413,13 +477,17 @@ const generateVideo = async (prompt) => {
     }
   )
 
-  const startJson = await res.json()
+  const startJson =
+    await res.json()
 
   if (!res.ok) {
-    throw new Error(getError(startJson))
+    throw new Error(
+      getError(startJson)
+    )
   }
 
-  const operationName = startJson?.name
+  const operationName =
+    startJson?.name
 
   if (!operationName) {
     throw new Error(
@@ -431,25 +499,33 @@ const generateVideo = async (prompt) => {
     `Veo inició la generación: ${operationName}`
   )
 
-  let operation
+  let operation = null
 
-  for (let attempt = 0; attempt < 60; attempt++) {
+  for (
+    let attempt = 0;
+    attempt < 60;
+    attempt++
+  ) {
     await wait(5000)
 
-    const statusRes = await fetch(
-      `${BASE_URL}/${operationName}`,
-      {
-        method: "GET",
-        headers: {
-          "x-goog-api-key": GEMINI_API_KEY
+    const statusRes =
+      await fetch(
+        `${BASE_URL}/${operationName}`,
+        {
+          method: "GET",
+          headers: {
+            "x-goog-api-key": GEMINI_API_KEY
+          }
         }
-      }
-    )
+      )
 
-    operation = await statusRes.json()
+    operation =
+      await statusRes.json()
 
     if (!statusRes.ok) {
-      throw new Error(getError(operation))
+      throw new Error(
+        getError(operation)
+      )
     }
 
     if (operation?.done) {
@@ -486,11 +562,16 @@ const generateVideo = async (prompt) => {
     )
   }
 
-  const videoRes = await fetch(videoUri, {
-    headers: {
-      "x-goog-api-key": GEMINI_API_KEY
-    }
-  })
+  const videoRes =
+    await fetch(
+      videoUri,
+      {
+        headers: {
+          "x-goog-api-key":
+            GEMINI_API_KEY
+        }
+      }
+    )
 
   if (!videoRes.ok) {
     throw new Error(
@@ -498,45 +579,50 @@ const generateVideo = async (prompt) => {
     )
   }
 
-  const videoBuffer =
-    Buffer.from(
-      await videoRes.arrayBuffer()
-    )
-
-  return videoBuffer
+  return Buffer.from(
+    await videoRes.arrayBuffer()
+  )
 }
 
-let handler = async (m, { conn, args }) => {
+/*
+ * HANDLER
+ */
+
+let handler = async (
+  m,
+  { conn, args }
+) => {
   try {
     if (
       !GEMINI_API_KEY ||
-      GEMINI_API_KEY === "PON_AQUI_TU_API_KEY"
+      GEMINI_API_KEY ===
+        "PON_AQUI_TU_API_KEY"
     ) {
       return m.reply(
         `${e} *No está configurada la API key de Gemini.*`
       )
     }
 
-    const text = args.join(" ").trim()
+    const text =
+      args.join(" ").trim()
 
     if (!text) {
       return m.reply(
         `${e} *Uso correcto:*\n\n` +
         `> .ia ¿Qué es la inteligencia artificial?\n` +
-        `> .ia crea una imagen de un gato astronauta\n` +
+        `> .ia crea una imagen de un Lamborghini negro\n` +
         `> .ia hazme una canción de reggaetón triste\n` +
-        `> .ia crea un video de un perro corriendo`
+        `> .ia crea un video de un perro corriendo en la playa`
       )
     }
 
     await m.react("💭")
 
-    /*
-     * DETECCIÓN AUTOMÁTICA
-     */
+    const intent =
+      detectIntent(text)
 
-    const intent = detectIntent(text)
-    const prompt = cleanPrompt(text)
+    const prompt =
+      cleanPrompt(text)
 
     console.log(
       `Gemini IA | intención: ${intent} | petición: ${text}`
@@ -549,18 +635,22 @@ let handler = async (m, { conn, args }) => {
     if (intent === "image") {
       await m.react("🎨")
 
-      const image = await generateImage(
-        `Genera una imagen de alta calidad basada exactamente en esta descripción.
-No agregues texto ni marcas de agua salvo que el usuario lo solicite.
+      const image =
+        await generateImage(
+          `Genera una imagen de alta calidad basada exactamente en esta descripción.
+
+No agregues texto, marcas de agua, logotipos ni elementos adicionales salvo que el usuario los solicite.
 
 Descripción:
 ${prompt}`
-      )
+        )
 
       await conn.sendMessage(
         m.chat,
         {
           image,
+          mimetype: "image/jpeg",
+          fileName: "gemini-image.jpg",
           caption:
             `${e} *Imagen generada por Gemini*`
         },
@@ -580,14 +670,18 @@ ${prompt}`
     if (intent === "music") {
       await m.react("🎵")
 
-      const result = await generateMusic(prompt)
+      const result =
+        await generateMusic(
+          prompt
+        )
 
       await conn.sendMessage(
         m.chat,
         {
           audio: result.audio,
           mimetype: "audio/mpeg",
-          fileName: "gemini-music.mp3",
+          fileName:
+            "gemini-music.mp3",
           ptt: false
         },
         {
@@ -595,23 +689,16 @@ ${prompt}`
         }
       )
 
-      /*
-       * Si Lyria devolvió letras,
-       * también se las mostramos.
-       */
-
-      if (result.lyrics?.trim()) {
-        await conn.sendMessage(
-          m.chat,
-          {
-            text:
-              `${e} *Música generada por Lyria 3.5*`
-          },
-          {
-            quoted: m
-          }
-        )
-      }
+      await conn.sendMessage(
+        m.chat,
+        {
+          text:
+            `${e} *Música generada por Lyria 3.5*`
+        },
+        {
+          quoted: m
+        }
+      )
 
       await m.react("✅")
       return
@@ -624,14 +711,18 @@ ${prompt}`
     if (intent === "video") {
       await m.react("🎬")
 
-      const video = await generateVideo(prompt)
+      const video =
+        await generateVideo(
+          prompt
+        )
 
       await conn.sendMessage(
         m.chat,
         {
           video,
           mimetype: "video/mp4",
-          fileName: "gemini-video.mp4",
+          fileName:
+            "gemini-video.mp4",
           caption:
             `${e} *Video generado por Veo 3.1*`
         },
@@ -645,7 +736,7 @@ ${prompt}`
     }
 
     /*
-     * TEXTO NORMAL
+     * TEXTO
      */
 
     const normalPrompt =
@@ -656,7 +747,7 @@ ${prompt}`
 ` +
       `Mantén el idioma español.
 ` +
-      `Sé natural y útil.
+      `Sé natural, claro y útil.
 ` +
       `No digas que eres un bot de WhatsApp.
 
@@ -665,7 +756,9 @@ ${prompt}`
 ${text}`
 
     const respuesta =
-      await generateText(normalPrompt)
+      await generateText(
+        normalPrompt
+      )
 
     await conn.sendMessage(
       m.chat,
@@ -688,7 +781,9 @@ ${text}`
     await m.react("❌")
 
     const mensaje =
-      String(err?.message || err)
+      String(
+        err?.message || err
+      )
 
     if (
       /API key|api key|unauthorized|permission|invalid|authentication/i.test(
