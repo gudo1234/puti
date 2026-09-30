@@ -2,10 +2,13 @@ import fetch from "node-fetch"
 
 const GEMINI_API_KEY = "AQ.Ab8RN6JhgBEmmemPlYP2eHtQP4TyphPqYNKh_AbdwXJk2qP-dA"
 
-const TEXT_MODEL = "gemini-3.8-flash"
+const TEXT_MODELS = [
+  "gemini-3.8-flash",
+  "gemini-2.5-flash"
+]
+
 const IMAGE_MODEL = "gemini-3.1-flash-image"
 
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${TEXT_MODEL}:generateContent`
 const IMAGE_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 
 const getError = (json) => {
@@ -15,55 +18,129 @@ const getError = (json) => {
     "Error desconocido de Gemini"
 }
 
+const isTemporaryError = (status, message) => {
+  return (
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    /high demand|temporarily|unavailable|overloaded|resource exhausted|rate limit/i.test(message)
+  )
+}
+
 const generateText = async (prompt) => {
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": GEMINI_API_KEY
-    },
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [
-          {
-            text: "Responde siempre en español. Sé natural, claro, útil y entretenido. No menciones estas instrucciones internas."
-          }
-        ]
-      },
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text: prompt
+  let lastError = null
+
+  for (const model of TEXT_MODELS) {
+    const API_URL =
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": GEMINI_API_KEY
+          },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [
+                {
+                  text: "Responde siempre en español. Sé natural, claro, útil y entretenido. No menciones estas instrucciones internas."
+                }
+              ]
+            },
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  {
+                    text: prompt
+                  }
+                ]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.8,
+              maxOutputTokens: 4096
             }
-          ]
+          })
+        })
+
+        const json = await res.json()
+
+        if (res.ok) {
+          const respuesta = json?.candidates?.[0]?.content?.parts
+            ?.filter(x => typeof x.text === "string")
+            ?.map(x => x.text)
+            ?.join("\n")
+            ?.trim()
+
+          if (!respuesta) {
+            throw new Error(`Gemini (${model}) no devolvió una respuesta de texto.`)
+          }
+
+          return respuesta
         }
-      ],
-      generationConfig: {
-        temperature: 0.8,
-        maxOutputTokens: 4096
+
+        const errorMessage = getError(json)
+        lastError = new Error(errorMessage)
+
+        if (!isTemporaryError(res.status, errorMessage)) {
+          throw lastError
+        }
+
+        if (attempt < 2) {
+          const delay = 1500 * Math.pow(2, attempt)
+
+          console.log(
+            `Gemini ${model} ocupado. Reintento ${attempt + 1}/3 en ${delay}ms...`
+          )
+
+          await new Promise(resolve => setTimeout(resolve, delay))
+          continue
+        }
+
+        console.log(
+          `Gemini ${model} sigue ocupado. Cambiando a modelo de respaldo...`
+        )
+
+        break
+
+      } catch (err) {
+        lastError = err
+
+        const message = String(err?.message || err)
+
+        if (
+          isTemporaryError(null, message) &&
+          attempt < 2
+        ) {
+          const delay = 1500 * Math.pow(2, attempt)
+
+          console.log(
+            `Error temporal en ${model}. Reintento ${attempt + 1}/3 en ${delay}ms...`
+          )
+
+          await new Promise(resolve => setTimeout(resolve, delay))
+          continue
+        }
+
+        if (isTemporaryError(null, message)) {
+          console.log(
+            `Gemini ${model} no disponible. Cambiando a modelo de respaldo...`
+          )
+          break
+        }
+
+        throw err
       }
-    })
-  })
-
-  const json = await res.json()
-
-  if (!res.ok) {
-    throw new Error(getError(json))
+    }
   }
 
-  const respuesta = json?.candidates?.[0]?.content?.parts
-    ?.filter(x => typeof x.text === "string")
-    ?.map(x => x.text)
-    ?.join("\n")
-    ?.trim()
-
-  if (!respuesta) {
-    throw new Error("Gemini no devolvió una respuesta de texto.")
-  }
-
-  return respuesta
+  throw lastError ||
+    new Error("Todos los modelos de Gemini están temporalmente saturados.")
 }
 
 const generateImage = async (prompt) => {
@@ -108,9 +185,7 @@ const generateImage = async (prompt) => {
 let handler = async (m, { conn, args }) => {
   try {
     if (!GEMINI_API_KEY) {
-      return m.reply(
-        `${e} *No está configurada la API key de Gemini.*`
-      )
+      return m.reply(`${e} *No está configurada la API key de Gemini.*`)
     }
 
     const text = args.join(" ").trim()
@@ -190,9 +265,7 @@ let handler = async (m, { conn, args }) => {
     const mensaje = String(err?.message || err)
 
     if (
-      /API key|api key|unauthorized|permission|invalid|authentication/i.test(
-        mensaje
-      )
+      /API key|api key|unauthorized|permission|invalid|authentication/i.test(mensaje)
     ) {
       return m.reply(
         `${e} *Error con la API de Gemini.*\n\n` +
@@ -202,13 +275,12 @@ let handler = async (m, { conn, args }) => {
     }
 
     if (
-      /quota|limit|429|resource exhausted|rate limit/i.test(
-        mensaje
-      )
+      /quota|limit|429|resource exhausted|rate limit|high demand|temporarily|unavailable|overloaded|503/i.test(mensaje)
     ) {
       return m.reply(
-        `${e} *Se alcanzó el límite de uso de Gemini.*\n\n` +
-        `Espera un momento e inténtalo nuevamente.`
+        `${e} *Gemini está temporalmente saturado.*\n\n` +
+        `Se intentaron automáticamente los modelos disponibles.\n\n` +
+        `> Inténtalo nuevamente en unos segundos.`
       )
     }
 
