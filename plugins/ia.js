@@ -1,6 +1,6 @@
 import fetch from "node-fetch"
 
-const GEMINI_API_KEY = "AQ.Ab8RN6JhgBEmmemPIYP2eHtQP4TyphPqYNKh_AbdwXJk2qP-dA"
+const GEMINI_API_KEY = "AQ.Ab8RN6JhgBEmmemPlYP2eHtQP4TyphPqYNKh_AbdwXJk2qP-dA"
 
 const TEXT_MODEL = "gemini-3.8-flash"
 const IMAGE_MODEL = "gemini-3.1-flash-image"
