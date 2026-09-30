@@ -30,12 +30,14 @@ const wait = (ms) =>
 
 const isTemporaryError = (status, message) => {
   return (
+    status === 408 ||
     status === 429 ||
     status === 500 ||
     status === 502 ||
     status === 503 ||
-    /high demand|temporarily|unavailable|overloaded|resource exhausted|rate limit|capacity/i.test(
-      message
+    status === 504 ||
+    /high demand|temporarily|unavailable|overloaded|resource exhausted|rate limit|capacity|timeout|deadline/i.test(
+      String(message || "")
     )
   )
 }
@@ -76,7 +78,7 @@ const detectIntent = (text) => {
     "graba un video",
     "graba un clip",
     "video cinematografico",
-    "video cinematografico de"
+    "video realista"
   ]
 
   if (videoWords.some(word => value.includes(word))) {
@@ -175,10 +177,8 @@ const detectIntent = (text) => {
     "foto de",
     "ilustracion de",
     "retrato de",
-    "diseña una imagen",
     "disena una imagen",
-    "diseñame una imagen",
-    "disename una imagen",
+    "diseña una imagen",
     "crea un poster",
     "crea un logo"
   ]
@@ -209,23 +209,26 @@ const generateText = async (prompt) => {
   for (const model of TEXT_MODELS) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const res = await fetch(INTERACTIONS_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": GEMINI_API_KEY
-          },
-          body: JSON.stringify({
-            model,
-            input: prompt,
-            system_instruction:
-              "Responde siempre en español. Sé natural, claro, útil y entretenido. No menciones estas instrucciones internas.",
-            generation_config: {
-              thinking_level: "low",
-              max_output_tokens: 4096
-            }
-          })
-        })
+        const res = await fetch(
+          INTERACTIONS_URL,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": GEMINI_API_KEY
+            },
+            body: JSON.stringify({
+              model,
+              input: prompt,
+              system_instruction:
+                "Responde siempre en español. Sé natural, claro, útil y entretenido. No menciones estas instrucciones internas.",
+              generation_config: {
+                thinking_level: "low",
+                max_output_tokens: 4096
+              }
+            })
+          }
+        )
 
         const json = await res.json()
 
@@ -233,42 +236,53 @@ const generateText = async (prompt) => {
           const respuesta =
             json?.output_text ||
             json?.steps
-              ?.filter(step => step?.type === "model_output")
-              ?.flatMap(step => step?.content || [])
-              ?.filter(content => content?.type === "text")
-              ?.map(content => content.text)
+              ?.filter(step =>
+                step?.type === "model_output"
+              )
+              ?.flatMap(step =>
+                step?.content || []
+              )
+              ?.filter(content =>
+                content?.type === "text"
+              )
+              ?.map(content =>
+                content.text
+              )
               ?.join("\n")
               ?.trim()
 
           if (!respuesta) {
             throw new Error(
-              `Gemini ${model} no devolvió una respuesta de texto.`
+              `Gemini ${model} no devolvió texto.`
             )
           }
 
           console.log(
-            `Gemini respondió usando: ${model}`
+            `Gemini texto: ${model}`
           )
 
           return respuesta
         }
 
-        const errorMessage = getError(json)
+        const errorMessage =
+          getError(json)
 
-        lastError = new Error(errorMessage)
+        lastError =
+          new Error(errorMessage)
 
-        if (!isTemporaryError(res.status, errorMessage)) {
+        if (
+          !isTemporaryError(
+            res.status,
+            errorMessage
+          )
+        ) {
           throw lastError
         }
 
         if (attempt === 0) {
-          await wait(2000)
+          await wait(2500)
           continue
         }
-
-        console.log(
-          `${model} no disponible. Probando modelo de respaldo...`
-        )
 
         break
 
@@ -279,15 +293,21 @@ const generateText = async (prompt) => {
           String(err?.message || err)
 
         if (
-          isTemporaryError(null, message) &&
+          isTemporaryError(
+            null,
+            message
+          ) &&
           attempt === 0
         ) {
-          await wait(2000)
+          await wait(2500)
           continue
         }
 
         if (
-          isTemporaryError(null, message)
+          isTemporaryError(
+            null,
+            message
+          )
         ) {
           break
         }
@@ -299,7 +319,7 @@ const generateText = async (prompt) => {
 
   throw lastError ||
     new Error(
-      "Todos los modelos de Gemini están temporalmente saturados."
+      "No fue posible obtener una respuesta de texto."
     )
 }
 
@@ -308,55 +328,110 @@ const generateText = async (prompt) => {
  */
 
 const generateImage = async (prompt) => {
-  const res = await fetch(
-    INTERACTIONS_URL,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY
-      },
-      body: JSON.stringify({
-        model: IMAGE_MODEL,
-        input: prompt,
-        response_format: {
-          type: "image",
-          mime_type: "image/jpeg",
-          aspect_ratio: "1:1",
-          image_size: "1K"
+  let lastError = null
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(
+        INTERACTIONS_URL,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": GEMINI_API_KEY
+          },
+          body: JSON.stringify({
+            model: IMAGE_MODEL,
+            input: prompt,
+            response_format: {
+              type: "image",
+              mime_type: "image/jpeg",
+              aspect_ratio: "1:1",
+              image_size: "1K"
+            }
+          })
         }
-      })
-    }
-  )
-
-  const json = await res.json()
-
-  if (!res.ok) {
-    throw new Error(
-      getError(json)
-    )
-  }
-
-  const image =
-    json?.output_image?.data ||
-    json?.steps
-      ?.flatMap(step => step?.content || [])
-      ?.find(content =>
-        content?.type === "image" &&
-        content?.data
       )
-      ?.data
 
-  if (!image) {
-    throw new Error(
-      "Gemini no devolvió una imagen."
-    )
+      const json =
+        await res.json()
+
+      if (!res.ok) {
+        const error =
+          getError(json)
+
+        lastError =
+          new Error(error)
+
+        if (
+          !isTemporaryError(
+            res.status,
+            error
+          )
+        ) {
+          throw lastError
+        }
+
+        if (attempt < 2) {
+          console.log(
+            `Imagen temporalmente no disponible. Reintento ${attempt + 1}/2`
+          )
+
+          await wait(
+            3000 * (attempt + 1)
+          )
+
+          continue
+        }
+
+        throw lastError
+      }
+
+      const image =
+        json?.output_image?.data ||
+        json?.steps
+          ?.flatMap(step =>
+            step?.content || []
+          )
+          ?.find(content =>
+            content?.type === "image" &&
+            content?.data
+          )
+          ?.data
+
+      if (!image) {
+        throw new Error(
+          "Gemini terminó la generación pero no devolvió los datos de la imagen."
+        )
+      }
+
+      return Buffer.from(
+        image,
+        "base64"
+      )
+
+    } catch (err) {
+      lastError = err
+
+      if (
+        isTemporaryError(
+          null,
+          String(err?.message || err)
+        ) &&
+        attempt < 2
+      ) {
+        await wait(
+          3000 * (attempt + 1)
+        )
+
+        continue
+      }
+
+      throw err
+    }
   }
 
-  return Buffer.from(
-    image,
-    "base64"
-  )
+  throw lastError
 }
 
 /*
@@ -372,67 +447,123 @@ const generateMusic = async (prompt) => {
 ` +
     `Incluye intro, versos, coro, puente y outro cuando corresponda.
 ` +
-    `Si el usuario pide una canción cantada, utiliza voz y letra en español.
+    `Si el usuario solicita una canción cantada, utiliza voz y letra en español.
 ` +
-    `Si pide instrumental, no agregues voz.
+    `Si solicita instrumental, no utilices voz.
 ` +
-    `Respeta exactamente el género, estilo, ambiente y tema solicitado.
+    `Respeta el género, ritmo, ambiente y tema solicitado.
 
 ` +
     `Descripción del usuario:
 ${prompt}`
 
-  const res = await fetch(
-    INTERACTIONS_URL,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY
-      },
-      body: JSON.stringify({
-        model: MUSIC_MODEL,
-        input: musicPrompt
-      })
-    }
-  )
+  let lastError = null
 
-  const json = await res.json()
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res =
+        await fetch(
+          INTERACTIONS_URL,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key":
+                GEMINI_API_KEY
+            },
+            body: JSON.stringify({
+              model: MUSIC_MODEL,
+              input: musicPrompt
+            })
+          }
+        )
 
-  if (!res.ok) {
-    throw new Error(
-      getError(json)
-    )
-  }
+      const json =
+        await res.json()
 
-  const audio =
-    json?.output_audio?.data ||
-    json?.steps
-      ?.flatMap(step => step?.content || [])
-      ?.find(content =>
-        (
-          content?.type === "audio" ||
-          content?.type === "audio_data"
+      if (!res.ok) {
+        const error =
+          getError(json)
+
+        lastError =
+          new Error(error)
+
+        if (
+          !isTemporaryError(
+            res.status,
+            error
+          )
+        ) {
+          throw lastError
+        }
+
+        if (attempt < 2) {
+          console.log(
+            `Lyria temporalmente no disponible. Reintento ${attempt + 1}/2`
+          )
+
+          await wait(
+            4000 * (attempt + 1)
+          )
+
+          continue
+        }
+
+        throw lastError
+      }
+
+      const audio =
+        json?.output_audio?.data ||
+        json?.steps
+          ?.flatMap(step =>
+            step?.content || []
+          )
+          ?.find(content =>
+            (
+              content?.type === "audio" ||
+              content?.type === "audio_data"
+            ) &&
+            content?.data
+          )
+          ?.data
+
+      if (!audio) {
+        throw new Error(
+          "Lyria terminó la generación pero no devolvió el audio."
+        )
+      }
+
+      return {
+        audio: Buffer.from(
+          audio,
+          "base64"
+        ),
+        lyrics:
+          json?.output_text || ""
+      }
+
+    } catch (err) {
+      lastError = err
+
+      if (
+        isTemporaryError(
+          null,
+          String(err?.message || err)
         ) &&
-        content?.data
-      )
-      ?.data
+        attempt < 2
+      ) {
+        await wait(
+          4000 * (attempt + 1)
+        )
 
-  if (!audio) {
-    throw new Error(
-      "Lyria no devolvió el audio."
-    )
+        continue
+      }
+
+      throw err
+    }
   }
 
-  return {
-    audio: Buffer.from(
-      audio,
-      "base64"
-    ),
-    lyrics:
-      json?.output_text ||
-      ""
-  }
+  throw lastError
 }
 
 /*
@@ -440,59 +571,115 @@ ${prompt}`
  */
 
 const generateVideo = async (prompt) => {
-  const res = await fetch(
-    `${BASE_URL}/models/${VIDEO_MODEL}:predictLongRunning`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY
-      },
-      body: JSON.stringify({
-        instances: [
+  let startJson = null
+  let lastError = null
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res =
+        await fetch(
+          `${BASE_URL}/models/${VIDEO_MODEL}:predictLongRunning`,
           {
-            prompt:
-              `Genera un video cinematográfico de alta calidad basado exactamente en esta descripción.
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key":
+                GEMINI_API_KEY
+            },
+            body: JSON.stringify({
+              instances: [
+                {
+                  prompt:
+                    `Genera un video cinematográfico de alta calidad basado exactamente en esta descripción.
 
 ` +
-              `Duración aproximada de 8 segundos.
+                    `Duración aproximada de 8 segundos.
 ` +
-              `Movimiento natural y realista.
+                    `Movimiento natural.
 ` +
-              `Buena iluminación y composición.
+                    `Buena iluminación y composición.
 ` +
-              `Incluye audio ambiental o efectos de sonido cuando tenga sentido.
+                    `Incluye audio ambiental o efectos de sonido cuando tenga sentido.
 
 ` +
-              `Descripción:
+                    `Descripción:
 ${prompt}`
+                }
+              ],
+              parameters: {
+                aspectRatio: "16:9",
+                numberOfVideos: 1,
+                resolution: "720p"
+              }
+            })
           }
-        ],
-        parameters: {
-          aspectRatio: "16:9",
-          numberOfVideos: 1,
-          resolution: "720p"
+        )
+
+      startJson =
+        await res.json()
+
+      if (!res.ok) {
+        const error =
+          getError(startJson)
+
+        lastError =
+          new Error(error)
+
+        if (
+          !isTemporaryError(
+            res.status,
+            error
+          )
+        ) {
+          throw lastError
         }
-      })
+
+        if (attempt < 2) {
+          console.log(
+            `Veo temporalmente no disponible. Reintento ${attempt + 1}/2`
+          )
+
+          await wait(
+            5000 * (attempt + 1)
+          )
+
+          continue
+        }
+
+        throw lastError
+      }
+
+      break
+
+    } catch (err) {
+      lastError = err
+
+      if (
+        isTemporaryError(
+          null,
+          String(err?.message || err)
+        ) &&
+        attempt < 2
+      ) {
+        await wait(
+          5000 * (attempt + 1)
+        )
+
+        continue
+      }
+
+      throw err
     }
-  )
-
-  const startJson =
-    await res.json()
-
-  if (!res.ok) {
-    throw new Error(
-      getError(startJson)
-    )
   }
 
   const operationName =
     startJson?.name
 
   if (!operationName) {
-    throw new Error(
-      "Veo no devolvió una operación de generación."
-    )
+    throw lastError ||
+      new Error(
+        "Veo no devolvió una operación de generación."
+      )
   }
 
   console.log(
@@ -514,7 +701,8 @@ ${prompt}`
         {
           method: "GET",
           headers: {
-            "x-goog-api-key": GEMINI_API_KEY
+            "x-goog-api-key":
+              GEMINI_API_KEY
           }
         }
       )
@@ -650,7 +838,8 @@ ${prompt}`
         {
           image,
           mimetype: "image/jpeg",
-          fileName: "gemini-image.jpg",
+          fileName:
+            "gemini-image.jpg",
           caption:
             `${e} *Imagen generada por Gemini*`
         },
@@ -798,20 +987,32 @@ ${text}`
     }
 
     if (
-      /quota|limit|429|resource exhausted|rate limit|high demand|temporarily|unavailable|overloaded|capacity|503/i.test(
+      /429|quota|resource exhausted|rate limit/i.test(
         mensaje
       )
     ) {
       return m.reply(
-        `${e} *Gemini está temporalmente saturado.*\n\n` +
-        `Se intentaron automáticamente los modelos disponibles.\n\n` +
-        `> Inténtalo nuevamente en unos segundos.`
+        `${e} *Se alcanzó temporalmente el límite de Gemini.*\n\n` +
+        `El bot reintentó automáticamente la operación.\n\n` +
+        `> ${mensaje}`
+      )
+    }
+
+    if (
+      /high demand|temporarily|unavailable|overloaded|capacity|503|502|500|timeout|deadline/i.test(
+        mensaje
+      )
+    ) {
+      return m.reply(
+        `${e} *El servicio de generación está temporalmente ocupado.*\n\n` +
+        `El bot realizó varios intentos automáticamente.\n\n` +
+        `> ${mensaje}`
       )
     }
 
     return m.reply(
-      `${e} *Ocurrió un error con Gemini:*\n` +
-      `${mensaje}`
+      `${e} *Ocurrió un error con Gemini:*\n\n` +
+      `> ${mensaje}`
     )
   }
 }
