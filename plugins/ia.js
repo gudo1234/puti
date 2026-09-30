@@ -4,12 +4,14 @@ const GEMINI_API_KEY = "AQ.Ab8RN6JhgBEmmemPlYP2eHtQP4TyphPqYNKh_AbdwXJk2qP-dA"
 
 const TEXT_MODELS = [
   "gemini-3.8-flash",
-  "gemini-2.5-flash"
+  "gemini-3.7-flash",
+  "gemini-3.6-flash"
 ]
 
 const IMAGE_MODEL = "gemini-3.1-flash-image"
 
-const IMAGE_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+const INTERACTIONS_URL =
+  "https://generativelanguage.googleapis.com/v1beta/interactions"
 
 const getError = (json) => {
   return json?.error?.message ||
@@ -24,46 +26,35 @@ const isTemporaryError = (status, message) => {
     status === 500 ||
     status === 502 ||
     status === 503 ||
-    /high demand|temporarily|unavailable|overloaded|resource exhausted|rate limit/i.test(message)
+    /high demand|temporarily|unavailable|overloaded|resource exhausted|rate limit|capacity/i.test(
+      message
+    )
   )
 }
+
+const wait = (ms) =>
+  new Promise(resolve => setTimeout(resolve, ms))
 
 const generateText = async (prompt) => {
   let lastError = null
 
   for (const model of TEXT_MODELS) {
-    const API_URL =
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
-
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const res = await fetch(API_URL, {
+        const res = await fetch(INTERACTIONS_URL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "x-goog-api-key": GEMINI_API_KEY
           },
           body: JSON.stringify({
-            systemInstruction: {
-              parts: [
-                {
-                  text: "Responde siempre en español. Sé natural, claro, útil y entretenido. No menciones estas instrucciones internas."
-                }
-              ]
-            },
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: prompt
-                  }
-                ]
-              }
-            ],
-            generationConfig: {
-              temperature: 0.8,
-              maxOutputTokens: 4096
+            model,
+            input: prompt,
+            system_instruction:
+              "Responde siempre en español. Sé natural, claro, útil y entretenido. No menciones estas instrucciones internas.",
+            generation_config: {
+              thinking_level: "low",
+              max_output_tokens: 4096
             }
           })
         })
@@ -71,39 +62,46 @@ const generateText = async (prompt) => {
         const json = await res.json()
 
         if (res.ok) {
-          const respuesta = json?.candidates?.[0]?.content?.parts
-            ?.filter(x => typeof x.text === "string")
-            ?.map(x => x.text)
-            ?.join("\n")
-            ?.trim()
+          const respuesta =
+            json?.output_text ||
+            json?.steps
+              ?.filter(step => step?.type === "model_output")
+              ?.flatMap(step => step?.content || [])
+              ?.filter(content => content?.type === "text")
+              ?.map(content => content.text)
+              ?.join("\n")
+              ?.trim()
 
           if (!respuesta) {
-            throw new Error(`Gemini (${model}) no devolvió una respuesta de texto.`)
+            throw new Error(
+              `Gemini ${model} no devolvió una respuesta de texto.`
+            )
           }
+
+          console.log(`Gemini respondió usando: ${model}`)
 
           return respuesta
         }
 
         const errorMessage = getError(json)
+
         lastError = new Error(errorMessage)
 
         if (!isTemporaryError(res.status, errorMessage)) {
           throw lastError
         }
 
-        if (attempt < 2) {
-          const delay = 1500 * Math.pow(2, attempt)
-
+        if (attempt === 0) {
           console.log(
-            `Gemini ${model} ocupado. Reintento ${attempt + 1}/3 en ${delay}ms...`
+            `Gemini ${model} está ocupado. Reintentando...`
           )
 
-          await new Promise(resolve => setTimeout(resolve, delay))
+          await wait(2000)
           continue
         }
 
         console.log(
-          `Gemini ${model} sigue ocupado. Cambiando a modelo de respaldo...`
+          `Gemini ${model} no disponible. Probando modelo de respaldo...`
         )
 
         break
@@ -115,22 +113,21 @@ const generateText = async (prompt) => {
 
         if (
           isTemporaryError(null, message) &&
-          attempt < 2
+          attempt === 0
         ) {
-          const delay = 1500 * Math.pow(2, attempt)
-
           console.log(
-            `Error temporal en ${model}. Reintento ${attempt + 1}/3 en ${delay}ms...`
+            `Error temporal en ${model}. Reintentando...`
           )
 
-          await new Promise(resolve => setTimeout(resolve, delay))
+          await wait(2000)
           continue
         }
 
         if (isTemporaryError(null, message)) {
           console.log(
-            `Gemini ${model} no disponible. Cambiando a modelo de respaldo...`
+            `Gemini ${model} no disponible. Probando modelo de respaldo...`
           )
+
           break
         }
 
@@ -140,11 +137,13 @@ const generateText = async (prompt) => {
   }
 
   throw lastError ||
-    new Error("Todos los modelos de Gemini están temporalmente saturados.")
+    new Error(
+      "Todos los modelos de Gemini están temporalmente saturados."
+    )
 }
 
 const generateImage = async (prompt) => {
-  const res = await fetch(IMAGE_URL, {
+  const res = await fetch(INTERACTIONS_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -173,7 +172,13 @@ const generateImage = async (prompt) => {
     throw new Error(getError(json))
   }
 
-  const image = json?.output_image?.data
+  const image =
+    json?.output_image?.data ||
+    json?.steps
+      ?.flatMap(step => step?.content || [])
+      ?.find(content =>
+        content?.type === "image"
+      )?.data
 
   if (!image) {
     throw new Error("Gemini no devolvió una imagen.")
@@ -184,8 +189,13 @@ const generateImage = async (prompt) => {
 
 let handler = async (m, { conn, args }) => {
   try {
-    if (!GEMINI_API_KEY) {
-      return m.reply(`${e} *No está configurada la API key de Gemini.*`)
+    if (
+      !GEMINI_API_KEY ||
+      GEMINI_API_KEY === "PON_AQUI_TU_API_KEY"
+    ) {
+      return m.reply(
+        `${e} *No está configurada la API key de Gemini.*`
+      )
     }
 
     const text = args.join(" ").trim()
@@ -265,7 +275,9 @@ let handler = async (m, { conn, args }) => {
     const mensaje = String(err?.message || err)
 
     if (
-      /API key|api key|unauthorized|permission|invalid|authentication/i.test(mensaje)
+      /API key|api key|unauthorized|permission|invalid|authentication/i.test(
+        mensaje
+      )
     ) {
       return m.reply(
         `${e} *Error con la API de Gemini.*\n\n` +
@@ -275,11 +287,13 @@ let handler = async (m, { conn, args }) => {
     }
 
     if (
-      /quota|limit|429|resource exhausted|rate limit|high demand|temporarily|unavailable|overloaded|503/i.test(mensaje)
+      /quota|limit|429|resource exhausted|rate limit|high demand|temporarily|unavailable|overloaded|capacity|503/i.test(
+        mensaje
+      )
     ) {
       return m.reply(
         `${e} *Gemini está temporalmente saturado.*\n\n` +
-        `Se intentaron automáticamente los modelos disponibles.\n\n` +
+        `Se probaron automáticamente los modelos de respaldo.\n\n` +
         `> Inténtalo nuevamente en unos segundos.`
       )
     }
