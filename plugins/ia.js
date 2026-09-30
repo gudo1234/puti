@@ -1,6 +1,6 @@
 import fetch from "node-fetch"
 
-const GEMINI_API_KEY = "edar504"
+const GEMINI_API_KEY = "AQ.Ab8RN6JhgBEmmemPIYP2eHtQP4TyphPqYNKh_AbdwXJk2qP-dA"
 
 const TEXT_MODEL = "gemini-3.8-flash"
 const IMAGE_MODEL = "gemini-3.1-flash-image"
@@ -125,13 +125,16 @@ let handler = async (m, { conn, args }) => {
 
     await m.react("💭")
 
-    const imageMatch = text.match(/^(imagen|image|img|dibuja|dibujar)\s*:\s*(.+)$/is)
+    const imageMatch = text.match(
+      /^(imagen|image|img|dibuja|dibujar)\s*:\s*(.+)$/is
+    )
 
     if (imageMatch) {
       const prompt = imageMatch[2].trim()
 
       if (!prompt) {
         await m.react("❌")
+
         return m.reply(
           `${e} Escribe qué imagen quieres generar.\n\n` +
           `> .ia imagen: un gato astronauta en Marte`
@@ -150,7 +153,9 @@ let handler = async (m, { conn, args }) => {
           image,
           caption: `${e} *Imagen generada por Gemini*`
         },
-        { quoted: m }
+        {
+          quoted: m
+        }
       )
 
       await m.react("✅")
@@ -184,14 +189,23 @@ let handler = async (m, { conn, args }) => {
 
     const mensaje = String(err?.message || err)
 
-    if (/API key|api key|unauthorized|permission|invalid/i.test(mensaje)) {
+    if (
+      /API key|api key|unauthorized|permission|invalid|authentication/i.test(
+        mensaje
+      )
+    ) {
       return m.reply(
         `${e} *Error con la API de Gemini.*\n\n` +
-        `La clave proporcionada no es válida o no tiene acceso.`
+        `La clave proporcionada no es válida o no tiene acceso a este modelo.\n\n` +
+        `> ${mensaje}`
       )
     }
 
-    if (/quota|limit|429|resource exhausted/i.test(mensaje)) {
+    if (
+      /quota|limit|429|resource exhausted|rate limit/i.test(
+        mensaje
+      )
+    ) {
       return m.reply(
         `${e} *Se alcanzó el límite de uso de Gemini.*\n\n` +
         `Espera un momento e inténtalo nuevamente.`
