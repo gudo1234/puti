@@ -13,76 +13,71 @@ let handler = async (m, { conn, __dirname }) => {
   )
 
   let thumbResized = null
-  let offerIcon = null
+  let profileThumb = null
 
+  // catalogo.jpg: SE MANTIENE para el thumbnail principal
   try {
+    if (fs.existsSync(imgPath)) {
+      const thumbLocal = fs.readFileSync(imgPath)
 
-    // Foto de perfil del usuario
-    try {
-      const profileUrl = await conn.profilePictureUrl(
-        m.sender,
-        'image'
-      )
-
-      if (profileUrl) {
-        offerIcon = profileUrl
-      }
-    } catch (err) {
-      console.log(
-        '[PI] No se pudo obtener la foto de perfil'
-      )
-    }
-
-    // Si falla la foto de perfil, usar global.icono()
-    if (!offerIcon) {
-      try {
-        const iconoUrl =
-          typeof global.icono === 'function'
-            ? await global.icono()
-            : global.icono
-
-        if (iconoUrl) {
-          offerIcon = iconoUrl
-        }
-      } catch (err) {
-        console.log(
-          '[PI] No se pudo obtener el icono'
-        )
-      }
-    }
-
-    // Thumbnail superior
-    let thumbnailSource = null
-
-    if (offerIcon) {
-      try {
-        thumbnailSource = Buffer.from(
-          await (
-            await fetch(offerIcon)
-          ).arrayBuffer()
-        )
-      } catch (err) {
-        thumbnailSource = null
-      }
-    }
-
-    // Último respaldo: catalogo.jpg
-    if (!thumbnailSource && fs.existsSync(imgPath)) {
-      thumbnailSource = fs.readFileSync(imgPath)
-    }
-
-    if (thumbnailSource) {
-      thumbResized = await sharp(thumbnailSource)
+      thumbResized = await sharp(thumbLocal)
         .resize(300, 100, {
           fit: 'cover'
         })
         .jpeg()
         .toBuffer()
     }
+  } catch (err) {
+    console.error(
+      '[PI] Error preparando catalogo:',
+      err?.message || err
+    )
+  }
+
+  // Foto de perfil
+  try {
+    let profileUrl = null
+
+    try {
+      profileUrl = await conn.profilePictureUrl(
+        m.sender,
+        'image'
+      )
+    } catch {}
+
+    // Si falla la foto de perfil, usar icono
+    if (!profileUrl) {
+      try {
+        profileUrl =
+          typeof global.icono === 'function'
+            ? await global.icono()
+            : global.icono
+      } catch {}
+    }
+
+    if (profileUrl) {
+      try {
+        profileThumb = Buffer.from(
+          await (
+            await fetch(profileUrl)
+          ).arrayBuffer()
+        )
+
+        profileThumb = await sharp(profileThumb)
+          .resize(300, 300, {
+            fit: 'cover'
+          })
+          .jpeg()
+          .toBuffer()
+
+      } catch (err) {
+        profileThumb = null
+      }
+    }
 
   } catch (err) {
     console.error(
-      '[PI] Error preparando imágenes:',
+      '[PI] Error preparando foto de perfil:',
       err?.message || err
     )
   }
@@ -100,9 +95,26 @@ let handler = async (m, { conn, __dirname }) => {
 
   const interactiveContext = {
     ...newsletterInfo,
+
     remoteJid: '@broadcast',
+
     forwardingScore: 10,
-    isForwarded: true
+
+    isForwarded: true,
+
+    // Foto de perfil por otra vía
+    ...(profileThumb
+      ? {
+          externalAdReply: {
+            title: 'Hola',
+            body: 'Perfil',
+            mediaType: 1,
+            thumbnail: profileThumb,
+            renderLargerThumbnail: false,
+            showAdAttribution: false
+          }
+        }
+      : {})
   }
 
   try {
@@ -160,6 +172,7 @@ let handler = async (m, { conn, __dirname }) => {
                 unsigned: false
               },
 
+              // SE MANTIENE catalogo.jpg
               ...(thumbResized
                 ? {
                     jpegThumbnail: thumbResized
@@ -321,13 +334,7 @@ let handler = async (m, { conn, __dirname }) => {
                   text: 'Hola',
                   url: 'https://github.com/edar',
                   copy_code: 'Hola',
-                  expiration_time: 1754613436864329,
-
-                  ...(offerIcon
-                    ? {
-                        icon: offerIcon
-                      }
-                    : {})
+                  expiration_time: 1754613436864329
                 },
 
                 bottom_sheet: {
