@@ -558,8 +558,6 @@ let handler = async (
     }
 }
 
-handler.help = ["siu"]
-handler.tags = ["g"]
 handler.command = ["siu"]
 handler.owner = true
 
