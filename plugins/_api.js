@@ -13,21 +13,76 @@ let handler = async (m, { conn, __dirname }) => {
   )
 
   let thumbResized = null
+  let offerIcon = null
 
   try {
-    if (fs.existsSync(imgPath)) {
-      const thumbLocal = fs.readFileSync(imgPath)
 
-      thumbResized = await sharp(thumbLocal)
+    // Foto de perfil del usuario
+    try {
+      const profileUrl = await conn.profilePictureUrl(
+        m.sender,
+        'image'
+      )
+
+      if (profileUrl) {
+        offerIcon = profileUrl
+      }
+    } catch (err) {
+      console.log(
+        '[PI] No se pudo obtener la foto de perfil'
+      )
+    }
+
+    // Si falla la foto de perfil, usar global.icono()
+    if (!offerIcon) {
+      try {
+        const iconoUrl =
+          typeof global.icono === 'function'
+            ? await global.icono()
+            : global.icono
+
+        if (iconoUrl) {
+          offerIcon = iconoUrl
+        }
+      } catch (err) {
+        console.log(
+          '[PI] No se pudo obtener el icono'
+        )
+      }
+    }
+
+    // Thumbnail superior
+    let thumbnailSource = null
+
+    if (offerIcon) {
+      try {
+        thumbnailSource = Buffer.from(
+          await (
+            await fetch(offerIcon)
+          ).arrayBuffer()
+        )
+      } catch (err) {
+        thumbnailSource = null
+      }
+    }
+
+    // Último respaldo: catalogo.jpg
+    if (!thumbnailSource && fs.existsSync(imgPath)) {
+      thumbnailSource = fs.readFileSync(imgPath)
+    }
+
+    if (thumbnailSource) {
+      thumbResized = await sharp(thumbnailSource)
         .resize(300, 100, {
           fit: 'cover'
         })
         .jpeg()
         .toBuffer()
     }
+
   } catch (err) {
     console.error(
-      '[PI] Error preparando thumbnail:',
+      '[PI] Error preparando imágenes:',
       err?.message || err
     )
   }
@@ -266,7 +321,13 @@ let handler = async (m, { conn, __dirname }) => {
                   text: 'Hola',
                   url: 'https://github.com/edar',
                   copy_code: 'Hola',
-                  expiration_time: 1754613436864329
+                  expiration_time: 1754613436864329,
+
+                  ...(offerIcon
+                    ? {
+                        icon: offerIcon
+                      }
+                    : {})
                 },
 
                 bottom_sheet: {
