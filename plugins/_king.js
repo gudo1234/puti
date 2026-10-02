@@ -95,8 +95,6 @@ await delay(1000)
 }
 }
 
-handler.help = ['xeon']
-handler.tags = ['fun']
 handler.command = ['king']
 
 export default handler
