@@ -744,8 +744,6 @@ let handler = async (
     }
 }
 
-handler.help = ["noti3"]
-handler.tags = ["g"]
 handler.command = ["noti3"]
 handler.owner = true
 
