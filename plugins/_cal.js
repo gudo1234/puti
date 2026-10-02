@@ -165,8 +165,6 @@ h1 span{display:block;color:#fff3d4}
   }, {})
 }
 
-handler.help = ['siu']
-handler.tags = ['g']
 handler.command = ['cal']
 //handler.owner = true
 
