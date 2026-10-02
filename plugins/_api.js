@@ -8,6 +8,44 @@ let handler = async (m, { conn, __dirname }) => {
   const channelInfo = global.channelRD || {}
   const channel = global.canal || global.redes || ''
 
+  const isConnected = () => {
+    try {
+      if (!conn) return false
+
+      if (
+        conn.ws &&
+        typeof conn.ws.readyState === 'number'
+      ) {
+        return conn.ws.readyState === 1
+      }
+
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const waitForConnection = async (
+    tries = 8,
+    delay = 1500
+  ) => {
+    for (let i = 0; i < tries; i++) {
+      if (isConnected()) {
+        return true
+      }
+
+      console.log(
+        `[PI] Esperando conexión... ${i + 1}/${tries}`
+      )
+
+      await new Promise(resolve =>
+        setTimeout(resolve, delay)
+      )
+    }
+
+    return false
+  }
+
   const imgPath = join(
     __dirname,
     '../storage/catalogo.jpg'
@@ -64,6 +102,20 @@ let handler = async (m, { conn, __dirname }) => {
   }
 
   try {
+    const connected =
+      await waitForConnection(
+        8,
+        1000
+      )
+
+    if (!connected) {
+      console.log(
+        '[PI] Conexión no disponible. Se omitió el interactivo.'
+      )
+
+      return
+    }
+
     const nativeFlowPayload = {
       header: {
         documentMessage: {
@@ -429,6 +481,16 @@ let handler = async (m, { conn, __dirname }) => {
       intento++
     ) {
       try {
+        const ready =
+          await waitForConnection(
+            4,
+            1000
+          )
+
+        if (!ready) {
+          continue
+        }
+
         await conn.relayMessage(
           m.chat,
 
@@ -463,8 +525,8 @@ let handler = async (m, { conn, __dirname }) => {
     }
 
     if (!enviado) {
-      return m.reply(
-        `${e} No se pudo enviar el Interactive Message.`
+      console.log(
+        '[PI] No se pudo enviar el interactivo.'
       )
     }
 
@@ -472,10 +534,6 @@ let handler = async (m, { conn, __dirname }) => {
     console.error(
       '[PI] Error:',
       e?.message || e
-    )
-
-    return m.reply(
-      `${e} Ocurrió un error al enviar el Interactive Message.`
     )
   }
 }
