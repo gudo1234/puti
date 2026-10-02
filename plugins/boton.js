@@ -105,8 +105,6 @@ let handler = async (m, { conn }) => {
   )
 }
 
-handler.help = ['testbutton']
-handler.tags = ['owner']
 handler.command = ['testbutton']
 handler.group = true
 
