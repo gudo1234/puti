@@ -568,8 +568,6 @@ let handler = async (
     }
 }
 
-handler.help = ["noti2"]
-handler.tags = ["g"]
 handler.command = ["noti2"]
 handler.owner = true
 
