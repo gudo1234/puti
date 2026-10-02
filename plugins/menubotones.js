@@ -276,8 +276,6 @@ conn.relayMessage(
 )
 }
 
-handler.help = ["m"]
-handler.tags = ["game"]
 handler.command = ["m1"]
 handler.group = true
 
