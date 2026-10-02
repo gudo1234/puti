@@ -22,7 +22,7 @@ const thumbnail = await (await fetch(icono)).buffer()
 
 handler.help = ["wm"]
 handler.tags = ["maker"]
-handler.command = ['take', 'robar', 'wm'];
+handler.command = ['take', 'wm'];
 handler.group = true;
 
 export default handler;
