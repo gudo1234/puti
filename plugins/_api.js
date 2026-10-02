@@ -1,101 +1,148 @@
-let handler = async (m, { conn, command }) => {
-  if (command !== 'pi') return
+import fs from 'fs'
+import { join } from 'path'
+import sharp from 'sharp'
 
-  const connected = () => {
-    try {
-      if (!conn) return false
-
-      if (
-        conn.ws &&
-        typeof conn.ws.readyState === 'number'
-      ) {
-        return conn.ws.readyState === 1
-      }
-
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  const waitForConnection = async (
-    tries = 8,
-    delay = 1000
-  ) => {
-    for (let i = 0; i < tries; i++) {
-      if (connected()) return true
-
-      await new Promise(resolve =>
-        setTimeout(resolve, delay)
-      )
-    }
-
-    return false
-  }
+let handler = async (m, { conn, __dirname }) => {
+  if (m.command !== 'pi') return
 
   const channelInfo = global.channelRD || {}
   const channel = global.canal || global.redes || ''
-  const textbot = global.textbot || ''
-  const wm = global.wm || ''
+
+  const imgPath = join(
+    __dirname,
+    '../storage/catalogo.jpg'
+  )
+
+  let thumbResized = null
+
+  try {
+    if (fs.existsSync(imgPath)) {
+      const thumbLocal =
+        fs.readFileSync(imgPath)
+
+      thumbResized = await sharp(thumbLocal)
+        .resize(300, 100, {
+          fit: 'cover'
+        })
+        .jpeg()
+        .toBuffer()
+    }
+  } catch (e) {
+    console.error(
+      '[PI] Error preparando thumbnail:',
+      e?.message || e
+    )
+  }
 
   const newsletterInfo =
     channelInfo?.id
       ? {
           forwardedNewsletterMessageInfo: {
-            newsletterJid: channelInfo.id,
+            newsletterJid:
+              channelInfo.id,
+
             newsletterName:
               channelInfo.name || '',
-            serverMessageId: 1
+
+            serverMessageId:
+              1
           }
         }
       : {}
 
-  const createContextInfo = () => {
-    return {
-      ...newsletterInfo,
-      remoteJid: '@broadcast',
-      forwardingScore: 10,
-      isForwarded: true
-    }
+  const interactiveContext = {
+    ...newsletterInfo,
+
+    remoteJid:
+      '@broadcast',
+
+    forwardingScore:
+      10,
+
+    isForwarded:
+      true
   }
 
   try {
-    const isReady =
-      await waitForConnection()
-
-    if (!isReady) {
-      return m.reply(
-        `${e} Conexión no disponible.`
-      )
-    }
-
-    const run = clockString(
-      process.uptime() * 1000
-    )
-
-    const interactiveContext =
-      createContextInfo()
-
     const nativeFlowPayload = {
+      header: {
+        documentMessage: {
+          url:
+            'https://mmg.whatsapp.net/v/t62.7119-24/539012045_745537058346694_1512031191239726227_n.enc',
+
+          mimetype:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+
+          fileSha256: Buffer.from(
+            'fa09afbc207a724252bae1b764ecc7b13060440ba47a3bf59e77f01924924bfe',
+            'hex'
+          ),
+
+          fileLength: {
+            low: -727379969,
+            high: 232,
+            unsigned: true
+          },
+
+          pageCount: 0,
+
+          mediaKey: Buffer.from(
+            '3163ba7c8db6dd363c4f48bda2735cc0d0413e57567f0a758f514f282889173c',
+            'hex'
+          ),
+
+          fileName:
+            'Hola',
+
+          fileEncSha256: Buffer.from(
+            '652f2ff6d8a8dae9f5c9654e386de5c01c623fe98d81a28f63dfb0979a44a22f',
+            'hex'
+          ),
+
+          directPath:
+            '/v/t62.7119-24/539012045_745537058346694_1512031191239726227_n.enc',
+
+          mediaKeyTimestamp: {
+            low: 1756370084,
+            high: 0,
+            unsigned: false
+          },
+
+          ...(thumbResized
+            ? {
+                jpegThumbnail:
+                  thumbResized
+              }
+            : {}),
+
+          contextInfo:
+            interactiveContext
+        },
+
+        hasMediaAttachment:
+          true
+      },
+
       body: {
         text:
-          `${e} Interactive Message\n\n` +
-          `${textbot || 'Interactive'}`
+          'Hola'
       },
 
       footer: {
         text:
-          wm || `Runtime ${run}`
+          'Hola'
       },
 
       nativeFlowMessage: {
         buttons: [
           {
-            name: 'single_select',
+            name:
+              'single_select',
 
             buttonParamsJson:
               JSON.stringify({
-                has_multiple_buttons: true
+                has_multiple_buttons:
+                  true
               })
           },
 
@@ -105,12 +152,14 @@ let handler = async (m, { conn, command }) => {
 
             buttonParamsJson:
               JSON.stringify({
-                has_multiple_buttons: true
+                has_multiple_buttons:
+                  true
               })
           },
 
           {
-            name: 'single_select',
+            name:
+              'single_select',
 
             buttonParamsJson:
               JSON.stringify({
@@ -130,36 +179,44 @@ let handler = async (m, { conn, command }) => {
                         title:
                           'Owner/Creador',
 
-                        description: '',
+                        description:
+                          '',
 
-                        id: 'Edar'
+                        id:
+                          'Edar'
                       },
 
                       {
                         title:
                           'Información del Bot',
 
-                        description: '',
+                        description:
+                          '',
 
-                        id: '.info'
+                        id:
+                          '.info'
                       },
 
                       {
                         title:
                           'Reglas/Términos',
 
-                        description: '',
+                        description:
+                          '',
 
-                        id: '.reglas'
+                        id:
+                          '.reglas'
                       },
 
                       {
                         title:
                           'vcard/yo',
 
-                        description: '',
+                        description:
+                          '',
 
-                        id: '.vcar'
+                        id:
+                          '.vcar'
                       },
 
                       {
@@ -169,7 +226,8 @@ let handler = async (m, { conn, command }) => {
                         description:
                           'Velocidad del bot',
 
-                        id: '.ping'
+                        id:
+                          '.ping'
                       }
                     ]
                   }
@@ -181,7 +239,8 @@ let handler = async (m, { conn, command }) => {
           },
 
           {
-            name: 'cta_copy',
+            name:
+              'cta_copy',
 
             buttonParamsJson:
               JSON.stringify({
@@ -192,19 +251,21 @@ let handler = async (m, { conn, command }) => {
                   '123456789',
 
                 copy_code:
-                  'Código interactivo'
+                  'Hola'
               })
           },
 
           {
-            name: 'cta_url',
+            name:
+              'cta_url',
 
             buttonParamsJson:
               JSON.stringify({
                 display_text:
                   'sᴇɢᴜɪʀ ᴄᴀɴᴀʟ/ᴡᴀ',
 
-                url: channel,
+                url:
+                  channel,
 
                 merchant_url:
                   channel
@@ -284,7 +345,8 @@ let handler = async (m, { conn, command }) => {
           },
 
           {
-            name: 'cta_url',
+            name:
+              'cta_url',
 
             buttonParamsJson:
               JSON.stringify({
@@ -304,13 +366,13 @@ let handler = async (m, { conn, command }) => {
           JSON.stringify({
             limited_time_offer: {
               text:
-                `| Runtime ${run}`,
+                'Hola',
 
               url:
                 'https://github.com/edar',
 
               copy_code:
-                'Interactive',
+                'Hola',
 
               expiration_time:
                 1754613436864329
@@ -341,7 +403,7 @@ let handler = async (m, { conn, command }) => {
                 '▸ X ◂',
 
               description:
-                'Let’s go',
+                'Hola',
 
               canonical_url:
                 'https://github.com/edar',
@@ -367,14 +429,6 @@ let handler = async (m, { conn, command }) => {
       intento++
     ) {
       try {
-        const ready =
-          await waitForConnection(
-            4,
-            1000
-          )
-
-        if (!ready) continue
-
         await conn.relayMessage(
           m.chat,
 
@@ -393,14 +447,17 @@ let handler = async (m, { conn, command }) => {
         enviado = true
         break
 
-      } catch (err) {
+      } catch (e) {
         console.error(
           `[PI] Error interactivo (${intento}/3):`,
-          err?.message || err
+          e?.message || e
         )
 
         await new Promise(resolve =>
-          setTimeout(resolve, 2000)
+          setTimeout(
+            resolve,
+            2000
+          )
         )
       }
     }
@@ -411,42 +468,16 @@ let handler = async (m, { conn, command }) => {
       )
     }
 
-  } catch (err) {
+  } catch (e) {
     console.error(
       '[PI] Error:',
-      err?.message || err
+      e?.message || e
     )
 
     return m.reply(
       `${e} Ocurrió un error al enviar el Interactive Message.`
     )
   }
-}
-
-function clockString(ms) {
-  let h = isNaN(ms)
-    ? '--'
-    : Math.floor(
-        ms / 3600000
-      )
-
-  let m = isNaN(ms)
-    ? '--'
-    : Math.floor(
-        ms / 60000
-      ) % 60
-
-  let s = isNaN(ms)
-    ? '--'
-    : Math.floor(
-        ms / 1000
-      ) % 60
-
-  return [h, m, s]
-    .map(v =>
-      v.toString().padStart(2, '0')
-    )
-    .join(':')
 }
 
 handler.command = ['pi']
