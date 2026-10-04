@@ -1,8 +1,16 @@
 import fetch from 'node-fetch'
 
 const API_ENDPOINTS = [
-  'https://najemi.cz/ytdl/handler.php',
-  'https://ytdl.ga/handler.php'
+  {
+    name: 'Vexo',
+    url: 'https://vexoapi.site/api/download/ytmp3',
+    type: 'ytmp3'
+  },
+  {
+    name: 'YouTube DL CC',
+    url: 'https://jonell01-youtube-dl-ccapi-hutchin.hf.space',
+    type: 'cc'
+  }
 ]
 
 const docAudio = ['play3', 'ytadoc', 'mp3doc', 'ytmp3doc']
@@ -14,7 +22,7 @@ const normalVideo = ['play2', 'ytv', 'mp4', 'ytmp4', 'playvid']
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 
-const safeFetch = async (url, options = {}, timeout = 30000) => {
+const safeFetch = async (url, options = {}, timeout = 60000) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeout)
 
@@ -22,6 +30,7 @@ const safeFetch = async (url, options = {}, timeout = 30000) => {
     return await fetch(url, {
       ...options,
       signal: controller.signal,
+      redirect: 'follow',
       headers: {
         'User-Agent': UA,
         Accept: '*/*',
@@ -33,15 +42,16 @@ const safeFetch = async (url, options = {}, timeout = 30000) => {
   }
 }
 
-const isYoutube = url =>
-  /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/embed\/)[\w-]{11}/i.test(url)
-
 const getVideoId = url => {
   const match = url.match(
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/embed\/)([\w-]{11})/i
   )
+
   return match?.[1] || null
 }
+
+const isYoutube = url =>
+  !!getVideoId(url)
 
 const normalizeUrl = value => {
   if (!value || typeof value !== 'string') return null
@@ -53,6 +63,7 @@ const normalizeUrl = value => {
     .replace(/&amp;/g, '&')
     .replace(/\\\//g, '/')
     .replace(/^["']|["']$/g, '')
+    .replace(/[),.;]+$/g, '')
 
   if (!/^https?:\/\//i.test(url)) return null
 
@@ -62,68 +73,91 @@ const normalizeUrl = value => {
 const extractUrls = text => {
   if (!text) return []
 
-  const found = []
+  const urls = []
 
-  const patterns = [
-    /https?:\/\/[^\s"'<>\\]+/gi,
-    /https?:\\\/\\\/[^\s"'<>]+/gi
-  ]
+  const regex =
+    /https?:\\?\/\\?\/[^\s"'<>]+/gi
 
-  for (const regex of patterns) {
-    const matches = text.match(regex) || []
+  const matches = text.match(regex) || []
 
-    for (let url of matches) {
-      url = url
-        .replace(/\\u0026/g, '&')
-        .replace(/\\\//g, '/')
-        .replace(/&amp;/g, '&')
-        .replace(/[),.;]+$/g, '')
+  for (let url of matches) {
+    url = url
+      .replace(/\\\//g, '/')
+      .replace(/\\u0026/g, '&')
+      .replace(/&amp;/g, '&')
 
-      const clean = normalizeUrl(url)
+    const clean = normalizeUrl(url)
 
-      if (clean && !found.includes(clean)) {
-        found.push(clean)
-      }
+    if (clean && !urls.includes(clean)) {
+      urls.push(clean)
     }
   }
 
-  return found
+  return urls
 }
 
-const findMediaUrl = (text, type) => {
-  const urls = extractUrls(text)
+const findDownloadUrl = (data, rawText = '') => {
+  const candidates = []
 
-  if (!urls.length) return null
+  const add = value => {
+    if (typeof value !== 'string') return
 
-  const wanted = type === 'mp3'
-    ? ['.mp3', 'audio', 'mp3', 'audio/mpeg']
-    : ['.mp4', 'video', 'mp4', 'video/mp4']
+    const url = normalizeUrl(value)
 
-  const preferred = urls.find(url => {
-    const lower = url.toLowerCase()
-    return wanted.some(x => lower.includes(x))
-  })
-
-  return preferred || urls[0]
-}
-
-const parseApiResponse = async (response, type) => {
-  const contentType = response.headers.get('content-type') || ''
-
-  if (!response.ok) {
-    try {
-      const errorText = await response.text()
-      return {
-        url: null,
-        text: errorText
-      }
-    } catch {
-      return {
-        url: null,
-        text: ''
-      }
+    if (url && !candidates.includes(url)) {
+      candidates.push(url)
     }
   }
+
+  if (typeof data === 'string') {
+    add(data)
+  }
+
+  if (data && typeof data === 'object') {
+    add(data.url)
+    add(data.download)
+    add(data.download_url)
+    add(data.downloadUrl)
+    add(data.link)
+    add(data.file)
+    add(data.file_url)
+    add(data.fileUrl)
+    add(data.audio)
+    add(data.video)
+
+    if (data.data) {
+      add(data.data.url)
+      add(data.data.download)
+      add(data.data.download_url)
+      add(data.data.downloadUrl)
+      add(data.data.link)
+      add(data.data.file)
+    }
+
+    if (data.result) {
+      add(data.result.url)
+      add(data.result.download)
+      add(data.result.download_url)
+      add(data.result.downloadUrl)
+      add(data.result.link)
+      add(data.result.file)
+    }
+  }
+
+  for (const url of extractUrls(rawText)) {
+    add(url)
+  }
+
+  return candidates.find(url =>
+    /\.(mp3|mp4)(?:\?|$)/i.test(url)
+  ) || candidates.find(url =>
+    /download|audio|video|stream|media/i.test(url)
+  ) || candidates[0] || null
+}
+
+const parseResponse = async (response, type) => {
+  const contentType =
+    response.headers.get('content-type') || ''
 
   if (
     contentType.includes('audio/') ||
@@ -131,187 +165,312 @@ const parseApiResponse = async (response, type) => {
     contentType.includes('application/octet-stream')
   ) {
     return {
-      url: response.url,
       direct: true,
+      url: response.url,
       contentType
     }
   }
 
   const text = await response.text()
 
+  if (!text) {
+    return null
+  }
+
   try {
     const json = JSON.parse(text)
 
-    const candidates = [
-      json.url,
-      json.download,
-      json.download_url,
-      json.downloadUrl,
-      json.link,
-      json.file,
-      json.file_url,
-      json.fileUrl,
-      json.result,
-      json.data?.url,
-      json.data?.download,
-      json.data?.download_url,
-      json.data?.link,
-      json.data?.file,
-      json.result?.url,
-      json.result?.download,
-      json.result?.link
-    ]
+    const url = findDownloadUrl(json, text)
 
-    for (const candidate of candidates) {
-      if (typeof candidate !== 'string') continue
-
-      const clean = normalizeUrl(candidate)
-
-      if (!clean) continue
-
-      if (
-        clean.includes('.mp3') ||
-        clean.includes('.mp4') ||
-        clean.includes('download') ||
-        clean.includes('audio') ||
-        clean.includes('video') ||
-        type === 'mp3' ||
-        type === 'mp4'
-      ) {
-        return {
-          url: clean,
-          direct: false,
-          contentType
-        }
+    if (url) {
+      return {
+        direct: false,
+        url,
+        contentType
       }
     }
   } catch {}
 
-  const mediaUrl = findMediaUrl(text, type)
+  const url = findDownloadUrl(null, text)
 
-  if (mediaUrl) {
+  if (url) {
     return {
-      url: mediaUrl,
       direct: false,
+      url,
       contentType
     }
   }
 
-  return {
-    url: null,
-    text
+  if (/captcha|turnstile|cloudflare|challenge/i.test(text)) {
+    throw new Error('El servidor devolvió una verificación/CAPTCHA.')
   }
+
+  return null
 }
 
-const downloadFromApi = async (youtubeUrl, type) => {
-  const errors = []
+const vexo = async (youtubeUrl, type) => {
+  const endpoint =
+    'https://vexoapi.site/api/download/ytmp3'
 
-  for (const endpoint of API_ENDPOINTS) {
+  const url =
+    `${endpoint}?url=${encodeURIComponent(youtubeUrl)}`
+
+  const response = await safeFetch(
+    url,
+    {
+      method: 'GET'
+    },
+    90000
+  )
+
+  if (!response.ok) {
+    throw new Error(
+      `Vexo HTTP ${response.status}`
+    )
+  }
+
+  const result =
+    await parseResponse(response, type)
+
+  if (!result?.url) {
+    throw new Error(
+      'Vexo no devolvió un enlace multimedia.'
+    )
+  }
+
+  return result
+}
+
+const ccApi = async (youtubeUrl, type) => {
+  const endpoint =
+    'https://jonell01-youtube-dl-ccapi-hutchin.hf.space'
+
+  const possibleUrls = [
+    `${endpoint}/?url=${encodeURIComponent(youtubeUrl)}&type=${type}`,
+    `${endpoint}/download?url=${encodeURIComponent(youtubeUrl)}&type=${type}`,
+    `${endpoint}/api/download?url=${encodeURIComponent(youtubeUrl)}&type=${type}`
+  ]
+
+  let lastError = null
+
+  for (const url of possibleUrls) {
     try {
-      const apiUrl =
-        `${endpoint}?url=${encodeURIComponent(youtubeUrl)}&format=${type}`
+      const response = await safeFetch(
+        url,
+        {
+          method: 'GET'
+        },
+        120000
+      )
 
-      const response = await safeFetch(apiUrl, {
-        method: 'GET',
-        redirect: 'follow'
-      }, 45000)
+      if (!response.ok) {
+        lastError =
+          new Error(`CC API HTTP ${response.status}`)
 
-      const result = await parseApiResponse(response, type)
-
-      if (result.url) {
-        return result
+        continue
       }
 
-      errors.push(`${endpoint}: respuesta sin enlace`)
+      const result =
+        await parseResponse(response, type)
+
+      if (result?.url) {
+        return result
+      }
     } catch (e) {
-      errors.push(`${endpoint}: ${e.message}`)
+      lastError = e
     }
   }
 
-  throw new Error(errors.join('\n'))
+  throw lastError ||
+    new Error('CC API no respondió correctamente.')
+}
+
+const downloadFromApis = async (youtubeUrl, type) => {
+  const errors = []
+
+  try {
+    const result =
+      await vexo(youtubeUrl, type)
+
+    return {
+      ...result,
+      provider: 'Vexo'
+    }
+  } catch (e) {
+    errors.push(`Vexo: ${e.message}`)
+  }
+
+  try {
+    const result =
+      await ccApi(youtubeUrl, type)
+
+    return {
+      ...result,
+      provider: 'YouTube DL CC'
+    }
+  } catch (e) {
+    errors.push(`YouTube DL CC: ${e.message}`)
+  }
+
+  throw new Error(
+    errors.join('\n')
+  )
 }
 
 const getInfo = async youtubeUrl => {
   const id = getVideoId(youtubeUrl)
 
-  if (!id) {
-    return {
-      title: 'YouTube',
-      thumbnail: `https://i.ytimg.com/vi/${id || 'dQw4w9WgXcQ'}/hqdefault.jpg`
-    }
+  const fallback = {
+    title: 'YouTube',
+    author: '',
+    thumbnail:
+      `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
   }
 
   try {
-    const oembed =
+    const url =
       `https://www.youtube.com/oembed?url=${encodeURIComponent(youtubeUrl)}&format=json`
 
-    const response = await safeFetch(oembed, {
-      method: 'GET'
-    }, 15000)
+    const response =
+      await safeFetch(
+        url,
+        {},
+        15000
+      )
 
-    if (response.ok) {
-      const data = await response.json()
-
-      return {
-        title: data.title || 'YouTube',
-        author: data.author_name || '',
-        thumbnail:
-          data.thumbnail_url ||
-          `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
-      }
+    if (!response.ok) {
+      return fallback
     }
-  } catch {}
 
-  return {
-    title: 'YouTube',
-    author: '',
-    thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
+    const data =
+      await response.json()
+
+    return {
+      title:
+        data.title ||
+        fallback.title,
+
+      author:
+        data.author_name ||
+        '',
+
+      thumbnail:
+        data.thumbnail_url ||
+        fallback.thumbnail
+    }
+  } catch {
+    return fallback
   }
 }
 
-const getYoutubeUrlFromText = text => {
-  if (!text) return null
+const downloadMedia = async (url, type) => {
+  const response =
+    await safeFetch(
+      url,
+      {
+        method: 'GET'
+      },
+      180000
+    )
 
-  const match = text.match(
-    /https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=[\w-]{11}[^\s]*|youtu\.be\/[\w-]{11}[^\s]*|youtube\.com\/shorts\/[\w-]{11}[^\s]*)/i
-  )
+  if (!response.ok) {
+    throw new Error(
+      `El servidor multimedia respondió HTTP ${response.status}`
+    )
+  }
 
-  return match?.[0] || null
+  const contentType =
+    response.headers.get('content-type') || ''
+
+  if (
+    !contentType.includes('audio') &&
+    !contentType.includes('video') &&
+    !contentType.includes('octet-stream')
+  ) {
+    const text =
+      await response.text()
+
+    if (
+      /captcha|turnstile|cloudflare|challenge/i.test(text)
+    ) {
+      throw new Error(
+        'El enlace devolvió una verificación/CAPTCHA.'
+      )
+    }
+
+    throw new Error(
+      `La URL no devolvió ${type.toUpperCase()}.`
+    )
+  }
+
+  const buffer =
+    Buffer.from(
+      await response.arrayBuffer()
+    )
+
+  if (!buffer.length) {
+    throw new Error(
+      'El archivo recibido está vacío.'
+    )
+  }
+
+  return {
+    buffer,
+    contentType
+  }
 }
 
-let handler = async (m, { conn, usedPrefix, command, args, text }) => {
-  const cmd = command.toLowerCase()
+let handler = async (
+  m,
+  {
+    conn,
+    usedPrefix,
+    command,
+    args,
+    text
+  }
+) => {
+  const cmd =
+    command.toLowerCase()
 
-  let query = text?.trim()
+  let query =
+    text?.trim()
 
   if (!query && args?.length) {
-    query = args.join(' ').trim()
+    query =
+      args.join(' ').trim()
   }
 
   if (!query) {
     return m.reply(
       `╭━━〔 🎵 ᴅᴇsᴄᴀʀɢᴀʀ ʏᴏᴜᴛᴜʙᴇ 〕━━⬣\n` +
       `┃\n` +
-      `┃ ✦ Ejemplo:\n` +
+      `┃ ✦ Envía un enlace de YouTube\n` +
+      `┃\n` +
+      `┃ Ejemplo:\n` +
       `┃ ${usedPrefix + command} https://youtu.be/VIDEO\n` +
       `┃\n` +
       `╰━━━━━━━━━━━━━━━━⬣`
     )
   }
 
-  const youtubeUrl = getYoutubeUrlFromText(query)
+  const match =
+    query.match(
+      /https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=[\w-]{11}[^\s]*|youtu\.be\/[\w-]{11}[^\s]*|youtube\.com\/shorts\/[\w-]{11}[^\s]*)/i
+    )
 
-  if (!youtubeUrl || !isYoutube(youtubeUrl)) {
+  const youtubeUrl =
+    match?.[0] || null
+
+  if (
+    !youtubeUrl ||
+    !isYoutube(youtubeUrl)
+  ) {
     return m.reply(
       `❌ Envía un enlace válido de YouTube.\n\n` +
-      `Ejemplo:\n${usedPrefix + command} https://youtu.be/VIDEO`
+      `Ejemplo:\n` +
+      `${usedPrefix + command} https://youtu.be/VIDEO`
     )
-  }
-
-  const videoId = getVideoId(youtubeUrl)
-
-  if (!videoId) {
-    return m.reply('❌ No pude obtener el ID del video de YouTube.')
   }
 
   let type = 'mp3'
@@ -320,153 +479,146 @@ let handler = async (m, { conn, usedPrefix, command, args, text }) => {
   if (docAudio.includes(cmd)) {
     type = 'mp3'
     asDocument = true
-  } else if (docVideo.includes(cmd)) {
+  }
+
+  if (docVideo.includes(cmd)) {
     type = 'mp4'
     asDocument = true
-  } else if (normalVideo.includes(cmd)) {
+  }
+
+  if (normalVideo.includes(cmd)) {
     type = 'mp4'
-  } else if (normalAudio.includes(cmd)) {
+  }
+
+  if (normalAudio.includes(cmd)) {
     type = 'mp3'
   }
 
   await m.reply(
     type === 'mp3'
-      ? '⏳ Procesando el audio...'
-      : '⏳ Procesando el video...'
+      ? '⏳ *Procesando audio...*'
+      : '⏳ *Procesando video...*'
   )
 
   try {
-    const info = await getInfo(youtubeUrl)
+    const info =
+      await getInfo(youtubeUrl)
 
-    const result = await downloadFromApi(youtubeUrl, type)
+    const result =
+      await downloadFromApis(
+        youtubeUrl,
+        type
+      )
 
     if (!result?.url) {
-      throw new Error('No se obtuvo una URL multimedia válida.')
+      throw new Error(
+        'No se obtuvo una URL de descarga.'
+      )
     }
+
+    let media
+
+    if (result.direct) {
+      media = await downloadMedia(
+        result.url,
+        type
+      )
+    } else {
+      media = await downloadMedia(
+        result.url,
+        type
+      )
+    }
+
+    const cleanTitle =
+      (info.title || 'youtube')
+        .replace(
+          /[\\/:*?"<>|]/g,
+          ''
+        )
+        .slice(0, 150)
+
+    const filename =
+      `${cleanTitle}.${type}`
 
     const caption =
       `╭━━〔 🎵 ʏᴏᴜᴛᴜʙᴇ 〕━━⬣\n` +
       `┃\n` +
       `┃ 🎬 *${info.title || 'YouTube'}*\n` +
       `┃ ${type === 'mp3' ? '🎧 Audio MP3' : '🎥 Video MP4'}\n` +
+      `┃ ⚡ ${result.provider}\n` +
       `┃\n` +
       `╰━━━━━━━━━━━━━━━━⬣`
-
-    if (result.direct) {
-      await conn.sendMessage(
-        m.chat,
-        {
-          [type === 'mp3' ? 'audio' : 'video']: {
-            url: result.url
-          },
-          mimetype: type === 'mp3' ? 'audio/mpeg' : 'video/mp4',
-          fileName:
-            `${(info.title || 'youtube').replace(/[\\/:*?"<>|]/g, '')}.${type}`,
-          caption: asDocument ? undefined : caption,
-          ...(asDocument ? { document: undefined } : {})
-        },
-        { quoted: m }
-      )
-
-      if (asDocument) {
-        await conn.sendMessage(
-          m.chat,
-          {
-            document: {
-              url: result.url
-            },
-            mimetype: type === 'mp3'
-              ? 'audio/mpeg'
-              : 'video/mp4',
-            fileName:
-              `${(info.title || 'youtube').replace(/[\\/:*?"<>|]/g, '')}.${type}`,
-            caption
-          },
-          { quoted: m }
-        )
-      }
-
-      return
-    }
-
-    const mediaResponse = await safeFetch(
-      result.url,
-      {
-        method: 'GET',
-        redirect: 'follow'
-      },
-      120000
-    )
-
-    if (!mediaResponse.ok) {
-      throw new Error(
-        `El servidor multimedia respondió HTTP ${mediaResponse.status}`
-      )
-    }
-
-    const contentType =
-      mediaResponse.headers.get('content-type') || ''
-
-    if (
-      !contentType.includes('audio') &&
-      !contentType.includes('video') &&
-      !contentType.includes('octet-stream')
-    ) {
-      const body = await mediaResponse.text()
-
-      if (/captcha|turnstile|cloudflare|challenge/i.test(body)) {
-        throw new Error(
-          'El endpoint devolvió una verificación/CAPTCHA en lugar del archivo.'
-        )
-      }
-
-      throw new Error(
-        'El enlace obtenido no devolvió un archivo multimedia.'
-      )
-    }
-
-    const buffer = Buffer.from(await mediaResponse.arrayBuffer())
-
-    if (!buffer.length) {
-      throw new Error('El archivo recibido está vacío.')
-    }
-
-    const filename =
-      `${(info.title || 'youtube').replace(/[\\/:*?"<>|]/g, '')}.${type}`
 
     if (asDocument) {
       await conn.sendMessage(
         m.chat,
         {
-          document: buffer,
-          mimetype: type === 'mp3'
-            ? 'audio/mpeg'
-            : 'video/mp4',
-          fileName: filename,
+          document:
+            media.buffer,
+
+          mimetype:
+            type === 'mp3'
+              ? 'audio/mpeg'
+              : 'video/mp4',
+
+          fileName:
+            filename,
+
           caption
         },
-        { quoted: m }
+        {
+          quoted: m
+        }
       )
-    } else {
+
+      return
+    }
+
+    if (type === 'mp3') {
       await conn.sendMessage(
         m.chat,
-        type === 'mp3'
-          ? {
-              audio: buffer,
-              mimetype: 'audio/mpeg',
-              fileName: filename
-            }
-          : {
-              video: buffer,
-              mimetype: 'video/mp4',
-              fileName: filename,
-              caption
-            },
-        { quoted: m }
+        {
+          audio:
+            media.buffer,
+
+          mimetype:
+            'audio/mpeg',
+
+          fileName:
+            filename
+        },
+        {
+          quoted: m
+        }
       )
+
+      return
     }
+
+    await conn.sendMessage(
+      m.chat,
+      {
+        video:
+          media.buffer,
+
+        mimetype:
+          'video/mp4',
+
+        fileName:
+          filename,
+
+        caption
+      },
+      {
+        quoted: m
+      }
+    )
   } catch (e) {
-    console.error('[YOUTUBE]', e)
+    console.error(
+      '[YOUTUBE]',
+      e
+    )
 
     await m.reply(
       `❌ *No se pudo descargar el contenido.*\n\n` +
@@ -496,7 +648,9 @@ handler.help = [
   'ytmp4doc'
 ]
 
-handler.tags = ['downloader']
+handler.tags = [
+  'downloader'
+]
 
 handler.command = [
   'play',
