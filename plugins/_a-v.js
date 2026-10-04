@@ -178,7 +178,6 @@ try {
 const locationMessage = {
   degreesLatitude: 0,
   degreesLongitude: 0,
-
   name: `🎧 ${title}`,
 
   address:
@@ -228,6 +227,8 @@ const mod = await import("yt-dlp-wrap-plus")
 const YTDlpWrap = mod.default?.default || mod.default || mod
 
 const fs = await import("fs")
+const os = await import("os")
+const path = await import("path")
 
 const bin = "./yt-dlp"
 const cookies = "/home/container/cookies.txt"
@@ -244,42 +245,48 @@ if (!fs.existsSync(cookies)) {
   )
 }
 
-const extension = isAudio ? "mp3" : "mp4"
+const tmpDir = os.tmpdir()
 
-const fileName =
-  `${cleanFileName(title)}.${extension}`
+const prefix = "yt-"
 
-tmp = `/tmp/yt-${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`
+try {
+  for (const file of fs.readdirSync(tmpDir)) {
+    if (file.startsWith(prefix)) {
+      try {
+        fs.unlinkSync(path.join(tmpDir, file))
+      } catch {}
+    }
+  }
+} catch {}
+
+const extension = isAudio
+  ? "mp3"
+  : "mp4"
+
+tmp = path.join(
+  tmpDir,
+  `yt-${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`
+)
 
 const ytDlp = new YTDlpWrap(bin)
 
 const format = isAudio
   ? "bestaudio/best"
-  : "best[ext=mp4]/best"
+  : "best[ext=mp4][height<=720]/best[height<=720]/best"
 
 const options = [
   url,
-
   "--no-playlist",
-
   "--cookies",
   cookies,
-
   "--js-runtimes",
   "node",
-
   "--remote-components",
   "ejs:github",
-
   "-f",
   format,
-
   "--no-warnings",
-
-  "--newline",
-
-  "-o",
-  tmp
+  "--newline"
 ]
 
 if (isAudio) {
@@ -288,7 +295,7 @@ if (isAudio) {
     "--audio-format",
     "mp3",
     "--audio-quality",
-    "0"
+    "5"
   )
 } else {
   options.push(
@@ -297,7 +304,40 @@ if (isAudio) {
   )
 }
 
-await ytDlp.execPromise(options)
+options.push(
+  "-o",
+  tmp
+)
+
+try {
+  await ytDlp.execPromise(options)
+} catch (error) {
+
+  const raw =
+    error?.stderr ||
+    error?.message ||
+    String(error)
+
+  if (
+    /No space left on device/i.test(raw) ||
+    /Errno 28/i.test(raw)
+  ) {
+    throw new Error(
+      "El servidor se quedó sin espacio durante la descarga."
+    )
+  }
+
+  if (
+    /Sign in to confirm/i.test(raw) ||
+    /not a bot/i.test(raw)
+  ) {
+    throw new Error(
+      "YouTube rechazó la solicitud. Las cookies necesitan actualizarse."
+    )
+  }
+
+  throw new Error(raw)
+}
 
 if (!fs.existsSync(tmp)) {
   throw new Error(
@@ -305,17 +345,28 @@ if (!fs.existsSync(tmp)) {
   )
 }
 
-const buffer = fs.readFileSync(tmp)
+const stat = fs.statSync(tmp)
 
-if (!buffer?.length) {
+if (!stat.size) {
   throw new Error(
     "El archivo descargado está vacío."
+  )
+}
+
+const buffer = fs.readFileSync(tmp)
+
+if (!buffer.length) {
+  throw new Error(
+    "No se pudo leer el archivo descargado."
   )
 }
 
 const mimetype = isAudio
   ? "audio/mpeg"
   : "video/mp4"
+
+const fileName =
+  `${cleanFileName(title)}.${extension}`
 
 const msgMedia = sendDoc
   ? {
@@ -372,13 +423,12 @@ console.error(
 
 await m.react("✖️")
 
-const detalle =
-  error?.stderr ||
+const mensaje =
   error?.message ||
   String(error)
 
 return m.reply(
-  `${e} No se pudo procesar la descarga.\n\n> ${detalle}`
+  `${e} No se pudo procesar la descarga.\n\n> ${mensaje}`
 )
 
 }
