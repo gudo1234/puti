@@ -5,7 +5,7 @@ const TUNELIO_API = 'https://tunelio.dev'
 const TUNELIO_API_KEY =
   process.env.TUNELIO_API_KEY ||
   global.TUNELIO_API_KEY ||
-  'tnl_Drlt…n3OM'
+  'tnl_7d8s4-IpR_JkwcdymMe__6yEoOquHYPDKew5NLiMxsw'
 
 const MAX_DURATION = 20 * 60 // 20 minutos
 const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100 MB
