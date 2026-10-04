@@ -33,25 +33,19 @@ const safeFetch = async (url, options = {}) => {
 const crearStream = (url, formato) => {
   const source = ytDlp.execStream([
     url,
-
     "--no-playlist",
     "--no-cache-dir",
     "--no-part",
-
     "--cookies",
     "/home/container/cookies.txt",
-
     "--js-runtimes",
     "node",
     "--remote-components",
     "ejs:github",
-
     "--no-warnings",
     "--quiet",
-
     "-f",
     formato,
-
     "-o",
     "-"
   ])
@@ -59,7 +53,6 @@ const crearStream = (url, formato) => {
   const pass = new PassThrough()
 
   let bytes = 0
-  let sourceError = null
   let terminado = false
 
   source.on("data", chunk => {
@@ -67,8 +60,6 @@ const crearStream = (url, formato) => {
   })
 
   source.on("error", error => {
-    sourceError = error
-
     if (
       error?.code === "ERR_STREAM_PREMATURE_CLOSE" &&
       bytes > 0
@@ -116,13 +107,19 @@ const crearStream = (url, formato) => {
   pass.on("error", () => {})
 
   pass._ytDlpSource = source
-  pass._ytDlpError = () => sourceError
   pass._ytDlpBytes = () => bytes
 
   return pass
 }
 
-const handler = async (m, { conn, text, usedPrefix, command, args }) => {
+const crearMedia = (url, formato) => {
+  return {
+    stream: crearStream(url, formato),
+    replay: () => crearStream(url, formato)
+  }
+}
+
+const handler = async (m, { conn, text, command, args }) => {
 
   const docAudio = [
     "play3",
@@ -178,8 +175,6 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
 
   await m.react("🕒")
 
-  let stream = null
-
   try {
 
     const query = args.join(" ")
@@ -222,7 +217,8 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
         0
       )
 
-    const mins = toSeconds(duration) / 60
+    const seconds = toSeconds(duration)
+    const mins = seconds / 60
 
     const sendDoc =
       mins > 20 ||
@@ -318,19 +314,23 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
 
     if (isAudio) {
 
-      stream = crearStream(
+      const media = crearMedia(
         url,
         "bestaudio[ext=m4a]"
       )
 
-      if (sendDoc) {
+      const contenido = {
+        ...media,
+        mimetype: "audio/mp4",
+        fileName: `${title}.m4a`,
+        seconds
+      }
 
+      if (sendDoc) {
         await conn.sendMessage(
           m.chat,
           {
-            document: {
-              stream
-            },
+            document: contenido,
             mimetype: "audio/mp4",
             fileName: `${title}.m4a`
           },
@@ -338,15 +338,11 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
             quoted: m
           }
         )
-
       } else {
-
         await conn.sendMessage(
           m.chat,
           {
-            audio: {
-              stream
-            },
+            audio: contenido,
             mimetype: "audio/mp4",
             fileName: `${title}.m4a`
           },
@@ -358,19 +354,25 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
 
     } else {
 
-      stream = crearStream(
+      const media = crearMedia(
         url,
         "best[ext=mp4][height<=720]/best[height<=720]"
       )
 
-      if (sendDoc) {
+      const contenido = {
+        ...media,
+        mimetype: "video/mp4"
+      }
 
+      if (thumb) {
+        contenido.jpegThumbnail = thumb
+      }
+
+      if (sendDoc) {
         await conn.sendMessage(
           m.chat,
           {
-            document: {
-              stream
-            },
+            document: contenido,
             mimetype: "video/mp4",
             fileName: `${title}.mp4`
           },
@@ -378,16 +380,11 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
             quoted: m
           }
         )
-
       } else {
-
         await conn.sendMessage(
           m.chat,
           {
-            video: {
-              stream
-            },
-            mimetype: "video/mp4"
+            video: contenido
           },
           {
             quoted: m
@@ -443,7 +440,6 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
     )
 
   } finally {
-
     descargaActiva = false
   }
 }
@@ -480,6 +476,7 @@ handler.command = [
   "play4",
   "ytvdoc",
   "mp4doc",
+  "ytvdoc",
   "ytmp4doc"
 ]
 
