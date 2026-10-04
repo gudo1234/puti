@@ -33,8 +33,8 @@ const getYouTubeUrl = async (query) => {
   if (isYouTubeUrl(query)) return query
 
   const url = `${YT1Z}?searchQuery=${encodeURIComponent(query)}`
-  const res = await safeFetch(url)
 
+  const res = await safeFetch(url)
   if (!res) return null
 
   const html = await res.text()
@@ -60,8 +60,8 @@ const getYouTubeUrl = async (query) => {
 
 const getDownload = async (youtubeUrl, type) => {
   const url = `${YT1Z}?videoLink=${encodeURIComponent(youtubeUrl)}`
-  const res = await safeFetch(url)
 
+  const res = await safeFetch(url)
   if (!res) return null
 
   const html = await res.text()
@@ -110,17 +110,17 @@ let handler = async (m, { conn, usedPrefix, command }) => {
     return m.reply(
       `❌ Escribe el nombre o URL del video.\n\n` +
       `Ejemplos:\n` +
-      `${usedPrefix}audioo Diles\n` +
-      `${usedPrefix}videoo Diles\n` +
-      `${usedPrefix}audioo https://youtu.be/xxxxx\n` +
-      `${usedPrefix}videoo https://youtu.be/xxxxx`
+      `${usedPrefix}audio Diles\n` +
+      `${usedPrefix}video Diles\n` +
+      `${usedPrefix}audio https://youtu.be/xxxxx\n` +
+      `${usedPrefix}video https://youtu.be/xxxxx`
     )
   }
 
   await m.react("⌛")
 
   try {
-    const type = command.toLowerCase() === "audioo"
+    const type = command.toLowerCase() === "audio"
       ? "audio"
       : "video"
 
@@ -192,6 +192,6 @@ let handler = async (m, { conn, usedPrefix, command }) => {
   }
 }
 
-handler.command = ["audioo", "videoo"]
+handler.command = ["audio", "video"]
 
 export default handler
