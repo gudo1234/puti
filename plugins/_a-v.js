@@ -1,11 +1,36 @@
-import fetch from "node-fetch"
+import fetch from 'node-fetch'
 
-const YT1Z = "https://yt1z.top"
+const YT1Z = 'https://yt1z.top'
 
-const docAudio = ['play3', 'ytadoc', 'mp3doc', 'ytmp3doc']
-const docVideo = ['play4', 'ytvdoc', 'mp4doc', 'ytmp4doc']
-const normalAudio = ['play', 'yta', 'mp3', 'ytmp3', 'playaudio']
-const normalVideo = ['play2', 'ytv', 'mp4', 'ytmp4', 'playvid']
+const docAudio = [
+  'play3',
+  'ytadoc',
+  'mp3doc',
+  'ytmp3doc'
+]
+
+const docVideo = [
+  'play4',
+  'ytvdoc',
+  'mp4doc',
+  'ytmp4doc'
+]
+
+const normalAudio = [
+  'play',
+  'yta',
+  'mp3',
+  'ytmp3',
+  'playaudio'
+]
+
+const normalVideo = [
+  'play2',
+  'ytv',
+  'mp4',
+  'ytmp4',
+  'playvid'
+]
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
@@ -13,6 +38,10 @@ const USER_AGENT =
 const logYT1Z = (stage, data = '') => {
   console.log(`[YT1Z] ${stage}`, data)
 }
+
+/* =========================================================
+ * FETCH
+ * ========================================================= */
 
 const safeFetch = async (
   url,
@@ -22,8 +51,7 @@ const safeFetch = async (
   let timer
 
   try {
-    const controller =
-      new AbortController()
+    const controller = new AbortController()
 
     timer = setTimeout(
       () => controller.abort(),
@@ -32,16 +60,22 @@ const safeFetch = async (
 
     const headers = {
       'User-Agent': USER_AGENT,
-      'Accept':
+
+      Accept:
         'text/html,application/xhtml+xml,application/json,*/*;q=0.8',
+
       'Accept-Language':
         'en-US,en;q=0.9',
+
       'Cache-Control':
         'no-cache',
-      'Pragma':
+
+      Pragma:
         'no-cache',
-      'Referer':
+
+      Referer:
         `${YT1Z}/`,
+
       ...(options.headers || {})
     }
 
@@ -50,14 +84,17 @@ const safeFetch = async (
       url
     )
 
-    const res =
-      await fetch(url, {
+    const res = await fetch(
+      url,
+      {
         ...options,
         headers,
         signal:
           controller.signal,
-        redirect: 'follow'
-      })
+        redirect:
+          'follow'
+      }
+    )
 
     logYT1Z(
       'RESPONSE',
@@ -83,7 +120,8 @@ const safeFetch = async (
       'FETCH ERROR',
       err?.name === 'AbortError'
         ? 'TIMEOUT'
-        : err?.message || err
+        : err?.message ||
+          String(err)
     )
 
     return null
@@ -95,7 +133,13 @@ const safeFetch = async (
   }
 }
 
-const htmlDecode = (str = '') => {
+/* =========================================================
+ * HTML / JS DECODING
+ * ========================================================= */
+
+const htmlDecode = (
+  str = ''
+) => {
   return String(str)
     .replace(
       /&amp;/gi,
@@ -156,7 +200,10 @@ const htmlDecode = (str = '') => {
       /&#x([0-9a-f]+);/gi,
       (_, n) => {
         const code =
-          parseInt(n, 16)
+          parseInt(
+            n,
+            16
+          )
 
         return Number.isFinite(code)
           ? String.fromCharCode(code)
@@ -165,7 +212,9 @@ const htmlDecode = (str = '') => {
     )
 }
 
-const decodeJs = (str = '') => {
+const decodeJs = (
+  str = ''
+) => {
   let value =
     String(str)
 
@@ -212,7 +261,7 @@ const decodeJs = (str = '') => {
           '%'
         )
         .replace(
-          /\\\//g,
+          /\\\\\//g,
           '/'
         )
         .replace(
@@ -228,7 +277,9 @@ const decodeJs = (str = '') => {
           '\\'
         )
 
-    if (value === old) {
+    if (
+      value === old
+    ) {
       break
     }
   }
@@ -236,7 +287,9 @@ const decodeJs = (str = '') => {
   return value
 }
 
-const cleanText = (str = '') => {
+const cleanText = (
+  str = ''
+) => {
   return htmlDecode(str)
     .replace(
       /<script[\s\S]*?<\/script>/gi,
@@ -256,6 +309,10 @@ const cleanText = (str = '') => {
     )
     .trim()
 }
+
+/* =========================================================
+ * URL HELPERS
+ * ========================================================= */
 
 const absoluteUrl = value => {
   if (!value) {
@@ -306,9 +363,26 @@ const absoluteUrl = value => {
 }
 
 const isYouTubeUrl = url => {
-  return /(?:youtube\.com|youtu\.be)/i.test(
-    String(url || '')
-  )
+  try {
+    const parsed =
+      new URL(
+        String(url || '')
+      )
+
+    return (
+      /(?:^|\.)youtube\.com$/i.test(
+        parsed.hostname
+      ) ||
+      /(?:^|\.)youtu\.be$/i.test(
+        parsed.hostname
+      )
+    )
+
+  } catch {
+    return /(?:youtube\.com|youtu\.be)/i.test(
+      String(url || '')
+    )
+  }
 }
 
 const isBadAsset = url => {
@@ -345,18 +419,121 @@ const isPossibleDownload = url => {
     return false
   }
 
+  /*
+   * Evitar interpretar infraestructura
+   * de Cloudflare/Turnstile como archivo.
+   */
+  if (
+    /(?:challenges\.cloudflare\.com|cloudflare\.com\/turnstile)/i.test(
+      value
+    )
+  ) {
+    return false
+  }
+
   return /^https?:\/\//i.test(
     value
   )
 }
+
+/* =========================================================
+ * YOUTUBE VIDEO ID
+ * ========================================================= */
 
 const getVideoId = text => {
   const value =
     String(text || '')
       .trim()
 
+  try {
+    const parsed =
+      new URL(value)
+
+    const host =
+      parsed.hostname.toLowerCase()
+
+    /*
+     * https://youtu.be/VIDEO_ID
+     */
+    if (
+      host === 'youtu.be' ||
+      host.endsWith('.youtu.be')
+    ) {
+      const id =
+        parsed.pathname
+          .split('/')
+          .filter(Boolean)[0]
+
+      return /^[a-zA-Z0-9_-]{11}$/.test(
+        id || ''
+      )
+        ? id
+        : null
+    }
+
+    /*
+     * youtube.com
+     * youtube.com/watch?v=
+     * youtube.com/embed/
+     * youtube.com/shorts/
+     * youtube.com/live/
+     * youtube.com/v/
+     */
+    if (
+      host === 'youtube.com' ||
+      host.endsWith('.youtube.com')
+    ) {
+      const watchId =
+        parsed.searchParams.get(
+          'v'
+        )
+
+      if (
+        watchId &&
+        /^[a-zA-Z0-9_-]{11}$/.test(
+          watchId
+        )
+      ) {
+        return watchId
+      }
+
+      const parts =
+        parsed.pathname
+          .split('/')
+          .filter(Boolean)
+
+      const supported =
+        [
+          'embed',
+          'shorts',
+          'live',
+          'v'
+        ]
+
+      const index =
+        supported.indexOf(
+          parts[0]
+        )
+
+      if (
+        index !== -1 &&
+        /^[a-zA-Z0-9_-]{11}$/.test(
+          parts[index + 1] || ''
+        )
+      ) {
+        return parts[index + 1]
+      }
+    }
+
+  } catch {}
+
+  /*
+   * Fallback para texto que contiene
+   * una URL de YouTube.
+   */
   const patterns = [
     /(?:youtube\.com\/(?:watch\?(?:[^#\s]*&)?v=|embed\/|shorts\/|live\/|v\/))([a-zA-Z0-9_-]{11})/i,
+
     /(?:youtu\.be\/)([a-zA-Z0-9_-]{11})/i
   ]
 
@@ -364,9 +541,13 @@ const getVideoId = text => {
     const regex of patterns
   ) {
     const match =
-      value.match(regex)
+      value.match(
+        regex
+      )
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
       return match[1]
     }
   }
@@ -374,23 +555,32 @@ const getVideoId = text => {
   return null
 }
 
+/* =========================================================
+ * SEARCH
+ * ========================================================= */
+
 const searchYT1Z = async query => {
   const res =
     await safeFetch(
       `${YT1Z}/s/`,
       {
         method: 'POST',
+
         headers: {
           'Content-Type':
             'application/x-www-form-urlencoded',
-          'Origin':
+
+          Origin:
             YT1Z,
-          'Referer':
+
+          Referer:
             `${YT1Z}/`
         },
+
         body:
           new URLSearchParams({
-            search: query
+            search:
+              query
           }).toString()
       },
       60000
@@ -407,7 +597,10 @@ const searchYT1Z = async query => {
 
   logYT1Z(
     'SEARCH BODY',
-    raw.slice(0, 500)
+    raw.slice(
+      0,
+      500
+    )
   )
 
   if (!raw) {
@@ -416,12 +609,22 @@ const searchYT1Z = async query => {
     )
   }
 
-  let json = null
+  let json =
+    null
 
+  /*
+   * Primero intentamos JSON puro.
+   */
   try {
     json =
-      JSON.parse(raw)
+      JSON.parse(
+        raw
+      )
   } catch {
+    /*
+     * Fallback para respuestas
+     * que tengan texto antes del JSON.
+     */
     const start =
       raw.indexOf('[')
 
@@ -445,7 +648,9 @@ const searchYT1Z = async query => {
     }
   }
 
-  if (!Array.isArray(json)) {
+  if (
+    !Array.isArray(json)
+  ) {
     throw new Error(
       'SEARCH_INVALID_JSON'
     )
@@ -453,7 +658,8 @@ const searchYT1Z = async query => {
 
   return json
     .filter(
-      item => item?.videoId
+      item =>
+        item?.videoId
     )
     .map(item => {
       const videoId =
@@ -463,32 +669,49 @@ const searchYT1Z = async query => {
 
       return {
         videoId,
+
         title:
           cleanText(
             item.title || ''
           ),
+
         url:
           `https://youtu.be/${videoId}`,
+
         thumbnail:
           `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`
       }
     })
     .filter(
-      item => item.videoId
+      item =>
+        /^[a-zA-Z0-9_-]{11}$/.test(
+          item.videoId
+        )
     )
 }
+
+/* =========================================================
+ * HTML INFO
+ * ========================================================= */
 
 const extractMeta = (
   html,
   key
 ) => {
+  const escapedKey =
+    key.replace(
+      /[.*+?^${}()|[\]\\]/g,
+      '\\$&'
+    )
+
   const patterns = [
     new RegExp(
-      `<meta[^>]+(?:property|name)=["']${key}["'][^>]+content=["']([^"']+)["'][^>]*>`,
+      `<meta[^>]+(?:property|name)=["']${escapedKey}["'][^>]+content=["']([^"']+)["'][^>]*>`,
       'i'
     ),
+
     new RegExp(
-      `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${key}["'][^>]*>`,
+      `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escapedKey}["'][^>]*>`,
       'i'
     )
   ]
@@ -497,9 +720,13 @@ const extractMeta = (
     const regex of patterns
   ) {
     const match =
-      html.match(regex)
+      html.match(
+        regex
+      )
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
       return cleanText(
         match[1]
       )
@@ -514,17 +741,27 @@ const extractTagText = (
   tag,
   className
 ) => {
+  const escapedClass =
+    className.replace(
+      /[.*+?^${}()|[\]\\]/g,
+      '\\$&'
+    )
+
   const regex =
     new RegExp(
-      `<${tag}[^>]*class=["'][^"']*\\b${className}\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/${tag}>`,
+      `<${tag}[^>]*class=["'][^"']*\\b${escapedClass}\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/${tag}>`,
       'i'
     )
 
   const match =
-    html.match(regex)
+    html.match(
+      regex
+    )
 
   return match
-    ? cleanText(match[1])
+    ? cleanText(
+        match[1]
+      )
     : ''
 }
 
@@ -535,25 +772,30 @@ const extractInfo = html => {
         html,
         'og:title'
       ) ||
+
       extractMeta(
         html,
         'twitter:title'
       ) ||
+
       extractTagText(
         html,
         'h1',
         'dl-title'
       ) ||
+
       extractTagText(
         html,
         'h2',
         'dl-title'
       ) ||
+
       extractTagText(
         html,
         'div',
         'dl-title'
       ) ||
+
       '',
 
     thumbnail:
@@ -561,10 +803,12 @@ const extractInfo = html => {
         html,
         'og:image'
       ) ||
+
       extractMeta(
         html,
         'twitter:image'
       ) ||
+
       '',
 
     author:
@@ -573,26 +817,31 @@ const extractInfo = html => {
         'div',
         'dl-author'
       ) ||
+
       extractTagText(
         html,
         'span',
         'dl-author'
       ) ||
+
       extractTagText(
         html,
         'div',
         'author'
       ) ||
+
       extractTagText(
         html,
         'span',
         'author'
       ) ||
+
       extractTagText(
         html,
         'div',
         'channel'
       ) ||
+
       '',
 
     duration:
@@ -601,53 +850,61 @@ const extractInfo = html => {
         'div',
         'dl-duration'
       ) ||
+
       extractTagText(
         html,
         'span',
         'dl-duration'
       ) ||
+
       extractTagText(
         html,
         'div',
         'duration'
       ) ||
+
       ''
   }
 }
 
-/*
- * NUEVO:
- * /d/ devuelve un iframe:
- *
- * <iframe id="mp3b"...></iframe>
- * <script>
- * setTimeout(function(){
- *   document.getElementById('mp3b')
- *   .setAttribute('src',"/button/?url=https://youtu.be/...");
- * },200);
- * </script>
- *
- * Extraemos ese /button/.
- */
-const extractButtonUrl = (
-  html
-) => {
+/* =========================================================
+ * /BUTTON/ EXTRACTION
+ * ========================================================= */
+
+const extractButtonUrl = html => {
   if (!html) {
     return null
   }
 
   const decoded =
     decodeJs(
-      htmlDecode(html)
+      htmlDecode(
+        html
+      )
     )
 
   const patterns = [
+    /*
+     * setAttribute(
+     *   'src',
+     *   '/button/?url=...'
+     * )
+     */
     /setAttribute\s*\(\s*['"]src['"]\s*,\s*['"]([^'"]*\/button\/\?[^'"]+)['"]\s*\)/i,
 
+    /*
+     * src="/button/?url=..."
+     */
     /(?:src\s*=\s*|src=["'])([^"'<>]*\/button\/\?[^"'<>]+)/i,
 
+    /*
+     * /button/?url=...
+     */
     /(\/button\/\?url=[^"'<> \t\r\n]+)/i,
 
+    /*
+     * https://yt1z.top/button/?url=...
+     */
     /(https?:\/\/[^"'<> \t\r\n]*\/button\/\?url=[^"'<> \t\r\n]+)/i
   ]
 
@@ -655,15 +912,21 @@ const extractButtonUrl = (
     const regex of patterns
   ) {
     const match =
-      decoded.match(regex)
+      decoded.match(
+        regex
+      )
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
       const buttonUrl =
         absoluteUrl(
           match[1]
         )
 
-      if (buttonUrl) {
+      if (
+        buttonUrl
+      ) {
         logYT1Z(
           'BUTTON URL FOUND',
           buttonUrl
@@ -677,6 +940,80 @@ const extractButtonUrl = (
   return null
 }
 
+/* =========================================================
+ * TURNSTILE DETECTION
+ * ========================================================= */
+
+const detectTurnstile = html => {
+  const value =
+    String(
+      html || ''
+    )
+
+  return (
+    /turnstile\.render\s*\(/i.test(
+      value
+    ) ||
+
+    /id=["']turnstile-widget["']/i.test(
+      value
+    ) ||
+
+    (
+      /(?:sitekey\s*:|data-sitekey\s*=)/i.test(
+        value
+      ) &&
+      /turnstile/i.test(
+        value
+      )
+    )
+  )
+}
+
+/* =========================================================
+ * JSON DOWNLOAD LINK
+ * ========================================================= */
+
+const extractJsonLink = html => {
+  const decoded =
+    decodeJs(
+      htmlDecode(
+        html
+      )
+    )
+
+  const regex =
+    /["'](?:url|downloadUrl|download_url|downloadLink|download_link|fileUrl|file_url|mediaUrl|media_url|link)["']\s*:\s*["']([^"']+)["']/gi
+
+  let match
+
+  while (
+    (match =
+      regex.exec(
+        decoded
+      )) !== null
+  ) {
+    const url =
+      absoluteUrl(
+        match[1]
+      )
+
+    if (
+      isPossibleDownload(
+        url
+      )
+    ) {
+      return url
+    }
+  }
+
+  return null
+}
+
+/* =========================================================
+ * HTML DOWNLOAD LINK
+ * ========================================================= */
+
 const extractDownloadLink = (
   html,
   format
@@ -685,7 +1022,8 @@ const extractDownloadLink = (
     return null
   }
 
-  const candidates = []
+  const candidates =
+    []
 
   const add = (
     value,
@@ -693,10 +1031,14 @@ const extractDownloadLink = (
     priority = 0
   ) => {
     const url =
-      absoluteUrl(value)
+      absoluteUrl(
+        value
+      )
 
     if (
-      !isPossibleDownload(url)
+      !isPossibleDownload(
+        url
+      )
     ) {
       return
     }
@@ -712,67 +1054,94 @@ const extractDownloadLink = (
 
     candidates.push({
       url,
-      context: cleanText(
-        context
-      ),
+
+      context:
+        cleanText(
+          context
+        ),
+
       priority
     })
   }
 
   let match
 
+  /*
+   * href
+   */
   const hrefRegex =
     /\bhref\s*=\s*["']([^"']+)["']/gi
 
   while (
     (match =
-      hrefRegex.exec(html)) !== null
+      hrefRegex.exec(
+        html
+      )) !== null
   ) {
     add(
       match[1],
+
       html.slice(
         Math.max(
           0,
           match.index - 700
         ),
+
         Math.min(
           html.length,
           match.index + 1200
         )
       ),
+
       150
     )
   }
 
+  /*
+   * data-url
+   * data-href
+   * data-download
+   * etc.
+   */
   const dataRegex =
     /\bdata-(?:url|href|download|link|file|src)\s*=\s*["']([^"']+)["']/gi
 
   while (
     (match =
-      dataRegex.exec(html)) !== null
+      dataRegex.exec(
+        html
+      )) !== null
   ) {
     add(
       match[1],
+
       html.slice(
         Math.max(
           0,
           match.index - 700
         ),
+
         Math.min(
           html.length,
           match.index + 1200
         )
       ),
+
       200
     )
   }
 
+  /*
+   * onclick
+   */
   const onclickRegex =
     /\bonclick\s*=\s*["']([^"']+)["']/gi
 
   while (
     (match =
-      onclickRegex.exec(html)) !== null
+      onclickRegex.exec(
+        html
+      )) !== null
   ) {
     const code =
       decodeJs(
@@ -797,12 +1166,17 @@ const extractDownloadLink = (
     }
   }
 
+  /*
+   * Variables comunes.
+   */
   const variableRegex =
     /(?:downloadUrl|download_url|downloadLink|download_link|mediaUrl|media_url|fileUrl|file_url|videoUrl|video_url|audioUrl|audio_url|file|url|link|href|src)\s*[:=]\s*["'`]([^"'`]+)["'`]/gi
 
   while (
     (match =
-      variableRegex.exec(html)) !== null
+      variableRegex.exec(
+        html
+      )) !== null
   ) {
     add(
       match[1],
@@ -811,12 +1185,17 @@ const extractDownloadLink = (
     )
   }
 
+  /*
+   * URLs absolutas.
+   */
   const absoluteRegex =
     /https?:\/\/[^\s"'<>\\]+/gi
 
   while (
     (match =
-      absoluteRegex.exec(html)) !== null
+      absoluteRegex.exec(
+        html
+      )) !== null
   ) {
     add(
       match[0],
@@ -825,6 +1204,9 @@ const extractDownloadLink = (
     )
   }
 
+  /*
+   * Ranking.
+   */
   const ranked =
     candidates
       .map(item => {
@@ -876,9 +1258,11 @@ const extractDownloadLink = (
           score
         }
       })
+
       .sort(
         (a, b) =>
-          b.score - a.score
+          b.score -
+          a.score
       )
 
   logYT1Z(
@@ -898,51 +1282,22 @@ const extractDownloadLink = (
     )
   }
 
-  return ranked[0]?.url || null
+  return (
+    ranked[0]?.url ||
+    null
+  )
 }
 
-/*
- * Busca URLs JSON.
- */
-const extractJsonLink = html => {
-  const decoded =
-    decodeJs(
-      htmlDecode(html)
-    )
-
-  const regex =
-    /["'](?:url|downloadUrl|download_url|downloadLink|download_link|fileUrl|file_url|mediaUrl|media_url|link)["']\s*:\s*["']([^"']+)["']/gi
-
-  let match
-
-  while (
-    (match =
-      regex.exec(decoded)) !== null
-  ) {
-    const url =
-      absoluteUrl(
-        match[1]
-      )
-
-    if (
-      isPossibleDownload(url)
-    ) {
-      return url
-    }
-  }
-
-  return null
-}
-
-/*
- * NUEVO FLUJO COMPLETO:
+/* =========================================================
+ * PROCESS YT1Z
  *
  * /d/
  *   ↓
  * /button/
  *   ↓
- * enlace final
- */
+ * Turnstile / enlace final
+ * ========================================================= */
+
 const processYT1Z = async (
   url,
   format
@@ -950,9 +1305,21 @@ const processYT1Z = async (
   const params =
     new URLSearchParams({
       url,
-      lng: 'en',
-      t: '',
-      fmt: format
+
+      lng:
+        'en',
+
+      /*
+       * YT1Z actualmente entrega
+       * Turnstile en /button/.
+       *
+       * No falsificamos este token.
+       */
+      t:
+        '',
+
+      fmt:
+        format
     })
 
   const endpoint =
@@ -967,14 +1334,18 @@ const processYT1Z = async (
     await safeFetch(
       endpoint,
       {
-        method: 'GET',
+        method:
+          'GET',
+
         headers: {
-          'Referer':
+          Referer:
             `${YT1Z}/`,
-          'Origin':
+
+          Origin:
             YT1Z
         }
       },
+
       180000
     )
 
@@ -1021,10 +1392,12 @@ const processYT1Z = async (
   )
 
   /*
-   * PRIMERA POSIBILIDAD:
-   * /d/ ya devolvió directamente
-   * el archivo.
+   * =======================================================
+   * POSIBILIDAD 1:
+   * /d/ devuelve directamente el archivo.
+   * =======================================================
    */
+
   const finalUrl =
     res.url
 
@@ -1045,15 +1418,22 @@ const processYT1Z = async (
       finalUrl
     ) &&
     (
-      /audio\/|video\//i.test(
+      /audio\//i.test(
         contentType
       ) ||
+
+      /video\//i.test(
+        contentType
+      ) ||
+
       /attachment|filename=/i.test(
         disposition
       ) ||
+
       /\.mp3(?:[?#]|$)/i.test(
         finalUrl
       ) ||
+
       /\.mp4(?:[?#]|$)/i.test(
         finalUrl
       )
@@ -1065,46 +1445,69 @@ const processYT1Z = async (
     )
 
     return {
-      link: finalUrl,
-      ...extractInfo(body)
+      link:
+        finalUrl,
+
+      ...extractInfo(
+        body
+      )
     }
   }
 
   /*
-   * SEGUNDA POSIBILIDAD:
-   * buscar enlace JSON.
+   * =======================================================
+   * POSIBILIDAD 2:
+   * enlace JSON directo.
+   * =======================================================
    */
-  const jsonLink =
-    extractJsonLink(body)
 
-  if (jsonLink) {
+  const jsonLink =
+    extractJsonLink(
+      body
+    )
+
+  if (
+    jsonLink
+  ) {
     logYT1Z(
       'JSON DOWNLOAD LINK',
       jsonLink
     )
 
     return {
-      link: jsonLink,
-      ...extractInfo(body)
+      link:
+        jsonLink,
+
+      ...extractInfo(
+        body
+      )
     }
   }
 
   /*
-   * TERCERA POSIBILIDAD:
-   * buscar el /button/.
+   * =======================================================
+   * POSIBILIDAD 3:
+   * /d/ devuelve iframe -> /button/
+   * =======================================================
    */
-  const buttonUrl =
-    extractButtonUrl(body)
 
-  if (!buttonUrl) {
+  const buttonUrl =
+    extractButtonUrl(
+      body
+    )
+
+  if (
+    !buttonUrl
+  ) {
     throw new Error(
       `BUTTON_ENDPOINT_NOT_FOUND | body=${body.slice(0, 800)}`
     )
   }
 
   /*
-   * Esperamos un poco porque el navegador
-   * de YT1Z hace el cambio después de 200ms.
+   * El HTML de yt1z.top utiliza un setTimeout
+   * de aproximadamente 200 ms antes de colocar
+   * el src del iframe.
    */
   await new Promise(
     resolve =>
@@ -1123,16 +1526,21 @@ const processYT1Z = async (
     await safeFetch(
       buttonUrl,
       {
-        method: 'GET',
+        method:
+          'GET',
+
         headers: {
-          'Referer':
+          Referer:
             endpoint,
-          'Origin':
+
+          Origin:
             YT1Z,
-          'Accept':
+
+          Accept:
             'text/html,application/xhtml+xml,application/json,*/*;q=0.8'
         }
       },
+
       120000
     )
 
@@ -1180,9 +1588,11 @@ const processYT1Z = async (
   )
 
   /*
-   * Puede que /button/ redirija
-   * directamente al archivo.
+   * =======================================================
+   * /button/ puede redirigir directamente al archivo.
+   * =======================================================
    */
+
   if (
     buttonFinalUrl &&
     buttonFinalUrl !== buttonUrl &&
@@ -1190,15 +1600,22 @@ const processYT1Z = async (
       buttonFinalUrl
     ) &&
     (
-      /audio\/|video\//i.test(
+      /audio\//i.test(
         buttonType
       ) ||
+
+      /video\//i.test(
+        buttonType
+      ) ||
+
       /attachment|filename=/i.test(
         buttonDisposition
       ) ||
+
       /\.mp3(?:[?#]|$)/i.test(
         buttonFinalUrl
       ) ||
+
       /\.mp4(?:[?#]|$)/i.test(
         buttonFinalUrl
       )
@@ -1212,10 +1629,16 @@ const processYT1Z = async (
     return {
       link:
         buttonFinalUrl,
-      ...extractInfo(body)
+
+      ...extractInfo(
+        body
+      )
     }
   }
 
+  /*
+   * Leer HTML del botón.
+   */
   const buttonBody =
     await buttonRes.text()
 
@@ -1234,14 +1657,51 @@ const processYT1Z = async (
   )
 
   /*
-   * Buscar el enlace final.
+   * =======================================================
+   * TURNSTILE
+   *
+   * Según las capturas:
+   *
+   * <div id="turnstile-widget"></div>
+   *
+   * turnstile.render(...)
+   *
+   * #dlbutton disabled
+   *
+   * Por tanto aquí todavía NO existe necesariamente
+   * el enlace MP3/MP4.
+   * =======================================================
    */
+
+  if (
+    detectTurnstile(
+      buttonBody
+    )
+  ) {
+    logYT1Z(
+      'TURNSTILE REQUIRED',
+      'The /button/ response requires the official Turnstile challenge to be completed in a browser.'
+    )
+
+    throw new Error(
+      'YT1Z_TURNSTILE_REQUIRED'
+    )
+  }
+
+  /*
+   * =======================================================
+   * Si no hay Turnstile, intentar enlace JSON.
+   * =======================================================
+   */
+
   const finalJsonLink =
     extractJsonLink(
       buttonBody
     )
 
-  if (finalJsonLink) {
+  if (
+    finalJsonLink
+  ) {
     logYT1Z(
       'FINAL JSON LINK',
       finalJsonLink
@@ -1250,9 +1710,18 @@ const processYT1Z = async (
     return {
       link:
         finalJsonLink,
-      ...extractInfo(body)
+
+      ...extractInfo(
+        body
+      )
     }
   }
+
+  /*
+   * =======================================================
+   * Si tampoco hay JSON, buscar HTML.
+   * =======================================================
+   */
 
   const finalHtmlLink =
     extractDownloadLink(
@@ -1260,7 +1729,9 @@ const processYT1Z = async (
       format
     )
 
-  if (finalHtmlLink) {
+  if (
+    finalHtmlLink
+  ) {
     logYT1Z(
       'FINAL HTML LINK',
       finalHtmlLink
@@ -1269,7 +1740,10 @@ const processYT1Z = async (
     return {
       link:
         finalHtmlLink,
-      ...extractInfo(body)
+
+      ...extractInfo(
+        body
+      )
     }
   }
 
@@ -1277,6 +1751,10 @@ const processYT1Z = async (
     `FINAL_DOWNLOAD_LINK_NOT_FOUND | buttonBody=${buttonBody.slice(0, 1200)}`
   )
 }
+
+/* =========================================================
+ * DURATION
+ * ========================================================= */
 
 const secondsFromDuration = (
   duration
@@ -1305,18 +1783,29 @@ const secondsFromDuration = (
   if (
     parts.some(
       value =>
-        !Number.isFinite(value)
+        !Number.isFinite(
+          value
+        )
     )
   ) {
     return 0
   }
 
   return parts.reduce(
-    (total, value) =>
-      total * 60 + value,
+    (
+      total,
+      value
+    ) =>
+      total * 60 +
+      value,
+
     0
   )
 }
+
+/* =========================================================
+ * HANDLER
+ * ========================================================= */
 
 const handler = async (
   m,
@@ -1333,15 +1822,18 @@ const handler = async (
         command
       )
         ? 'audio'
+
         : docAudio.includes(
             command
           )
-        ? 'audio en documento'
-        : normalVideo.includes(
-            command
-          )
-        ? 'video'
-        : 'video en documento'
+          ? 'audio en documento'
+
+          : normalVideo.includes(
+              command
+            )
+            ? 'video'
+
+            : 'video en documento'
 
     return m.reply(
       `${e} Ingresa _texto_ o _enlace_ de YouTube para descargar el *${tipo}.*`
@@ -1349,33 +1841,73 @@ const handler = async (
   }
 
   await m.react(
-    "🕒"
+    '🕒'
   )
 
   let stage =
     'inicio'
 
   try {
+    /*
+     * =====================================================
+     * CONSULTA
+     * =====================================================
+     */
+
     stage =
       'procesando consulta'
 
     const query =
-      args.join(" ").trim()
+      String(
+        args?.join(' ') ||
+        text ||
+        ''
+      ).trim()
+
+    if (!query) {
+      throw new Error(
+        'EMPTY_QUERY'
+      )
+    }
+
+    /*
+     * =====================================================
+     * OBTENER VIDEO ID
+     * =====================================================
+     */
 
     const videoId =
-      getVideoId(query)
+      getVideoId(
+        query
+      )
 
-    let videoUrl = ''
-    let searchInfo = null
+    let videoUrl =
+      ''
 
-    if (videoId) {
+    let searchInfo =
+      null
+
+    /*
+     * =====================================================
+     * URL DIRECTA
+     * =====================================================
+     */
+
+    if (
+      videoId
+    ) {
       videoUrl =
         `https://youtu.be/${videoId}`
 
       searchInfo = {
         videoId,
-        title: '',
-        url: videoUrl,
+
+        title:
+          '',
+
+        url:
+          videoUrl,
+
         thumbnail:
           `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
       }
@@ -1386,6 +1918,12 @@ const handler = async (
       )
 
     } else {
+      /*
+       * ===================================================
+       * BÚSQUEDA
+       * ===================================================
+       */
+
       stage =
         'buscando video'
 
@@ -1416,12 +1954,19 @@ const handler = async (
       )
     }
 
-    const isAudio = [
-      ...docAudio,
-      ...normalAudio
-    ].includes(
-      command
-    )
+    /*
+     * =====================================================
+     * TIPO
+     * =====================================================
+     */
+
+    const isAudio =
+      [
+        ...docAudio,
+        ...normalAudio
+      ].includes(
+        command
+      )
 
     const sendDoc =
       docAudio.includes(
@@ -1435,6 +1980,12 @@ const handler = async (
       isAudio
         ? 'mp3'
         : 'mp4-any'
+
+    /*
+     * =====================================================
+     * PROCESAR YT1Z
+     * =====================================================
+     */
 
     stage =
       `procesando YT1Z (${format})`
@@ -1457,6 +2008,12 @@ const handler = async (
       'DOWNLOAD READY',
       data.link
     )
+
+    /*
+     * =====================================================
+     * METADATA
+     * =====================================================
+     */
 
     const title =
       data.title ||
@@ -1481,14 +2038,21 @@ const handler = async (
         duration
       )
 
+    /*
+     * Vídeos mayores de 20 minutos
+     * se envían automáticamente como documento.
+     */
     const automaticDoc =
       !docAudio.includes(
         command
       ) &&
+
       !docVideo.includes(
         command
       ) &&
-      durationSeconds / 60 > 20
+
+      durationSeconds / 60 >
+        20
 
     const finalDoc =
       sendDoc ||
@@ -1501,6 +2065,7 @@ const handler = async (
               ? 'audio (doc)'
               : 'audio'
           )
+
         : (
             finalDoc
               ? 'video (doc)'
@@ -1509,8 +2074,14 @@ const handler = async (
 
     const aviso =
       automaticDoc
-        ? `\n> ‣ Se enviará como documento por superar 20 minutos.`
+        ? '\n> ‣ Se enviará como documento por superar 20 minutos.'
         : ''
+
+    /*
+     * =====================================================
+     * CAPTION
+     * =====================================================
+     */
 
     const caption =
       `╭──── • ────╮
@@ -1522,21 +2093,38 @@ const handler = async (
 
 ⏳ _Preparando ${type}..._${aviso}`.trim()
 
+    /*
+     * =====================================================
+     * INFORMACIÓN
+     * =====================================================
+     */
+
     stage =
       'enviando información'
 
     await conn.sendMessage(
       m.chat,
+
       {
         image: {
-          url: thumbnail
+          url:
+            thumbnail
         },
+
         caption
       },
+
       {
-        quoted: m
+        quoted:
+          m
       }
     )
+
+    /*
+     * =====================================================
+     * FILE
+     * =====================================================
+     */
 
     const ext =
       isAudio
@@ -1568,25 +2156,49 @@ const handler = async (
     const fileName =
       `${safeTitle}.${ext}`
 
+    /*
+     * =====================================================
+     * MENSAJE
+     * =====================================================
+     */
+
     const msg =
       finalDoc
+
         ? {
             document: {
-              url: data.link
+              url:
+                data.link
             },
+
             mimetype,
+
             fileName
           }
+
         : {
-            [isAudio
-              ? 'audio'
-              : 'video']: {
-              url: data.link
+            [
+              isAudio
+                ? 'audio'
+                : 'video'
+            ]: {
+              url:
+                data.link
             },
+
             mimetype,
+
             fileName,
-            ptt: false
+
+            ptt:
+              false
           }
+
+    /*
+     * =====================================================
+     * ENVIAR ARCHIVO
+     * =====================================================
+     */
 
     stage =
       `enviando ${type}`
@@ -1595,12 +2207,13 @@ const handler = async (
       m.chat,
       msg,
       {
-        quoted: m
+        quoted:
+          m
       }
     )
 
     await m.react(
-      "✨"
+      '✨'
     )
 
     logYT1Z(
@@ -1622,8 +2235,35 @@ const handler = async (
     )
 
     await m.react(
-      "✖️"
+      '✖️'
     )
+
+    /*
+     * =====================================================
+     * ERROR ESPECÍFICO DE TURNSTILE
+     * =====================================================
+     */
+
+    if (
+      error ===
+      'YT1Z_TURNSTILE_REQUIRED'
+    ) {
+      return m.reply(
+        `${e} *YT1Z requiere verificación de Turnstile.*
+
+> El servidor devolvió un desafío CAPTCHA antes de entregar el archivo.
+
+> *Etapa:* ${stage}
+
+> Este módulo no intenta falsificar ni saltarse la verificación. Para completar ese flujo hace falta un entorno de navegador que ejecute el widget oficial de Turnstile.`
+      )
+    }
+
+    /*
+     * =====================================================
+     * ERROR GENERAL
+     * =====================================================
+     */
 
     return m.reply(
       `${e} *YT1Z falló.*
@@ -1636,24 +2276,40 @@ const handler = async (
   }
 }
 
+/* =========================================================
+ * COMMANDS
+ * ========================================================= */
+
 handler.command = [
+  /*
+   * AUDIO
+   */
   'play',
   'yta',
   'mp3',
   'ytmp3',
   'playaudio',
 
+  /*
+   * AUDIO DOCUMENTO
+   */
   'play3',
   'ytadoc',
   'mp3doc',
   'ytmp3doc',
 
+  /*
+   * VIDEO
+   */
   'play2',
   'ytv',
   'mp4',
   'ytmp4',
   'playvid',
 
+  /*
+   * VIDEO DOCUMENTO
+   */
   'play4',
   'ytvdoc',
   'mp4doc',
