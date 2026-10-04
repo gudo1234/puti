@@ -29,44 +29,33 @@ const safeFetch = async (url, options = {}) => {
   }
 }
 
-const crearStream = (url, args) => {
-  const stream = ytDlp.execStream([
+const crearStream = (url, formato) => {
+  return ytDlp.execStream([
     url,
+
     "--no-playlist",
     "--no-cache-dir",
     "--no-part",
-    "--js-runtimes",
-    "node",
-    "--remote-components",
-    "ejs:github",
+
     "--cookies",
     "/home/container/cookies.txt",
+
+    "--js-runtimes",
+    "node",
+
+    "--remote-components",
+    "ejs:github",
+
+    "--no-warnings",
+    "--quiet",
+
+    "-f",
+    formato,
+
     "-o",
-    "-",
-    ...args
+    "-"
   ])
-
-  return stream
 }
-
-const esperarStream = stream =>
-  new Promise((resolve, reject) => {
-    let error = null
-
-    stream.once("error", err => {
-      error = err
-    })
-
-    stream.once("end", () => {
-      if (error) reject(error)
-      else resolve()
-    })
-
-    stream.once("close", () => {
-      if (error) reject(error)
-      else resolve()
-    })
-  })
 
 const handler = async (m, { conn, text, usedPrefix, command, args }) => {
 
@@ -123,8 +112,6 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
   descargaActiva = true
 
   await m.react("🕒")
-
-  let stream = null
 
   try {
 
@@ -257,21 +244,17 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
     await conn.relayMessage(
       m.chat,
       msg.message,
-      { messageId: msg.key.id }
+      {
+        messageId: msg.key.id
+      }
     )
-
-    let ytArgs = []
 
     if (isAudio) {
 
-      ytArgs = [
-        "-f",
-        "bestaudio[ext=m4a]/bestaudio[ext=webm]",
-        "--no-warnings",
-        "--quiet"
-      ]
-
-      stream = crearStream(url, ytArgs)
+      const stream = crearStream(
+        url,
+        "bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio[ext=webm]"
+      )
 
       if (sendDoc) {
 
@@ -307,14 +290,10 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
 
     } else {
 
-      ytArgs = [
-        "-f",
-        "best[ext=mp4][height<=720]/best[height<=720]",
-        "--no-warnings",
-        "--quiet"
-      ]
-
-      stream = crearStream(url, ytArgs)
+      const stream = crearStream(
+        url,
+        "best[ext=mp4][height<=720]/best[height<=720]"
+      )
 
       if (sendDoc) {
 
@@ -353,50 +332,51 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
 
   } catch (error) {
 
-    console.error("❌ Error YouTube streaming:", error)
-
-    try {
-      if (stream && typeof stream.destroy === "function") {
-        stream.destroy()
-      }
-    } catch {}
+    console.error("❌ Error YouTube:", error)
 
     await m.react("✖️")
 
-    const mensaje = String(error?.message || error || "")
+    const err = String(
+      error?.stack ||
+      error?.message ||
+      error ||
+      ""
+    )
 
     if (
-      mensaje.includes("No space left on device") ||
-      mensaje.includes("ENOSPC")
+      err.includes("No space left on device") ||
+      err.includes("ENOSPC")
     ) {
       return m.reply(
-        `${e} La descarga fue detenida porque el sistema no tiene espacio temporal disponible.`
+        `${e} El sistema se quedó sin espacio temporal durante el envío.`
       )
     }
 
     if (
-      mensaje.includes("Sign in to confirm") ||
-      mensaje.includes("not a bot") ||
-      mensaje.includes("cookies")
+      err.includes("Sign in to confirm") ||
+      err.includes("not a bot") ||
+      err.includes("cookies")
     ) {
       return m.reply(
-        `${e} YouTube rechazó la solicitud. Revisa que el archivo de cookies siga siendo válido.`
+        `${e} YouTube rechazó la solicitud. Las cookies necesitan actualizarse.`
+      )
+    }
+
+    if (
+      err.includes("Requested format is not available")
+    ) {
+      return m.reply(
+        `${e} YouTube no proporcionó un formato compatible para este contenido.`
       )
     }
 
     return m.reply(
-      `${e} No se pudo procesar la descarga, intenta de nuevo.`
+      `${e} No se pudo procesar la descarga, intenta de nuevo.\n\n> ${err.slice(0, 500)}`
     )
 
   } finally {
 
     descargaActiva = false
-
-    try {
-      if (stream && typeof stream.destroy === "function") {
-        stream.destroy()
-      }
-    } catch {}
   }
 }
 
