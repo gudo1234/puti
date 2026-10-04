@@ -2,139 +2,109 @@ import fetch from 'node-fetch'
 import ytSearch from 'yt-search'
 
 const TUNELIO_API = 'https://tunelio.dev'
+const TUNELIO_API_KEY =
+  process.env.TUNELIO_API_KEY ||
+  global.TUNELIO_API_KEY ||
+  'tnl_Drlt…n3OM'
 
-/*
- * ============================================================
- * CONFIGURACIÓN
- * ============================================================
- */
+const MAX_DURATION = 20 * 60 // 20 minutos
+const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100 MB
 
-const TUNELIO_API_KEY = 'tnl_Drlt…n3OM'
+const AUDIO_COMMANDS = new Set([
+  'play',
+  'yta',
+  'mp3',
+  'ytmp3',
+  'playaudio'
+])
 
-const MAX_VIDEO_DURATION = 20 * 60 // 20 minutos
-const MAX_DOWNLOAD_SIZE = 100 * 1024 * 1024 // 100 MB
+const AUDIO_DOC_COMMANDS = new Set([
+  'play3',
+  'ytadoc',
+  'mp3doc',
+  'ytmp3doc'
+])
 
+const VIDEO_COMMANDS = new Set([
+  'play2',
+  'ytv',
+  'mp4',
+  'ytmp4',
+  'playvid'
+])
 
-/*
- * ============================================================
- * FETCH SEGURO
- * ============================================================
- */
+const VIDEO_DOC_COMMANDS = new Set([
+  'play4',
+  'ytvdoc',
+  'mp4doc',
+  'ytvdoc',
+  'ytmp4doc'
+])
 
-async function safeFetch(url, options = {}, timeout = 60000) {
-  const controller = new AbortController()
-
-  const timer = setTimeout(() => {
-    controller.abort()
-  }, timeout)
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal
-    })
-
-    return response
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
-
-/*
- * ============================================================
- * UTILIDADES
- * ============================================================
- */
-
-function cleanText(text = '') {
-  return String(text)
-    .replace(/<[^>]*>/g, '')
+function cleanFileName(name = 'youtube') {
+  return String(name)
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
+    .slice(0, 150) || 'youtube'
 }
 
-function htmlDecode(text = '') {
-  return String(text)
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-}
-
-function getVideoId(url = '') {
+function isYouTubeUrl(value = '') {
   try {
-    const u = new URL(url)
+    const url = new URL(value)
 
-    if (u.hostname === 'youtu.be') {
-      return u.pathname.slice(1).split('/')[0]
-    }
+    const host = url.hostname
+      .toLowerCase()
+      .replace(/^www\./, '')
 
-    if (
-      u.hostname === 'youtube.com' ||
-      u.hostname === 'www.youtube.com' ||
-      u.hostname === 'm.youtube.com'
-    ) {
-      return u.searchParams.get('v')
-    }
-
-    return null
-  } catch {
-    return null
-  }
-}
-
-function isYouTubeUrl(text = '') {
-  try {
-    const u = new URL(text)
-
-    return [
-      'youtube.com',
-      'www.youtube.com',
-      'm.youtube.com',
-      'youtu.be'
-    ].includes(u.hostname)
+    return (
+      host === 'youtube.com' ||
+      host === 'm.youtube.com' ||
+      host === 'youtu.be' ||
+      host === 'music.youtube.com'
+    )
   } catch {
     return false
   }
 }
 
-function parseDuration(value) {
-  if (!value) return 0
+function getVideoId(value = '') {
+  try {
+    const url = new URL(value)
 
-  if (typeof value === 'number') {
-    return value
-  }
+    const host = url.hostname
+      .toLowerCase()
+      .replace(/^www\./, '')
 
-  const text = String(value).trim()
+    if (host === 'youtu.be') {
+      return url.pathname.slice(1).split('/')[0] || null
+    }
 
-  if (/^\d+$/.test(text)) {
-    return Number(text)
-  }
+    if (
+      host === 'youtube.com' ||
+      host === 'm.youtube.com' ||
+      host === 'music.youtube.com'
+    ) {
+      const v = url.searchParams.get('v')
+      if (v) return v
 
-  const parts = text.split(':').map(Number)
+      const parts = url.pathname.split('/').filter(Boolean)
 
-  if (parts.some(Number.isNaN)) {
-    return 0
-  }
+      if (parts[0] === 'shorts' && parts[1]) {
+        return parts[1]
+      }
 
-  if (parts.length === 3) {
-    return (
-      parts[0] * 3600 +
-      parts[1] * 60 +
-      parts[2]
-    )
-  }
+      if (parts[0] === 'embed' && parts[1]) {
+        return parts[1]
+      }
 
-  if (parts.length === 2) {
-    return (
-      parts[0] * 60 +
-      parts[1]
-    )
-  }
+      if (parts[0] === 'live' && parts[1]) {
+        return parts[1]
+      }
+    }
+  } catch {}
 
-  return 0
+  return null
 }
 
 function formatDuration(seconds) {
@@ -145,100 +115,20 @@ function formatDuration(seconds) {
   const s = Math.floor(seconds % 60)
 
   if (h > 0) {
-    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    return [
+      h,
+      String(m).padStart(2, '0'),
+      String(s).padStart(2, '0')
+    ].join(':')
   }
 
-  return `${m}:${String(s).padStart(2, '0')}`
+  return [
+    m,
+    String(s).padStart(2, '0')
+  ].join(':')
 }
 
-
-/*
- * ============================================================
- * BÚSQUEDA DE YOUTUBE
- * ============================================================
- */
-
-async function searchYouTube(query) {
-  const text = String(query || '').trim()
-
-  if (!text) {
-    throw new Error('EMPTY_QUERY')
-  }
-
-  // Si ya proporcionaron una URL de YouTube,
-  // no hacemos búsqueda.
-  if (isYouTubeUrl(text)) {
-    const id = getVideoId(text)
-
-    if (!id) {
-      throw new Error('INVALID_YOUTUBE_URL')
-    }
-
-    return {
-      id,
-      url: text,
-      title: 'YouTube',
-      duration: 0,
-      thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
-      author: ''
-    }
-  }
-
-  const result = await ytSearch(text)
-
-  if (!result || !result.videos || !result.videos.length) {
-    throw new Error('VIDEO_NOT_FOUND')
-  }
-
-  const video = result.videos[0]
-
-  return {
-    id: video.videoId,
-    url: video.url,
-    title: video.title || 'Sin título',
-    duration: parseDuration(video.duration),
-    thumbnail:
-      video.thumbnail ||
-      `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`,
-    author:
-      video.author?.name ||
-      video.author?.url ||
-      '',
-    views: video.views || 0
-  }
-}
-
-
-/*
- * ============================================================
- * TUNELIO
- * ============================================================
- */
-
-async function tunelioRequest(youtubeUrl, quality = 'mp3') {
-  if (!TUNELIO_API_KEY) {
-    throw new Error('TUNELIO_API_KEY_MISSING')
-  }
-
-  const params = new URLSearchParams({
-    url: youtubeUrl,
-    quality
-  })
-
-  const endpoint =
-    `${TUNELIO_API}/create?${params.toString()}`
-
-  const response = await safeFetch(
-    endpoint,
-    {
-      headers: {
-        Authorization: `Bearer ${TUNELIO_API_KEY}`,
-        Accept: 'application/json'
-      }
-    },
-    120000
-  )
-
+async function safeJson(response) {
   const text = await response.text()
 
   let data
@@ -247,466 +137,349 @@ async function tunelioRequest(youtubeUrl, quality = 'mp3') {
     data = JSON.parse(text)
   } catch {
     throw new Error(
-      `TUNELIO_INVALID_RESPONSE_${response.status}`
+      `Tunelio respondió algo que no es JSON (${response.status})`
     )
   }
 
   if (!response.ok) {
     const message =
-      data?.error ||
       data?.message ||
+      data?.error ||
+      data?.status ||
       `HTTP ${response.status}`
 
+    throw new Error(message)
+  }
+
+  return data
+}
+
+async function searchYouTube(query) {
+  const result = await ytSearch(query)
+
+  if (!result?.videos?.length) {
+    throw new Error('No encontré ningún video en YouTube.')
+  }
+
+  const video = result.videos[0]
+
+  return {
+    url: video.url,
+    videoId: video.videoId,
+    title: video.title,
+    duration: Number(video.seconds) || 0,
+    thumbnail:
+      video.thumbnail ||
+      `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`
+  }
+}
+
+async function getYouTubeInfo(url) {
+  const response = await fetch(
+    `${TUNELIO_API}/info?${new URLSearchParams({ url })}`,
+    {
+      headers: {
+        Authorization: `Bearer ${TUNELIO_API_KEY}`,
+        Accept: 'application/json'
+      }
+    }
+  )
+
+  return safeJson(response)
+}
+
+async function createDownload(url, quality) {
+  if (!TUNELIO_API_KEY) {
     throw new Error(
-      `TUNELIO_ERROR: ${message}`
+      'Falta configurar TUNELIO_API_KEY en las variables de entorno.'
+    )
+  }
+
+  const params = new URLSearchParams({
+    url,
+    quality
+  })
+
+  const response = await fetch(
+    `${TUNELIO_API}/create?${params.toString()}`,
+    {
+      headers: {
+        Authorization: `Bearer ${TUNELIO_API_KEY}`,
+        Accept: 'application/json'
+      }
+    }
+  )
+
+  const data = await safeJson(response)
+
+  if (data.status && data.status !== 'ok') {
+    throw new Error(
+      data.message ||
+      data.error ||
+      data.status
+    )
+  }
+
+  if (!data.url) {
+    throw new Error(
+      'Tunelio no devolvió una URL de descarga.'
     )
   }
 
   return data
 }
 
-
-/*
- * ============================================================
- * OBTENER URL DE DESCARGA
- * ============================================================
- */
-
-function extractTunelioUrl(data) {
-  if (!data || typeof data !== 'object') {
-    return null
-  }
-
-  const possibleUrls = [
-    data.url,
-    data.download,
-    data.downloadUrl,
-    data.download_url,
-    data.result?.url,
-    data.result?.download,
-    data.data?.url,
-    data.data?.download
-  ]
-
-  for (const value of possibleUrls) {
-    if (
-      typeof value === 'string' &&
-      /^https?:\/\//i.test(value)
-    ) {
-      return value
-    }
-  }
-
-  return null
-}
-
-
-/*
- * ============================================================
- * DESCARGAR ARCHIVO
- * ============================================================
- */
-
-async function downloadFile(url) {
-  const response = await safeFetch(
-    url,
-    {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0'
-      }
-    },
-    180000
-  )
+async function downloadBuffer(url, maxSize = MAX_FILE_SIZE) {
+  const response = await fetch(url)
 
   if (!response.ok) {
     throw new Error(
-      `DOWNLOAD_HTTP_${response.status}`
+      `No se pudo descargar el archivo (${response.status}).`
     )
   }
 
-  const contentLength =
-    Number(response.headers.get('content-length')) || 0
-
-  if (
-    contentLength &&
-    contentLength > MAX_DOWNLOAD_SIZE
-  ) {
-    throw new Error('FILE_TOO_LARGE')
-  }
-
-  const buffer = Buffer.from(
-    await response.arrayBuffer()
+  const contentLength = Number(
+    response.headers.get('content-length') || 0
   )
 
-  if (
-    buffer.length > MAX_DOWNLOAD_SIZE
-  ) {
-    throw new Error('FILE_TOO_LARGE')
-  }
-
-  if (!buffer.length) {
-    throw new Error('EMPTY_FILE')
-  }
-
-  return {
-    buffer,
-    contentType:
-      response.headers.get('content-type') ||
-      'application/octet-stream'
-  }
-}
-
-
-/*
- * ============================================================
- * PROCESAR AUDIO
- * ============================================================
- */
-
-async function processAudio(video) {
-  const data = await tunelioRequest(
-    video.url,
-    'mp3'
-  )
-
-  const downloadUrl =
-    extractTunelioUrl(data)
-
-  if (!downloadUrl) {
+  if (contentLength > maxSize) {
     throw new Error(
-      'TUNELIO_NO_DOWNLOAD_URL'
+      `El archivo pesa demasiado (${Math.round(
+        contentLength / 1024 / 1024
+      )} MB).`
     )
   }
 
-  const file =
-    await downloadFile(downloadUrl)
+  const chunks = []
+  let total = 0
 
-  return {
-    ...file,
-    url: downloadUrl,
-    filename:
-      `${cleanText(video.title).slice(0, 80) || 'audio'}.mp3`
+  for await (const chunk of response.body) {
+    total += chunk.length
+
+    if (total > maxSize) {
+      throw new Error(
+        `El archivo supera el límite de ${Math.round(
+          maxSize / 1024 / 1024
+        )} MB.`
+      )
+    }
+
+    chunks.push(chunk)
   }
+
+  return Buffer.concat(chunks)
 }
 
+async function resolveInput(text) {
+  text = String(text || '').trim()
 
-/*
- * ============================================================
- * PROCESAR VIDEO
- * ============================================================
- */
-
-async function processVideo(video) {
-  const data = await tunelioRequest(
-    video.url,
-    'mp4'
-  )
-
-  const downloadUrl =
-    extractTunelioUrl(data)
-
-  if (!downloadUrl) {
+  if (!text) {
     throw new Error(
-      'TUNELIO_NO_DOWNLOAD_URL'
+      'Escribe un enlace de YouTube o el nombre de una canción/video.'
     )
   }
 
-  const file =
-    await downloadFile(downloadUrl)
-
-  return {
-    ...file,
-    url: downloadUrl,
-    filename:
-      `${cleanText(video.title).slice(0, 80) || 'video'}.mp4`
+  if (isYouTubeUrl(text)) {
+    return {
+      url: text,
+      videoId: getVideoId(text),
+      title: null,
+      duration: 0,
+      thumbnail: null
+    }
   }
+
+  return searchYouTube(text)
 }
 
-
-/*
- * ============================================================
- * MENSAJES DE ERROR
- * ============================================================
- */
-
-function getErrorMessage(error) {
-  const code = error?.message || String(error)
-
-  switch (code) {
-    case 'EMPTY_QUERY':
-      return '❌ Escribe el nombre o la URL del vídeo.'
-
-    case 'INVALID_YOUTUBE_URL':
-      return '❌ La URL de YouTube no es válida.'
-
-    case 'VIDEO_NOT_FOUND':
-      return '❌ No encontré ningún vídeo con esa búsqueda.'
-
-    case 'TUNELIO_API_KEY_MISSING':
-      return (
-        '❌ Falta configurar `TUNELIO_API_KEY` en el servidor.'
-      )
-
-    case 'TUNELIO_NO_DOWNLOAD_URL':
-      return (
-        '❌ Tunelio no devolvió una URL de descarga.'
-      )
-
-    case 'FILE_TOO_LARGE':
-      return (
-        '❌ El archivo supera el límite permitido.'
-      )
-
-    case 'EMPTY_FILE':
-      return (
-        '❌ El servidor devolvió un archivo vacío.'
-      )
-
-    default:
-      if (code.startsWith('TUNELIO_ERROR:')) {
-        return (
-          `❌ Error de Tunelio:\n> ${code.replace('TUNELIO_ERROR:', '').trim()}`
-        )
-      }
-
-      if (code.startsWith('DOWNLOAD_HTTP_')) {
-        return (
-          `❌ No se pudo descargar el archivo (${code.replace('DOWNLOAD_HTTP_', 'HTTP ')}).`
-        )
-      }
-
-      return (
-        `❌ Ocurrió un error procesando el vídeo.\n\n> ${code}`
-      )
-  }
-}
-
-
-/*
- * ============================================================
- * HANDLER
- * ============================================================
- */
-
-const handler = async (m, {
+async function processYouTube({
   conn,
-  args,
-  command
-}) => {
-  const query =
-    args?.join(' ')?.trim() || ''
+  m,
+  input,
+  mode,
+  asDocument
+}) {
+  const resolved = await resolveInput(input)
 
-  if (!query) {
-    return m.reply(
-      `⭐ *Descargador de YouTube*\n\n` +
-      `Uso:\n` +
-      `> .${command} nombre del vídeo\n` +
-      `> .${command} https://youtu.be/xxxxx`
+  let title = resolved.title
+  let duration = resolved.duration
+  let thumbnail = resolved.thumbnail
+
+  /*
+   * Cuando el usuario proporciona directamente una URL,
+   * obtenemos metadata de Tunelio.
+   *
+   * /info cuesta créditos, por eso NO lo usamos cuando
+   * ya tenemos los datos de yt-search.
+   */
+  if (!title || !duration) {
+    try {
+      const info = await getYouTubeInfo(resolved.url)
+
+      title = info.title || title
+      duration =
+        Number(info.duration_seconds) ||
+        duration ||
+        0
+
+      thumbnail =
+        info.thumbnail ||
+        thumbnail
+    } catch {
+      // No detenemos el proceso solamente por no obtener metadata.
+    }
+  }
+
+  if (duration > MAX_DURATION) {
+    throw new Error(
+      `El video dura ${formatDuration(duration)}. ` +
+      `El límite permitido es de 20 minutos.`
     )
   }
 
-  const audioCommands = [
-    'play',
-    'yta',
-    'mp3',
-    'ytmp3',
-    'playaudio'
-  ]
+  const quality = mode === 'audio'
+    ? 'mp3'
+    : '720p'
 
-  const audioDocCommands = [
-    'play3',
-    'ytadoc',
-    'mp3doc',
-    'ytmp3doc'
-  ]
+  const download = await createDownload(
+    resolved.url,
+    quality
+  )
 
-  const videoCommands = [
-    'play2',
-    'ytv',
-    'mp4',
-    'ytmp4',
-    'playvid'
-  ]
+  const finalTitle =
+    title ||
+    download.filename?.replace(/\.(mp3|mp4)$/i, '') ||
+    'YouTube'
 
-  const videoDocCommands = [
-    'play4',
-    'ytvdoc',
-    'mp4doc',
-    'ytmp4doc'
-  ]
+  const filenameBase = cleanFileName(finalTitle)
 
-  const isAudio =
-    audioCommands.includes(command)
+  const extension = mode === 'audio'
+    ? 'mp3'
+    : 'mp4'
 
-  const isAudioDoc =
-    audioDocCommands.includes(command)
+  const filename =
+    `${filenameBase}.${extension}`
 
-  const isVideo =
-    videoCommands.includes(command)
+  /*
+   * Descargamos el archivo al buffer para que funcione
+   * de forma consistente con distintas versiones de Baileys.
+   */
+  const buffer = await downloadBuffer(download.url)
 
-  const isVideoDoc =
-    videoDocCommands.includes(command)
-
-  if (
-    !isAudio &&
-    !isAudioDoc &&
-    !isVideo &&
-    !isVideoDoc
-  ) {
-    return
+  if (mode === 'audio') {
+    if (asDocument) {
+      await conn.sendMessage(
+        m.chat,
+        {
+          document: buffer,
+          mimetype: 'audio/mpeg',
+          fileName: filename,
+          caption: finalTitle
+        },
+        { quoted: m }
+      )
+    } else {
+      await conn.sendMessage(
+        m.chat,
+        {
+          audio: buffer,
+          mimetype: 'audio/mpeg',
+          fileName: filename,
+          ptt: false
+        },
+        { quoted: m }
+      )
+    }
+  } else {
+    if (asDocument) {
+      await conn.sendMessage(
+        m.chat,
+        {
+          document: buffer,
+          mimetype: 'video/mp4',
+          fileName: filename,
+          caption: finalTitle
+        },
+        { quoted: m }
+      )
+    } else {
+      await conn.sendMessage(
+        m.chat,
+        {
+          video: buffer,
+          mimetype: 'video/mp4',
+          fileName: filename,
+          caption: finalTitle
+        },
+        { quoted: m }
+      )
+    }
   }
 
-  const type =
-    isAudio || isAudioDoc
-      ? 'mp3'
-      : 'mp4'
+  return {
+    title: finalTitle,
+    duration,
+    thumbnail,
+    url: resolved.url,
+    downloadUrl: download.url,
+    filename,
+    size: download.file_size_str || null
+  }
+}
+
+const handler = async (m, { conn, text, command }) => {
+  const cmd = String(command || '').toLowerCase()
+  const input = String(text || '').trim()
+
+  if (!input) {
+    return m.reply(
+      `Uso:\n\n` +
+      `• .${cmd} nombre o URL de YouTube`
+    )
+  }
 
   try {
-    await m.reply(
-      `⏳ Buscando en YouTube...`
-    )
+    await m.react?.('⏳')
 
-    const video =
-      await searchYouTube(query)
+    let mode
+    let asDocument
 
-    if (
-      video.duration &&
-      video.duration > MAX_VIDEO_DURATION
-    ) {
-      return m.reply(
-        `❌ El vídeo dura *${formatDuration(video.duration)}*.\n\n` +
-        `El límite permitido es de *20 minutos*.`
-      )
-    }
-
-    await m.reply(
-      `⬇️ Descargando *${video.title}*...\n\n` +
-      `> Tipo: ${type.toUpperCase()}` +
-      (
-        video.duration
-          ? `\n> Duración: ${formatDuration(video.duration)}`
-          : ''
-      )
-    )
-
-    const file =
-      type === 'mp3'
-        ? await processAudio(video)
-        : await processVideo(video)
-
-    const title =
-      cleanText(video.title)
-        .slice(0, 100) ||
-      'YouTube'
-
-    /*
-     * ========================================================
-     * AUDIO
-     * ========================================================
-     */
-
-    if (type === 'mp3') {
-      if (isAudioDoc) {
-        await conn.sendMessage(
-          m.chat,
-          {
-            document: file.buffer,
-            mimetype:
-              'audio/mpeg',
-            fileName:
-              file.filename,
-            caption:
-              `🎵 *${title}*\n\n` +
-              `> Descargado desde YouTube`
-          },
-          {
-            quoted: m
-          }
-        )
-
-        return
-      }
-
-      await conn.sendMessage(
-        m.chat,
-        {
-          audio: file.buffer,
-          mimetype:
-            'audio/mpeg',
-          ptt: false,
-          fileName:
-            file.filename
-        },
-        {
-          quoted: m
-        }
-      )
-
+    if (AUDIO_COMMANDS.has(cmd)) {
+      mode = 'audio'
+      asDocument = false
+    } else if (AUDIO_DOC_COMMANDS.has(cmd)) {
+      mode = 'audio'
+      asDocument = true
+    } else if (VIDEO_COMMANDS.has(cmd)) {
+      mode = 'video'
+      asDocument = false
+    } else if (VIDEO_DOC_COMMANDS.has(cmd)) {
+      mode = 'video'
+      asDocument = true
+    } else {
       return
     }
 
-    /*
-     * ========================================================
-     * VIDEO
-     * ========================================================
-     */
+    await processYouTube({
+      conn,
+      m,
+      input,
+      mode,
+      asDocument
+    })
 
-    if (isVideoDoc) {
-      await conn.sendMessage(
-        m.chat,
-        {
-          document: file.buffer,
-          mimetype:
-            'video/mp4',
-          fileName:
-            file.filename,
-          caption:
-            `🎬 *${title}*\n\n` +
-            `> Descargado desde YouTube`
-        },
-        {
-          quoted: m
-        }
-      )
-
-      return
-    }
-
-    await conn.sendMessage(
-      m.chat,
-      {
-        video: file.buffer,
-        mimetype:
-          'video/mp4',
-        fileName:
-          file.filename,
-        caption:
-          `🎬 *${title}*`
-      },
-      {
-        quoted: m
-      }
-    )
-
+    await m.react?.('✅')
   } catch (error) {
-    console.error(
-      '[YOUTUBE DOWNLOAD]',
-      error
-    )
+    console.error('[TUNELIO]', error)
+
+    await m.react?.('❌')
 
     return m.reply(
-      getErrorMessage(error)
+      `❌ No pude descargar el contenido.\n\n` +
+      `${error?.message || 'Error desconocido.'}`
     )
   }
 }
-
-
-/*
- * ============================================================
- * EXPORTACIÓN
- * ============================================================
- */
 
 handler.help = [
   'play <texto>',
@@ -716,18 +489,10 @@ handler.help = [
   'play2 <texto>',
   'ytv <texto>',
   'mp4 <texto>',
-  'ytmp4 <texto>',
-  'play3 <texto>',
-  'ytadoc <texto>',
-  'mp3doc <texto>',
-  'play4 <texto>',
-  'ytvdoc <texto>',
-  'mp4doc <texto>'
+  'ytmp4 <texto>'
 ]
 
-handler.tags = [
-  'downloader'
-]
+handler.tags = ['downloader']
 
 handler.command = [
   'play',
@@ -736,24 +501,21 @@ handler.command = [
   'ytmp3',
   'playaudio',
 
+  'play3',
+  'ytadoc',
+  'mp3doc',
+  'ytmp3doc',
+
   'play2',
   'ytv',
   'mp4',
   'ytmp4',
   'playvid',
 
-  'play3',
-  'ytadoc',
-  'mp3doc',
-  'ytmp3doc',
-
   'play4',
   'ytvdoc',
   'mp4doc',
-  'ytvdoc',
   'ytmp4doc'
 ]
-
-handler.limit = true
 
 export default handler
