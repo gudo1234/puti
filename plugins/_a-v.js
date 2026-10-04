@@ -10,7 +10,7 @@ const normalVideo = ['play2', 'ytv', 'mp4', 'ytmp4', 'playvid']
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 
-const safeFetch = async (url, options = {}, timeout = 30000) => {
+const safeFetch = async (url, options = {}, timeout = 180000) => {
   let timer
 
   try {
@@ -24,6 +24,9 @@ const safeFetch = async (url, options = {}, timeout = 30000) => {
       'Accept-Language': 'en-US,en;q=0.9',
       'Cache-Control': 'no-cache',
       'Pragma': 'no-cache',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'same-origin',
       ...(options.headers || {})
     }
 
@@ -56,8 +59,15 @@ const htmlDecode = (str = '') => {
     .replace(/&#x2F;/gi, '/')
     .replace(/&#x3D;/gi, '=')
     .replace(/&#x26;/gi, '&')
+    .replace(/&#x25;/gi, '%')
     .replace(/&#(\d+);/g, (_, n) => {
       const code = Number(n)
+      return Number.isFinite(code)
+        ? String.fromCharCode(code)
+        : _
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => {
+      const code = parseInt(n, 16)
       return Number.isFinite(code)
         ? String.fromCharCode(code)
         : _
@@ -67,8 +77,8 @@ const htmlDecode = (str = '') => {
 const decodeJs = (str = '') => {
   let value = String(str)
 
-  for (let i = 0; i < 3; i++) {
-    const previous = value
+  for (let i = 0; i < 4; i++) {
+    const old = value
 
     value = value
       .replace(/\\u0026/gi, '&')
@@ -78,12 +88,13 @@ const decodeJs = (str = '') => {
       .replace(/\\x26/gi, '&')
       .replace(/\\x3d/gi, '=')
       .replace(/\\x2f/gi, '/')
+      .replace(/\\x25/gi, '%')
       .replace(/\\\//g, '/')
       .replace(/\\"/g, '"')
       .replace(/\\'/g, "'")
       .replace(/\\\\/g, '\\')
 
-    if (value === previous) break
+    if (value === old) break
   }
 
   return value
@@ -107,26 +118,19 @@ const absoluteUrl = value => {
 
   url = url
     .replace(/^['"`]+|['"`]+$/g, '')
-    .replace(/\\u0026/gi, '&')
     .replace(/&amp;/gi, '&')
+    .replace(/\\u0026/gi, '&')
+    .replace(/\\u003d/gi, '=')
     .trim()
 
   if (!url) return ''
 
-  if (/^(javascript|data|mailto|tel):/i.test(url)) {
+  if (/^(?:javascript|data|mailto|tel):/i.test(url)) {
     return ''
   }
 
   if (url.startsWith('//')) {
     return `https:${url}`
-  }
-
-  if (url.startsWith('/')) {
-    return new URL(url, YT1Z).href
-  }
-
-  if (/^https?:\/\//i.test(url)) {
-    return url
   }
 
   try {
@@ -136,31 +140,38 @@ const absoluteUrl = value => {
   }
 }
 
-const isMediaUrl = url => {
+const isYouTubeUrl = url => {
+  return /(?:youtube\.com|youtu\.be)/i.test(
+    String(url || '')
+  )
+}
+
+const isBadAsset = url => {
+  return /\.(?:css|js|png|jpg|jpeg|gif|svg|webp|ico|woff|woff2|ttf)(?:[?#]|$)/i.test(
+    String(url || '')
+  )
+}
+
+const isPossibleDownload = url => {
   if (!url) return false
 
-  const value = String(url).toLowerCase()
+  const value = String(url).trim()
 
   if (
-    /^(javascript|data|mailto|tel):/i.test(value)
+    /^(?:javascript|data|mailto|tel):/i.test(value)
   ) {
     return false
   }
 
-  if (
-    /\.(?:css|js|png|jpg|jpeg|gif|svg|webp|ico|woff|woff2|ttf)(?:[?#]|$)/i.test(value)
-  ) {
+  if (isYouTubeUrl(value)) {
     return false
   }
 
-  if (
-    /youtube\.com\/(?:watch|shorts|live|embed)/i.test(value) ||
-    /youtu\.be\//i.test(value)
-  ) {
+  if (isBadAsset(value)) {
     return false
   }
 
-  return true
+  return /^https?:\/\//i.test(value)
 }
 
 const getVideoId = text => {
@@ -196,7 +207,7 @@ const searchYT1Z = async query => {
         search: query
       }).toString()
     },
-    45000
+    60000
   )
 
   if (!res) return null
@@ -206,36 +217,22 @@ const searchYT1Z = async query => {
 
     if (!raw) return null
 
+    let json = null
+
     try {
-      const direct = JSON.parse(raw)
+      json = JSON.parse(raw)
+    } catch {
+      const start = raw.indexOf('[')
+      const end = raw.lastIndexOf(']')
 
-      if (Array.isArray(direct)) {
-        return direct
-          .filter(item => item?.videoId)
-          .map(item => {
-            const videoId = String(item.videoId).trim()
-
-            return {
-              videoId,
-              title: cleanText(item.title || ''),
-              url: `https://youtu.be/${videoId}`,
-              thumbnail:
-                `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`
-            }
-          })
+      if (start !== -1 && end !== -1 && end > start) {
+        try {
+          json = JSON.parse(
+            raw.slice(start, end + 1)
+          )
+        } catch {}
       }
-    } catch {}
-
-    const start = raw.indexOf('[')
-    const end = raw.lastIndexOf(']')
-
-    if (start === -1 || end === -1 || end < start) {
-      return null
     }
-
-    const json = JSON.parse(
-      raw.slice(start, end + 1)
-    )
 
     if (!Array.isArray(json)) {
       return null
@@ -244,12 +241,15 @@ const searchYT1Z = async query => {
     return json
       .filter(item => item?.videoId)
       .map(item => {
-        const videoId = String(item.videoId).trim()
+        const videoId =
+          String(item.videoId).trim()
 
         return {
           videoId,
-          title: cleanText(item.title || ''),
-          url: `https://youtu.be/${videoId}`,
+          title:
+            cleanText(item.title || ''),
+          url:
+            `https://youtu.be/${videoId}`,
           thumbnail:
             `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`
         }
@@ -283,7 +283,11 @@ const extractMeta = (html, key) => {
   return ''
 }
 
-const extractTagText = (html, tag, className) => {
+const extractTagText = (
+  html,
+  tag,
+  className
+) => {
   const regex = new RegExp(
     `<${tag}[^>]*class=["'][^"']*\\b${className}\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/${tag}>`,
     'i'
@@ -305,6 +309,7 @@ const extractInfo = html => {
     extractTagText(html, 'div', 'dl-title') ||
     extractTagText(html, 'div', 'video-title') ||
     extractTagText(html, 'div', 'title') ||
+    extractTagText(html, 'h1', 'title') ||
     ''
 
   const description =
@@ -322,6 +327,8 @@ const extractInfo = html => {
     extractTagText(html, 'span', 'dl-author') ||
     extractTagText(html, 'div', 'author') ||
     extractTagText(html, 'span', 'author') ||
+    extractTagText(html, 'div', 'channel') ||
+    extractTagText(html, 'span', 'channel') ||
     ''
 
   const duration =
@@ -343,108 +350,208 @@ const extractInfo = html => {
 const extractCandidates = html => {
   const candidates = []
 
-  const add = (value, context = '') => {
+  const add = (
+    value,
+    context = '',
+    priority = 0
+  ) => {
     const url = absoluteUrl(value)
 
-    if (!url || !isMediaUrl(url)) {
+    if (!isPossibleDownload(url)) {
       return
     }
 
-    const normalized = url
-      .replace(/&amp;/gi, '&')
-      .trim()
+    const cleanUrl =
+      url.replace(/[),;]+$/g, '')
 
     if (
       candidates.some(
-        item => item.url === normalized
+        item => item.url === cleanUrl
       )
     ) {
       return
     }
 
     candidates.push({
-      url: normalized,
-      context: cleanText(context)
+      url: cleanUrl,
+      context: cleanText(context),
+      priority
     })
   }
 
   let match
 
-  const anchorRegex =
-    /<a\b([^>]*)>([\s\S]*?)<\/a>/gi
+  /*
+   * href
+   */
+  const hrefRegex =
+    /\bhref\s*=\s*["']([^"']+)["']/gi
 
-  while ((match = anchorRegex.exec(html)) !== null) {
-    const attrs = match[1] || ''
-    const body = match[2] || ''
+  while ((match = hrefRegex.exec(html)) !== null) {
+    const before =
+      html.slice(
+        Math.max(0, match.index - 500),
+        Math.min(
+          html.length,
+          match.index + 800
+        )
+      )
 
-    const href =
-      attrs.match(
-        /\bhref\s*=\s*["']([^"']+)["']/i
-      )?.[1] ||
-      attrs.match(
-        /\bhref\s*=\s*([^\s>]+)/i
-      )?.[1]
-
-    const dataUrl =
-      attrs.match(
-        /\bdata-(?:url|href|download|file)\s*=\s*["']([^"']+)["']/i
-      )?.[1]
-
-    const text = cleanText(body)
-    const context = `${attrs} ${text}`
-
-    add(href, context)
-    add(dataUrl, context)
+    add(
+      match[1],
+      before,
+      100
+    )
   }
 
-  const attrRegex =
-    /\b(?:href|src|data-url|data-href|data-download|data-file|data-link)\s*=\s*["']([^"']+)["']/gi
+  /*
+   * data-url / data-href / data-download
+   */
+  const dataRegex =
+    /\bdata-(?:url|href|download|link|file|src)\s*=\s*["']([^"']+)["']/gi
 
-  while ((match = attrRegex.exec(html)) !== null) {
-    add(match[1], match[0])
+  while ((match = dataRegex.exec(html)) !== null) {
+    add(
+      match[1],
+      html.slice(
+        Math.max(0, match.index - 400),
+        Math.min(
+          html.length,
+          match.index + 700
+        )
+      ),
+      120
+    )
   }
 
+  /*
+   * action de formularios
+   */
+  const actionRegex =
+    /\baction\s*=\s*["']([^"']+)["']/gi
+
+  while ((match = actionRegex.exec(html)) !== null) {
+    add(
+      match[1],
+      html.slice(
+        Math.max(0, match.index - 500),
+        Math.min(
+          html.length,
+          match.index + 900
+        )
+      ),
+      110
+    )
+  }
+
+  /*
+   * onclick
+   */
   const onclickRegex =
     /\bonclick\s*=\s*["']([^"']+)["']/gi
 
   while ((match = onclickRegex.exec(html)) !== null) {
-    const code = decodeJs(
-      htmlDecode(match[1])
-    )
+    const code =
+      decodeJs(
+        htmlDecode(match[1])
+      )
 
     const urls =
       code.match(
-        /https?:\/\/[^'"`\s)]+|\/[^'"`\s)]+/gi
+        /https?:\/\/[^'"`\s)<>]+|\/\/[^'"`\s)<>]+|\/[^'"`\s)<>]+/gi
       ) || []
 
     for (const url of urls) {
-      add(url, code)
+      add(
+        url,
+        code,
+        140
+      )
+    }
+
+    const quoted =
+      code.match(
+        /["'`]([^"'`]+)["'`]/g
+      ) || []
+
+    for (const item of quoted) {
+      add(
+        item.replace(/^["'`]|["'`]$/g, ''),
+        code,
+        130
+      )
     }
   }
 
-  const jsPatterns = [
-    /(?:window\.open|location(?:\.href)?|window\.location(?:\.href)?)\s*\(\s*["'`]([^"'`]+)["'`]/gi,
-    /(?:url|downloadUrl|download_url|file|fileUrl|mediaUrl|href|src)\s*[:=]\s*["'`]([^"'`]+)["'`]/gi
-  ]
+  /*
+   * window.open / location.href / window.location
+   */
+  const navigationRegex =
+    /(?:window\.open|window\.location(?:\.href)?|location(?:\.href)?|document\.location)\s*\(\s*["'`]([^"'`]+)["'`]/gi
 
-  for (const regex of jsPatterns) {
-    while ((match = regex.exec(html)) !== null) {
-      add(match[1], match[0])
-    }
+  while (
+    (match =
+      navigationRegex.exec(html)) !== null
+  ) {
+    add(
+      match[1],
+      match[0],
+      150
+    )
   }
 
-  const quotedUrlRegex =
+  /*
+   * Variables JavaScript:
+   * url = "..."
+   * downloadUrl: "..."
+   * file: "..."
+   */
+  const variableRegex =
+    /(?:downloadUrl|download_url|downloadLink|download_link|mediaUrl|media_url|fileUrl|file_url|videoUrl|video_url|audioUrl|audio_url|file|url|link|href|src)\s*[:=]\s*["'`]([^"'`]+)["'`]/gi
+
+  while (
+    (match =
+      variableRegex.exec(html)) !== null
+  ) {
+    add(
+      match[1],
+      match[0],
+      145
+    )
+  }
+
+  /*
+   * URLs entre comillas.
+   */
+  const quotedRegex =
     /["'`]((?:https?:\/\/|\/\/|\/)[^"'`<>\\\s]+)["'`]/gi
 
-  while ((match = quotedUrlRegex.exec(html)) !== null) {
-    add(match[1], 'quoted-url')
+  while (
+    (match =
+      quotedRegex.exec(html)) !== null
+  ) {
+    add(
+      match[1],
+      'quoted-url',
+      90
+    )
   }
 
+  /*
+   * URLs absolutas.
+   */
   const absoluteRegex =
     /https?:\/\/[^\s"'<>\\]+/gi
 
-  while ((match = absoluteRegex.exec(html)) !== null) {
-    add(match[0], 'absolute-url')
+  while (
+    (match =
+      absoluteRegex.exec(html)) !== null
+  ) {
+    add(
+      match[0],
+      'absolute-url',
+      70
+    )
   }
 
   return candidates
@@ -454,78 +561,107 @@ const scoreDownloadCandidate = (
   candidate,
   format
 ) => {
-  const url = candidate.url.toLowerCase()
+  const url =
+    candidate.url.toLowerCase()
+
   const context =
     candidate.context.toLowerCase()
 
-  let score = 0
+  let score =
+    Number(candidate.priority || 0)
 
-  const isAudio = format === 'mp3'
-
-  if (isAudio) {
-    if (/\.mp3(?:[?#]|$)/i.test(url)) {
-      score += 150
+  if (format === 'mp3') {
+    if (
+      /\.mp3(?:[?#]|$)/i.test(url)
+    ) {
+      score += 200
     }
 
     if (
-      /audio|mp3|music|sound|convert/i.test(context)
+      /\bmp3\b/.test(context)
+    ) {
+      score += 120
+    }
+
+    if (
+      /audio|music|sound/i.test(context)
     ) {
       score += 80
     }
 
     if (
-      /\/(?:mp3|audio|download|dl)\b/i.test(url)
+      /download|convert|save/i.test(context)
     ) {
-      score += 60
+      score += 70
     }
   } else {
-    if (/\.mp4(?:[?#]|$)/i.test(url)) {
-      score += 150
+    if (
+      /\.mp4(?:[?#]|$)/i.test(url)
+    ) {
+      score += 200
     }
 
     if (
-      /video|mp4|download|convert/i.test(context)
+      /\bmp4\b/.test(context)
+    ) {
+      score += 120
+    }
+
+    if (
+      /video|download|convert|save/i.test(context)
     ) {
       score += 80
     }
 
     if (
-      /\/(?:mp4|video|download|dl)\b/i.test(url)
+      /2160|4k/i.test(context)
     ) {
-      score += 60
+      score += 25
     }
 
-    if (/2160|4k/.test(context)) {
+    if (
+      /1080|full\s*hd/i.test(context)
+    ) {
+      score += 20
+    }
+
+    if (
+      /720|hd/i.test(context)
+    ) {
       score += 15
     }
-
-    if (/1080|full\s*hd/.test(context)) {
-      score += 12
-    }
-
-    if (/720|hd/.test(context)) {
-      score += 8
-    }
-  }
-
-  if (/download|get\s*(file|video|audio)/i.test(context)) {
-    score += 60
   }
 
   if (
-    /facebook|instagram|twitter|tiktok|youtube\.com\/(?:watch|shorts)/i.test(
+    /download|download\s+now|get\s+(?:file|video|audio)|save\s+(?:file|video|audio)/i.test(
+      context
+    )
+  ) {
+    score += 100
+  }
+
+  if (
+    /\/(?:download|dl|file|media|video|audio)\b/i.test(
       url
     )
   ) {
-    score -= 200
+    score += 70
   }
 
   if (
-    /\.(?:css|js|png|jpg|jpeg|gif|svg|webp|ico|woff|woff2)(?:[?#]|$)/i.test(
+    /facebook|instagram|twitter|tiktok/i.test(
       url
     )
   ) {
     score -= 300
+  }
+
+  if (
+    /yt1z\.top\/(?:s|search|assets?|css|js)\b/i.test(
+      url
+    )
+  ) {
+    score -= 250
   }
 
   return score
@@ -535,6 +671,8 @@ const extractDownloadLink = (
   html,
   format
 ) => {
+  if (!html) return null
+
   const candidates =
     extractCandidates(html)
 
@@ -542,44 +680,91 @@ const extractDownloadLink = (
     return null
   }
 
-  const ranked = candidates
-    .map(candidate => ({
-      ...candidate,
-      score:
-        scoreDownloadCandidate(
-          candidate,
-          format
+  const ranked =
+    candidates
+      .map(candidate => ({
+        ...candidate,
+        score:
+          scoreDownloadCandidate(
+            candidate,
+            format
+          )
+      }))
+      .sort(
+        (a, b) =>
+          b.score - a.score
+      )
+
+  /*
+   * Preferimos enlaces claramente
+   * identificados como descarga.
+   */
+  const strong =
+    ranked.find(
+      candidate =>
+        candidate.score >= 150 &&
+        isPossibleDownload(
+          candidate.url
         )
-    }))
-    .sort(
-      (a, b) => b.score - a.score
     )
 
-  const valid = ranked.find(
-    candidate =>
-      candidate.score > 0 &&
-      isMediaUrl(candidate.url)
-  )
-
-  if (valid) {
-    return valid.url
+  if (strong) {
+    return strong.url
   }
 
   /*
-   * Último intento:
-   * si YT1Z devuelve una URL válida pero
-   * no tiene extensión ni texto "download",
-   * no la descartamos automáticamente.
+   * Segundo intento:
+   * cualquier enlace externo válido.
    */
-  const fallback = ranked.find(
-    candidate =>
-      isMediaUrl(candidate.url) &&
-      !/yt1z\.top\/(?:s|d)\/?/i.test(
-        candidate.url
-      )
-  )
+  const external =
+    ranked.find(
+      candidate =>
+        candidate.score > 0 &&
+        isPossibleDownload(
+          candidate.url
+        )
+    )
 
-  return fallback?.url || null
+  if (external) {
+    return external.url
+  }
+
+  return null
+}
+
+const extractJsonLink = (
+  html
+) => {
+  if (!html) return null
+
+  const decoded =
+    decodeJs(
+      htmlDecode(html)
+    )
+
+  const patterns = [
+    /"(?:url|downloadUrl|download_url|downloadLink|download_link|fileUrl|file_url|mediaUrl|media_url|link)"\s*:\s*"([^"]+)"/gi,
+    /'(?:url|downloadUrl|download_url|downloadLink|download_link|fileUrl|file_url|mediaUrl|media_url|link)'\s*:\s*'([^']+)'/gi
+  ]
+
+  for (const regex of patterns) {
+    let match
+
+    while (
+      (match = regex.exec(decoded)) !== null
+    ) {
+      const url =
+        absoluteUrl(match[1])
+
+      if (
+        isPossibleDownload(url)
+      ) {
+        return url
+      }
+    }
+  }
+
+  return null
 }
 
 const processYT1Z = async (
@@ -597,18 +782,20 @@ const processYT1Z = async (
   const endpoint =
     `${YT1Z}/d/?${params.toString()}`
 
-  const res = await safeFetch(
-    endpoint,
-    {
-      method: 'GET',
-      headers: {
-        'Referer': `${YT1Z}/`,
-        'Accept':
-          'text/html,application/xhtml+xml,application/json,*/*;q=0.8'
-      }
-    },
-    180000
-  )
+  const res =
+    await safeFetch(
+      endpoint,
+      {
+        method: 'GET',
+        headers: {
+          'Referer': `${YT1Z}/`,
+          'Origin': YT1Z,
+          'Accept':
+            'text/html,application/xhtml+xml,application/json,*/*;q=0.8'
+        }
+      },
+      180000
+    )
 
   if (!res) {
     return null
@@ -618,59 +805,34 @@ const processYT1Z = async (
     const html =
       await res.text()
 
-    if (!html || html.length < 20) {
+    if (!html) {
       return null
     }
 
-    let json = null
+    /*
+     * Primero intentamos detectar
+     * una URL directa embebida en JSON/JS.
+     */
+    const jsonLink =
+      extractJsonLink(html)
 
-    try {
-      json = JSON.parse(html)
-    } catch {}
-
-    if (json) {
-      const directLink =
-        json.url ||
-        json.download_url ||
-        json.downloadUrl ||
-        json.link ||
-        json.file ||
-        json.fileUrl
-
-      if (
-        directLink &&
-        isMediaUrl(directLink)
-      ) {
-        return {
-          html,
-          link: absoluteUrl(directLink),
-          title:
-            json.title ||
-            json.name ||
-            '',
-          thumbnail:
-            json.thumbnail ||
-            json.thumb ||
-            '',
-          author:
-            json.author ||
-            json.channel ||
-            '',
-          duration:
-            json.duration ||
-            ''
-        }
-      }
-    }
-
-    const info =
-      extractInfo(html)
-
-    const link =
+    /*
+     * Después usamos el extractor
+     * completo del HTML.
+     */
+    const htmlLink =
       extractDownloadLink(
         html,
         format
       )
+
+    const link =
+      jsonLink ||
+      htmlLink ||
+      null
+
+    const info =
+      extractInfo(html)
 
     return {
       html,
@@ -682,7 +844,9 @@ const processYT1Z = async (
   }
 }
 
-const secondsFromDuration = duration => {
+const secondsFromDuration = (
+  duration
+) => {
   if (!duration) return 0
 
   const clean =
@@ -821,6 +985,11 @@ const handler = async (
       docAudio.includes(command) ||
       docVideo.includes(command)
 
+    /*
+     * Este valor coincide con el
+     * formato predeterminado real
+     * de YT1Z.
+     */
     const format =
       isAudio
         ? 'mp3'
