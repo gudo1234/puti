@@ -1,14 +1,7 @@
-import fetch from 'node-fetch'
+import { Innertube, UniversalCache } from 'youtubei.js'
 import ytSearch from 'yt-search'
 
-const TUNELIO_API = 'https://tunelio.dev'
-const TUNELIO_API_KEY =
-  process.env.TUNELIO_API_KEY ||
-  global.TUNELIO_API_KEY ||
-  'tnl_7d8s4-IpR_JkwcdymMe__6yEoOquHYPDKew5NLiMxsw'
-
 const MAX_DURATION = 20 * 60 // 20 minutos
-const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100 MB
 
 const AUDIO_COMMANDS = new Set([
   'play',
@@ -37,9 +30,31 @@ const VIDEO_DOC_COMMANDS = new Set([
   'play4',
   'ytvdoc',
   'mp4doc',
-  'ytvdoc',
   'ytmp4doc'
 ])
+
+let youtubePromise = null
+
+function getYouTube() {
+  if (!youtubePromise) {
+    youtubePromise = Innertube.create({
+      cache: new UniversalCache(false),
+
+      // SnapTube utiliza clientes internos de YouTube.
+      // WEB es el punto de partida más compatible.
+      client_type: 'WEB',
+
+      lang: 'es',
+      location: 'US',
+
+      // Necesario para que youtubei.js pueda
+      // obtener y descifrar el player.
+      retrieve_player: true
+    })
+  }
+
+  return youtubePromise
+}
 
 function cleanFileName(name = 'youtube') {
   return String(name)
@@ -49,26 +64,9 @@ function cleanFileName(name = 'youtube') {
     .slice(0, 150) || 'youtube'
 }
 
-function isYouTubeUrl(value = '') {
-  try {
-    const url = new URL(value)
+function extractVideoId(input) {
+  const value = String(input || '').trim()
 
-    const host = url.hostname
-      .toLowerCase()
-      .replace(/^www\./, '')
-
-    return (
-      host === 'youtube.com' ||
-      host === 'm.youtube.com' ||
-      host === 'youtu.be' ||
-      host === 'music.youtube.com'
-    )
-  } catch {
-    return false
-  }
-}
-
-function getVideoId(value = '') {
   try {
     const url = new URL(value)
 
@@ -77,7 +75,9 @@ function getVideoId(value = '') {
       .replace(/^www\./, '')
 
     if (host === 'youtu.be') {
-      return url.pathname.slice(1).split('/')[0] || null
+      return url.pathname
+        .split('/')
+        .filter(Boolean)[0] || null
     }
 
     if (
@@ -86,25 +86,27 @@ function getVideoId(value = '') {
       host === 'music.youtube.com'
     ) {
       const v = url.searchParams.get('v')
+
       if (v) return v
 
-      const parts = url.pathname.split('/').filter(Boolean)
+      const parts = url.pathname
+        .split('/')
+        .filter(Boolean)
 
-      if (parts[0] === 'shorts' && parts[1]) {
-        return parts[1]
-      }
-
-      if (parts[0] === 'embed' && parts[1]) {
-        return parts[1]
-      }
-
-      if (parts[0] === 'live' && parts[1]) {
+      if (
+        ['shorts', 'embed', 'live'].includes(parts[0]) &&
+        parts[1]
+      ) {
         return parts[1]
       }
     }
   } catch {}
 
   return null
+}
+
+function isYouTubeUrl(input) {
+  return Boolean(extractVideoId(input))
 }
 
 function formatDuration(seconds) {
@@ -115,368 +117,500 @@ function formatDuration(seconds) {
   const s = Math.floor(seconds % 60)
 
   if (h > 0) {
-    return [
-      h,
-      String(m).padStart(2, '0'),
-      String(s).padStart(2, '0')
-    ].join(':')
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   }
 
-  return [
-    m,
-    String(s).padStart(2, '0')
-  ].join(':')
+  return `${m}:${String(s).padStart(2, '0')}`
 }
 
-async function safeJson(response) {
-  const text = await response.text()
+function classifyCommand(command) {
+  const cmd = String(command || '').toLowerCase()
 
-  let data
+  if (AUDIO_COMMANDS.has(cmd)) {
+    return {
+      type: 'audio',
+      document: false
+    }
+  }
 
-  try {
-    data = JSON.parse(text)
-  } catch {
+  if (AUDIO_DOC_COMMANDS.has(cmd)) {
+    return {
+      type: 'audio',
+      document: true
+    }
+  }
+
+  if (VIDEO_COMMANDS.has(cmd)) {
+    return {
+      type: 'video',
+      document: false
+    }
+  }
+
+  if (VIDEO_DOC_COMMANDS.has(cmd)) {
+    return {
+      type: 'video',
+      document: true
+    }
+  }
+
+  return null
+}
+
+async function resolveVideo(input) {
+  const youtube = await getYouTube()
+
+  const directId = extractVideoId(input)
+
+  /*
+   * URL directa.
+   */
+  if (directId) {
+    const info = await youtube.getBasicInfo(directId)
+
+    return {
+      youtube,
+      info,
+      videoId: directId
+    }
+  }
+
+  /*
+   * Búsqueda como SnapTube:
+   *
+   * texto
+   *   ↓
+   * búsqueda YouTube
+   *   ↓
+   * primer resultado
+   */
+  const search = await ytSearch(input)
+
+  const video = search?.videos?.[0]
+
+  if (!video) {
     throw new Error(
-      `Tunelio respondió algo que no es JSON (${response.status})`
+      'No encontré ningún resultado en YouTube.'
     )
   }
 
-  if (!response.ok) {
-    const message =
-      data?.message ||
-      data?.error ||
-      data?.status ||
-      `HTTP ${response.status}`
+  const videoId = video.videoId
 
-    throw new Error(message)
-  }
-
-  return data
-}
-
-async function searchYouTube(query) {
-  const result = await ytSearch(query)
-
-  if (!result?.videos?.length) {
-    throw new Error('No encontré ningún video en YouTube.')
-  }
-
-  const video = result.videos[0]
+  const info = await youtube.getBasicInfo(videoId)
 
   return {
-    url: video.url,
-    videoId: video.videoId,
-    title: video.title,
-    duration: Number(video.seconds) || 0,
-    thumbnail:
-      video.thumbnail ||
-      `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`
+    youtube,
+    info,
+    videoId,
+    searchVideo: video
   }
 }
 
-async function getYouTubeInfo(url) {
-  const response = await fetch(
-    `${TUNELIO_API}/info?${new URLSearchParams({ url })}`,
-    {
-      headers: {
-        Authorization: `Bearer ${TUNELIO_API_KEY}`,
-        Accept: 'application/json'
-      }
-    }
+function getVideoTitle(info, fallback = 'YouTube') {
+  return (
+    info?.basic_info?.title ||
+    info?.primary_info?.title?.text ||
+    fallback
   )
-
-  return safeJson(response)
 }
 
-async function createDownload(url, quality) {
-  if (!TUNELIO_API_KEY) {
-    throw new Error(
-      'Falta configurar TUNELIO_API_KEY en las variables de entorno.'
-    )
+function getDurationFromInfo(info) {
+  return Number(
+    info?.basic_info?.duration ||
+    info?.basic_info?.duration_seconds ||
+    0
+  ) || 0
+}
+
+function getThumbnail(info, videoId) {
+  return (
+    info?.basic_info?.thumbnail?.[0]?.url ||
+    `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+  )
+}
+
+function getFormatMime(format) {
+  return String(
+    format?.mime_type ||
+    format?.mimeType ||
+    ''
+  )
+}
+
+function getFormatExtension(format, type) {
+  const mime = getFormatMime(format)
+
+  if (mime.includes('mp4')) {
+    return 'mp4'
   }
 
-  const params = new URLSearchParams({
-    url,
-    quality
+  if (mime.includes('webm')) {
+    return 'webm'
+  }
+
+  if (type === 'audio') {
+    return 'm4a'
+  }
+
+  return 'mp4'
+}
+
+function chooseAudio(info) {
+  /*
+   * Primero intentamos MP4/AAC, que es el formato
+   * más conveniente para WhatsApp.
+   */
+  try {
+    return info.chooseFormat({
+      type: 'audio',
+      quality: 'best',
+      format: 'mp4',
+      codec: 'mp4a'
+    })
+  } catch {}
+
+  /*
+   * Fallback: cualquier audio.
+   */
+  return info.chooseFormat({
+    type: 'audio',
+    quality: 'best',
+    format: 'any'
   })
+}
 
-  const response = await fetch(
-    `${TUNELIO_API}/create?${params.toString()}`,
-    {
-      headers: {
-        Authorization: `Bearer ${TUNELIO_API_KEY}`,
-        Accept: 'application/json'
+function chooseVideo(info) {
+  /*
+   * Preferimos MP4/H.264 para WhatsApp.
+   */
+  try {
+    return info.chooseFormat({
+      type: 'video+audio',
+      quality: '720p',
+      format: 'mp4',
+      codec: 'avc'
+    })
+  } catch {}
+
+  /*
+   * Si 720p no existe, dejamos que youtubei.js
+   * seleccione la mejor combinación compatible.
+   */
+  try {
+    return info.chooseFormat({
+      type: 'video+audio',
+      quality: 'best',
+      format: 'mp4'
+    })
+  } catch {}
+
+  /*
+   * Último fallback.
+   */
+  return info.chooseFormat({
+    type: 'video+audio',
+    quality: 'best',
+    format: 'any'
+  })
+}
+
+async function getPlaybackUrl(youtube, info, format) {
+  if (!format) {
+    throw new Error(
+      'YouTube no devolvió un formato compatible.'
+    )
+  }
+
+  /*
+   * Esta parte es equivalente conceptualmente
+   * al paso de SnapTube donde transforma el
+   * formato de YouTube en la URL final de reproducción.
+   *
+   * youtubei.js se encarga del decipher del player.
+   */
+  const url = await format.decipher(
+    youtube.session.player
+  )
+
+  if (!url) {
+    throw new Error(
+      'No se pudo obtener la URL de reproducción.'
+    )
+  }
+
+  return url
+}
+
+async function sendAudio(
+  conn,
+  m,
+  {
+    url,
+    title,
+    filename,
+    document
+  }
+) {
+  if (document) {
+    return conn.sendMessage(
+      m.chat,
+      {
+        document: {
+          url
+        },
+        mimetype: 'audio/mp4',
+        fileName: filename,
+        caption: title
+      },
+      {
+        quoted: m
       }
+    )
+  }
+
+  return conn.sendMessage(
+    m.chat,
+    {
+      audio: {
+        url
+      },
+      mimetype: 'audio/mp4',
+      fileName: filename,
+      ptt: false
+    },
+    {
+      quoted: m
     }
   )
-
-  const data = await safeJson(response)
-
-  if (data.status && data.status !== 'ok') {
-    throw new Error(
-      data.message ||
-      data.error ||
-      data.status
-    )
-  }
-
-  if (!data.url) {
-    throw new Error(
-      'Tunelio no devolvió una URL de descarga.'
-    )
-  }
-
-  return data
 }
 
-async function downloadBuffer(url, maxSize = MAX_FILE_SIZE) {
-  const response = await fetch(url)
-
-  if (!response.ok) {
-    throw new Error(
-      `No se pudo descargar el archivo (${response.status}).`
+async function sendVideo(
+  conn,
+  m,
+  {
+    url,
+    title,
+    filename,
+    document
+  }
+) {
+  if (document) {
+    return conn.sendMessage(
+      m.chat,
+      {
+        document: {
+          url
+        },
+        mimetype: 'video/mp4',
+        fileName: filename,
+        caption: title
+      },
+      {
+        quoted: m
+      }
     )
   }
 
-  const contentLength = Number(
-    response.headers.get('content-length') || 0
+  return conn.sendMessage(
+    m.chat,
+    {
+      video: {
+        url
+      },
+      mimetype: 'video/mp4',
+      fileName: filename,
+      caption: title
+    },
+    {
+      quoted: m
+    }
   )
-
-  if (contentLength > maxSize) {
-    throw new Error(
-      `El archivo pesa demasiado (${Math.round(
-        contentLength / 1024 / 1024
-      )} MB).`
-    )
-  }
-
-  const chunks = []
-  let total = 0
-
-  for await (const chunk of response.body) {
-    total += chunk.length
-
-    if (total > maxSize) {
-      throw new Error(
-        `El archivo supera el límite de ${Math.round(
-          maxSize / 1024 / 1024
-        )} MB.`
-      )
-    }
-
-    chunks.push(chunk)
-  }
-
-  return Buffer.concat(chunks)
 }
 
-async function resolveInput(text) {
-  text = String(text || '').trim()
-
-  if (!text) {
-    throw new Error(
-      'Escribe un enlace de YouTube o el nombre de una canción/video.'
-    )
-  }
-
-  if (isYouTubeUrl(text)) {
-    return {
-      url: text,
-      videoId: getVideoId(text),
-      title: null,
-      duration: 0,
-      thumbnail: null
-    }
-  }
-
-  return searchYouTube(text)
-}
-
-async function processYouTube({
+async function downloadFromYouTube({
   conn,
   m,
   input,
-  mode,
-  asDocument
+  type,
+  document
 }) {
-  const resolved = await resolveInput(input)
+  const {
+    youtube,
+    info,
+    videoId,
+    searchVideo
+  } = await resolveVideo(input)
 
-  let title = resolved.title
-  let duration = resolved.duration
-  let thumbnail = resolved.thumbnail
+  const title = getVideoTitle(
+    info,
+    searchVideo?.title || 'YouTube'
+  )
 
-  /*
-   * Cuando el usuario proporciona directamente una URL,
-   * obtenemos metadata de Tunelio.
-   *
-   * /info cuesta créditos, por eso NO lo usamos cuando
-   * ya tenemos los datos de yt-search.
-   */
-  if (!title || !duration) {
-    try {
-      const info = await getYouTubeInfo(resolved.url)
+  const duration =
+    getDurationFromInfo(info) ||
+    Number(searchVideo?.seconds) ||
+    0
 
-      title = info.title || title
-      duration =
-        Number(info.duration_seconds) ||
-        duration ||
-        0
-
-      thumbnail =
-        info.thumbnail ||
-        thumbnail
-    } catch {
-      // No detenemos el proceso solamente por no obtener metadata.
-    }
-  }
-
-  if (duration > MAX_DURATION) {
+  if (
+    duration &&
+    duration > MAX_DURATION
+  ) {
     throw new Error(
       `El video dura ${formatDuration(duration)}. ` +
-      `El límite permitido es de 20 minutos.`
+      `El límite es de 20 minutos.`
     )
   }
 
-  const quality = mode === 'audio'
-    ? 'mp3'
-    : '720p'
+  /*
+   * Comprobamos que YouTube no haya marcado
+   * el vídeo como inaccesible.
+   */
+  const playability =
+    info?.playability_status?.status
 
-  const download = await createDownload(
-    resolved.url,
-    quality
-  )
+  if (
+    playability &&
+    !['OK', 'UNPLAYABLE'].includes(playability)
+  ) {
+    throw new Error(
+      `YouTube respondió: ${playability}`
+    )
+  }
 
-  const finalTitle =
-    title ||
-    download.filename?.replace(/\.(mp3|mp4)$/i, '') ||
-    'YouTube'
+  let format
 
-  const filenameBase = cleanFileName(finalTitle)
+  if (type === 'audio') {
+    format = chooseAudio(info)
+  } else {
+    format = chooseVideo(info)
+  }
 
-  const extension = mode === 'audio'
-    ? 'mp3'
-    : 'mp4'
+  const playbackUrl =
+    await getPlaybackUrl(
+      youtube,
+      info,
+      format
+    )
+
+  const extension =
+    getFormatExtension(
+      format,
+      type
+    )
 
   const filename =
-    `${filenameBase}.${extension}`
+    `${cleanFileName(title)}.${extension}`
 
-  /*
-   * Descargamos el archivo al buffer para que funcione
-   * de forma consistente con distintas versiones de Baileys.
-   */
-  const buffer = await downloadBuffer(download.url)
-
-  if (mode === 'audio') {
-    if (asDocument) {
-      await conn.sendMessage(
-        m.chat,
-        {
-          document: buffer,
-          mimetype: 'audio/mpeg',
-          fileName: filename,
-          caption: finalTitle
-        },
-        { quoted: m }
-      )
-    } else {
-      await conn.sendMessage(
-        m.chat,
-        {
-          audio: buffer,
-          mimetype: 'audio/mpeg',
-          fileName: filename,
-          ptt: false
-        },
-        { quoted: m }
-      )
-    }
+  if (type === 'audio') {
+    await sendAudio(
+      conn,
+      m,
+      {
+        url: playbackUrl,
+        title,
+        filename,
+        document
+      }
+    )
   } else {
-    if (asDocument) {
-      await conn.sendMessage(
-        m.chat,
-        {
-          document: buffer,
-          mimetype: 'video/mp4',
-          fileName: filename,
-          caption: finalTitle
-        },
-        { quoted: m }
-      )
-    } else {
-      await conn.sendMessage(
-        m.chat,
-        {
-          video: buffer,
-          mimetype: 'video/mp4',
-          fileName: filename,
-          caption: finalTitle
-        },
-        { quoted: m }
-      )
-    }
+    await sendVideo(
+      conn,
+      m,
+      {
+        url: playbackUrl,
+        title,
+        filename,
+        document
+      }
+    )
   }
 
   return {
-    title: finalTitle,
+    videoId,
+    title,
     duration,
-    thumbnail,
-    url: resolved.url,
-    downloadUrl: download.url,
-    filename,
-    size: download.file_size_str || null
+    thumbnail: getThumbnail(
+      info,
+      videoId
+    ),
+    url: playbackUrl,
+    format
   }
 }
 
-const handler = async (m, { conn, text, command }) => {
-  const cmd = String(command || '').toLowerCase()
-  const input = String(text || '').trim()
+const handler = async (
+  m,
+  {
+    conn,
+    text,
+    command
+  }
+) => {
+  const job =
+    classifyCommand(command)
+
+  if (!job) return
+
+  const input =
+    String(text || '').trim()
 
   if (!input) {
     return m.reply(
-      `Uso:\n\n` +
-      `• .${cmd} nombre o URL de YouTube`
+      `❌ Usa:\n\n` +
+      `.${command} nombre o URL de YouTube`
     )
   }
 
   try {
     await m.react?.('⏳')
 
-    let mode
-    let asDocument
-
-    if (AUDIO_COMMANDS.has(cmd)) {
-      mode = 'audio'
-      asDocument = false
-    } else if (AUDIO_DOC_COMMANDS.has(cmd)) {
-      mode = 'audio'
-      asDocument = true
-    } else if (VIDEO_COMMANDS.has(cmd)) {
-      mode = 'video'
-      asDocument = false
-    } else if (VIDEO_DOC_COMMANDS.has(cmd)) {
-      mode = 'video'
-      asDocument = true
-    } else {
-      return
-    }
-
-    await processYouTube({
+    await downloadFromYouTube({
       conn,
       m,
       input,
-      mode,
-      asDocument
+      type: job.type,
+      document: job.document
     })
 
     await m.react?.('✅')
+
   } catch (error) {
-    console.error('[TUNELIO]', error)
+    console.error(
+      '[SNAPTUBE-STYLE YOUTUBE]',
+      error
+    )
 
     await m.react?.('❌')
 
+    const message =
+      String(error?.message || '')
+
+    if (
+      /login|required|sign.?in/i.test(message)
+    ) {
+      return m.reply(
+        '❌ Este vídeo requiere iniciar sesión en YouTube.'
+      )
+    }
+
+    if (
+      /unplayable|unavailable|private/i.test(message)
+    ) {
+      return m.reply(
+        '❌ Este vídeo no está disponible para reproducción.'
+      )
+    }
+
+    if (
+      /format|streaming|decipher|playback/i.test(message)
+    ) {
+      return m.reply(
+        '❌ YouTube no proporcionó un formato de descarga compatible.'
+      )
+    }
+
     return m.reply(
-      `❌ No pude descargar el contenido.\n\n` +
-      `${error?.message || 'Error desconocido.'}`
+      `❌ Error al procesar el vídeo:\n\n${message}`
     )
   }
 }
@@ -492,7 +626,9 @@ handler.help = [
   'ytmp4 <texto>'
 ]
 
-handler.tags = ['downloader']
+handler.tags = [
+  'downloader'
+]
 
 handler.command = [
   'play',
@@ -513,6 +649,8 @@ handler.command = [
   'playvid',
 
   'play4',
+  'ytvdoc',
+  'mp4doc',
   'ytvdoc',
   'mp4doc',
   'ytmp4doc'
