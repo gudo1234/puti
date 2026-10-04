@@ -1,6 +1,7 @@
 import fetch from "node-fetch"
 import yts from "yt-search"
 import sharp from "sharp"
+import { PassThrough } from "stream"
 import { generateWAMessageFromContent } from "@whiskeysockets/baileys"
 
 const mod = await import("yt-dlp-wrap-plus")
@@ -30,7 +31,7 @@ const safeFetch = async (url, options = {}) => {
 }
 
 const crearStream = (url, formato) => {
-  return ytDlp.execStream([
+  const source = ytDlp.execStream([
     url,
 
     "--no-playlist",
@@ -42,7 +43,6 @@ const crearStream = (url, formato) => {
 
     "--js-runtimes",
     "node",
-
     "--remote-components",
     "ejs:github",
 
@@ -55,6 +55,71 @@ const crearStream = (url, formato) => {
     "-o",
     "-"
   ])
+
+  const pass = new PassThrough()
+
+  let bytes = 0
+  let sourceError = null
+  let terminado = false
+
+  source.on("data", chunk => {
+    bytes += chunk.length
+  })
+
+  source.on("error", error => {
+    sourceError = error
+
+    if (
+      error?.code === "ERR_STREAM_PREMATURE_CLOSE" &&
+      bytes > 0
+    ) {
+      if (!terminado) {
+        terminado = true
+        try {
+          pass.end()
+        } catch {}
+      }
+      return
+    }
+
+    if (!terminado) {
+      terminado = true
+
+      try {
+        pass.destroy(error)
+      } catch {}
+    }
+  })
+
+  source.on("end", () => {
+    if (!terminado) {
+      terminado = true
+
+      try {
+        pass.end()
+      } catch {}
+    }
+  })
+
+  source.on("close", () => {
+    if (!terminado && bytes > 0) {
+      terminado = true
+
+      try {
+        pass.end()
+      } catch {}
+    }
+  })
+
+  source.pipe(pass)
+
+  pass.on("error", () => {})
+
+  pass._ytDlpSource = source
+  pass._ytDlpError = () => sourceError
+  pass._ytDlpBytes = () => bytes
+
+  return pass
 }
 
 const handler = async (m, { conn, text, usedPrefix, command, args }) => {
@@ -112,6 +177,8 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
   descargaActiva = true
 
   await m.react("🕒")
+
+  let stream = null
 
   try {
 
@@ -251,9 +318,9 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
 
     if (isAudio) {
 
-      const stream = crearStream(
+      stream = crearStream(
         url,
-        "bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio[ext=webm]"
+        "bestaudio[ext=m4a]"
       )
 
       if (sendDoc) {
@@ -280,7 +347,8 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
             audio: {
               stream
             },
-            mimetype: "audio/mp4"
+            mimetype: "audio/mp4",
+            fileName: `${title}.m4a`
           },
           {
             quoted: m
@@ -290,7 +358,7 @@ const handler = async (m, { conn, text, usedPrefix, command, args }) => {
 
     } else {
 
-      const stream = crearStream(
+      stream = crearStream(
         url,
         "best[ext=mp4][height<=720]/best[height<=720]"
       )
