@@ -8,27 +8,19 @@ import fs from 'fs'
 const mod = await import('yt-dlp-wrap-plus')
 const YTDlpWrap = mod.default?.default || mod.default || mod
 
-const YTDLP_PATH = path.resolve(process.cwd(), 'yt-dlp')
+const YTDLP_PATH = path.resolve('./yt-dlp')
+const ytDlp = new YTDlpWrap(YTDLP_PATH)
 
-let ytDlp
-
-const prepararYtDlp = async () => {
-  if (!fs.existsSync(YTDLP_PATH)) {
-    await new YTDlpWrap().downloadFromGithub(YTDLP_PATH)
-  }
-
-  try {
-    await fs.promises.chmod(YTDLP_PATH, 0o755)
-  } catch {}
-
-  ytDlp = new YTDlpWrap(YTDLP_PATH)
-  return ytDlp
+if (!fs.existsSync(YTDLP_PATH)) {
+  await ytDlp.downloadFromGithub(YTDLP_PATH)
 }
 
-const crearStream = async (url, formato) => {
-  const ytdlp = await prepararYtDlp()
+try {
+  await fs.promises.chmod(YTDLP_PATH, 0o755)
+} catch {}
 
-  const source = ytdlp.execStream([
+const crearStream = (url, formato) => {
+  const source = ytDlp.execStream([
     url,
     '--no-playlist',
     '--no-cache-dir',
@@ -106,9 +98,9 @@ const crearStream = async (url, formato) => {
   return pass
 }
 
-const crearMedia = async (url, formato) => {
+const crearMedia = (url, formato) => {
   return {
-    stream: await crearStream(url, formato),
+    stream: crearStream(url, formato),
     replay: () => crearStream(url, formato)
   }
 }
@@ -116,6 +108,7 @@ const crearMedia = async (url, formato) => {
 const descargarThumb = async url => {
   try {
     const r = await fetch(url)
+
     if (!r.ok) return null
 
     const buffer = Buffer.from(await r.arrayBuffer())
@@ -178,7 +171,6 @@ const segundos = timestamp => {
 
 const formatoDuracion = timestamp => {
   if (!timestamp) return '00:00'
-
   return String(timestamp)
 }
 
@@ -193,20 +185,48 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
   }
 
   if (descargaActiva) {
-    return m.reply('⏳ Ya hay una descarga de YouTube en proceso. Espera a que termine.')
+    return m.reply(
+      '⏳ Ya hay una descarga de YouTube en proceso. Espera a que termine.'
+    )
   }
 
   descargaActiva = true
 
   try {
-    const esAudio =
-      ['play', 'yta', 'mp3', 'ytmp3', 'playaudio', 'play3', 'ytadoc', 'mp3doc', 'ytmp3doc'].includes(command)
+    const esAudio = [
+      'play',
+      'yta',
+      'mp3',
+      'ytmp3',
+      'playaudio',
+      'play3',
+      'ytadoc',
+      'mp3doc',
+      'ytmp3doc'
+    ].includes(command)
 
-    const esDocumento =
-      ['play3', 'ytadoc', 'mp3doc', 'ytmp3doc', 'play4', 'ytvdoc', 'mp4doc', 'ytmp4doc'].includes(command)
+    const esDocumento = [
+      'play3',
+      'ytadoc',
+      'mp3doc',
+      'ytmp3doc',
+      'play4',
+      'ytvdoc',
+      'mp4doc',
+      'ytmp4doc'
+    ].includes(command)
 
-    const esVideo =
-      ['play2', 'ytv', 'mp4', 'ytmp4', 'playvid', 'play4', 'ytvdoc', 'mp4doc', 'ytmp4doc'].includes(command)
+    const esVideo = [
+      'play2',
+      'ytv',
+      'mp4',
+      'ytmp4',
+      'playvid',
+      'play4',
+      'ytvdoc',
+      'mp4doc',
+      'ytmp4doc'
+    ].includes(command)
 
     let url = text.trim()
     let info
@@ -268,7 +288,7 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
     const comoDocumento = esDocumento || esLargo
 
     if (esAudio) {
-      const media = await crearMedia(
+      const media = crearMedia(
         url,
         'bestaudio[ext=m4a]/bestaudio'
       )
@@ -302,7 +322,7 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
         )
       }
     } else if (esVideo) {
-      const media = await crearMedia(
+      const media = crearMedia(
         url,
         'best[ext=mp4][height<=720]/best[height<=720]/best'
       )
@@ -346,7 +366,10 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
   } catch (e) {
     let error = String(e?.message || e)
 
-    if (error.includes('spawn') && error.includes('ENOENT')) {
+    if (
+      error.includes('spawn') &&
+      error.includes('ENOENT')
+    ) {
       error =
         `No se encontró el ejecutable de yt-dlp.\n\n` +
         `Ruta esperada:\n${YTDLP_PATH}`
