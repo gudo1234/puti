@@ -1,107 +1,81 @@
 import fetch from 'node-fetch'
 import yts from 'yt-search'
 import sharp from 'sharp'
-import { PassThrough } from 'stream'
 import path from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
 
 const mod = await import('yt-dlp-wrap-plus')
 const YTDlpWrap = mod.default?.default || mod.default || mod
 
 const YTDLP_PATH = path.resolve('./yt-dlp')
+const COOKIES_PATH = '/home/container/cookies.txt'
+
 const ytDlp = new YTDlpWrap(YTDLP_PATH)
 
-if (!fs.existsSync(YTDLP_PATH)) {
-  await ytDlp.downloadFromGithub(YTDLP_PATH)
+const prepararYtDlp = async () => {
+  if (!fs.existsSync(YTDLP_PATH)) {
+    await ytDlp.downloadFromGithub(YTDLP_PATH)
+  }
+
+  try {
+    await fs.promises.chmod(YTDLP_PATH, 0o755)
+  } catch {}
+
+  return ytDlp
 }
 
-try {
-  await fs.promises.chmod(YTDLP_PATH, 0o755)
-} catch {}
+const crearArchivoTemporal = extension => {
+  return path.join(
+    '/tmp',
+    `yt_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.${extension}`
+  )
+}
 
-const crearStream = (url, formato) => {
-  const source = ytDlp.execStream([
-    url,
-    '--no-playlist',
-    '--no-cache-dir',
-    '--no-part',
-    '--cookies',
-    '/home/container/cookies.txt',
-    '--js-runtimes',
-    'node',
-    '--remote-components',
-    'ejs:github',
-    '--no-warnings',
-    '--quiet',
-    '-f',
-    formato,
-    '-o',
-    '-'
-  ])
+const descargarArchivo = async (url, formato, extension) => {
+  const ytdlp = await prepararYtDlp()
+  const archivo = crearArchivoTemporal(extension)
 
-  const pass = new PassThrough()
-  let bytes = 0
-  let sourceError = null
-  let terminado = false
+  try {
+    await ytdlp.exec([
+      url,
+      '--no-playlist',
+      '--no-cache-dir',
+      '--no-part',
+      '--no-overwrites',
+      '--cookies',
+      COOKIES_PATH,
+      '--js-runtimes',
+      'node',
+      '--remote-components',
+      'ejs:github',
+      '--no-warnings',
+      '--quiet',
+      '-f',
+      formato,
+      '-o',
+      archivo
+    ])
 
-  source.on('data', chunk => {
-    bytes += chunk.length
-  })
+    if (!fs.existsSync(archivo)) {
+      throw new Error('yt-dlp terminó pero no creó el archivo.')
+    }
 
-  source.on('error', error => {
-    sourceError = error
+    const stat = await fs.promises.stat(archivo)
 
-    if (error?.code === 'ERR_STREAM_PREMATURE_CLOSE' && bytes > 0) {
-      if (!terminado) {
-        terminado = true
-        try {
-          pass.end()
-        } catch {}
+    if (!stat.size) {
+      throw new Error('yt-dlp creó un archivo vacío.')
+    }
+
+    return archivo
+  } catch (e) {
+    try {
+      if (fs.existsSync(archivo)) {
+        await fs.promises.unlink(archivo)
       }
-      return
-    }
+    } catch {}
 
-    if (!terminado) {
-      terminado = true
-      try {
-        pass.destroy(error)
-      } catch {}
-    }
-  })
-
-  source.on('end', () => {
-    if (!terminado) {
-      terminado = true
-      try {
-        pass.end()
-      } catch {}
-    }
-  })
-
-  source.on('close', () => {
-    if (!terminado && bytes > 0) {
-      terminado = true
-      try {
-        pass.end()
-      } catch {}
-    }
-  })
-
-  source.pipe(pass)
-
-  pass.on('error', () => {})
-
-  pass._ytDlpSource = source
-  pass._ytDlpError = () => sourceError
-  pass._ytDlpBytes = () => bytes
-
-  return pass
-}
-
-const crearMedia = (url, formato) => {
-  return {
-    stream: crearStream(url, formato),
-    replay: () => crearStream(url, formato)
+    throw e
   }
 }
 
@@ -114,22 +88,16 @@ const descargarThumb = async url => {
     const buffer = Buffer.from(await r.arrayBuffer())
 
     return await sharp(buffer)
-      .resize(300, 300, { fit: 'cover' })
-      .jpeg({ quality: 80 })
+      .resize(300, 300, {
+        fit: 'cover'
+      })
+      .jpeg({
+        quality: 80
+      })
       .toBuffer()
   } catch {
     return null
   }
-}
-
-const obtenerInfo = async url => {
-  const y = await yts(url)
-
-  if (!y?.videos?.length) {
-    throw new Error('No se encontró información del vídeo.')
-  }
-
-  return y.videos[0]
 }
 
 const esUrl = texto => {
@@ -139,14 +107,6 @@ const esUrl = texto => {
   } catch {
     return false
   }
-}
-
-const limpiarNombre = texto => {
-  return String(texto || 'YouTube')
-    .replace(/[\\/:*?"<>|]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120)
 }
 
 const segundos = timestamp => {
@@ -159,28 +119,49 @@ const segundos = timestamp => {
   if (partes.some(Number.isNaN)) return 0
 
   if (partes.length === 3) {
-    return partes[0] * 3600 + partes[1] * 60 + partes[2]
+    return partes[0] * 3600 +
+      partes[1] * 60 +
+      partes[2]
   }
 
   if (partes.length === 2) {
-    return partes[0] * 60 + partes[1]
+    return partes[0] * 60 +
+      partes[1]
   }
 
   return partes[0] || 0
 }
 
-const formatoDuracion = timestamp => {
-  if (!timestamp) return '00:00'
-  return String(timestamp)
+const limpiarNombre = texto => {
+  return String(texto || 'YouTube')
+    .replace(/[\\/:*?"<>|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+}
+
+const obtenerInfo = async url => {
+  const resultado = await yts(url)
+
+  if (!resultado?.videos?.length) {
+    throw new Error('No se encontró información del vídeo.')
+  }
+
+  return resultado.videos[0]
 }
 
 let descargaActiva = false
 
-let handler = async (m, { conn, usedPrefix, command, text }) => {
+let handler = async (m, {
+  conn,
+  usedPrefix,
+  command,
+  text
+}) => {
   if (!text) {
     return m.reply(
       `🌙 *Uso correcto:*\n\n` +
-      `${usedPrefix + command} <nombre o enlace de YouTube>`
+      `${usedPrefix + command} <nombre o enlace>`
     )
   }
 
@@ -192,8 +173,10 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
 
   descargaActiva = true
 
+  let archivo = null
+
   try {
-    const esAudio = [
+    const comandosAudio = [
       'play',
       'yta',
       'mp3',
@@ -203,20 +186,9 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
       'ytadoc',
       'mp3doc',
       'ytmp3doc'
-    ].includes(command)
+    ]
 
-    const esDocumento = [
-      'play3',
-      'ytadoc',
-      'mp3doc',
-      'ytmp3doc',
-      'play4',
-      'ytvdoc',
-      'mp4doc',
-      'ytmp4doc'
-    ].includes(command)
-
-    const esVideo = [
+    const comandosVideo = [
       'play2',
       'ytv',
       'mp4',
@@ -226,7 +198,26 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
       'ytvdoc',
       'mp4doc',
       'ytmp4doc'
-    ].includes(command)
+    ]
+
+    const comandosDocumento = [
+      'play3',
+      'ytadoc',
+      'mp3doc',
+      'ytmp3doc',
+      'play4',
+      'ytvdoc',
+      'mp4doc',
+      'ytmp4doc'
+    ]
+
+    const esAudio = comandosAudio.includes(command)
+    const esVideo = comandosVideo.includes(command)
+    const esDocumento = comandosDocumento.includes(command)
+
+    if (!esAudio && !esVideo) {
+      throw new Error('Comando de YouTube no reconocido.')
+    }
 
     let url = text.trim()
     let info
@@ -237,7 +228,7 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
       const resultado = await yts(text)
 
       if (!resultado?.videos?.length) {
-        throw new Error('No se encontraron resultados.')
+        throw new Error('No se encontraron resultados para la búsqueda.')
       }
 
       info = resultado.videos[0]
@@ -246,7 +237,7 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
 
     const title = limpiarNombre(info.title)
     const thumbnail = info.thumbnail
-    const duration = formatoDuracion(info.timestamp)
+    const duration = info.timestamp || '00:00'
     const views = Number(info.views || 0).toLocaleString()
     const author = info.author?.name || 'YouTube'
     const published = info.ago || 'Desconocido'
@@ -269,7 +260,7 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
               jpegThumbnail: thumb,
               contextInfo: {
                 externalAdReply: {
-                  title,
+                  title: title,
                   body: `${author} • ${views} vistas`,
                   mediaType: 1,
                   thumbnail: thumb,
@@ -278,92 +269,126 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
               }
             }
           },
-          { messageId: m.key.id }
+          {
+            messageId: m.key.id
+          }
         )
       } catch {}
     }
 
-    const duracionSegundos = segundos(info.timestamp)
-    const esLargo = duracionSegundos > 1200
-    const comoDocumento = esDocumento || esLargo
+    const duracion = segundos(info.timestamp)
+    const esLargo = duracion > 1200
+    const enviarComoDocumento = esDocumento || esLargo
 
     if (esAudio) {
-      const media = crearMedia(
+      archivo = await descargarArchivo(
         url,
-        'bestaudio[ext=m4a]/bestaudio'
+        'bestaudio[ext=m4a]/bestaudio',
+        'm4a'
       )
 
-      if (comoDocumento) {
+      const caption =
+        `🎵 *${title}*\n\n` +
+        `👤 ${author}\n` +
+        `⏱️ ${duration}\n` +
+        `👁️ ${views} vistas\n` +
+        `📅 ${published}\n` +
+        `🔗 ${link}`
+
+      if (enviarComoDocumento) {
         await conn.sendMessage(
           m.chat,
           {
-            document: media,
+            document: {
+              url: archivo
+            },
             mimetype: 'audio/mp4',
             fileName: `${title}.m4a`,
-            caption:
-              `🎵 *${title}*\n\n` +
-              `👤 ${author}\n` +
-              `⏱️ ${duration}\n` +
-              `👁️ ${views} vistas\n` +
-              `🔗 ${link}`
+            caption
           },
-          { quoted: m }
+          {
+            quoted: m
+          }
         )
       } else {
         await conn.sendMessage(
           m.chat,
           {
-            audio: media,
+            audio: {
+              url: archivo
+            },
             mimetype: 'audio/mp4',
-            fileName: `${title}.m4a`,
-            ptt: false
+            fileName: `${title}.m4a`
           },
-          { quoted: m }
+          {
+            quoted: m
+          }
         )
       }
-    } else if (esVideo) {
-      const media = crearMedia(
-        url,
-        'best[ext=mp4][height<=720]/best[height<=720]/best'
-      )
-
-      if (comoDocumento) {
-        await conn.sendMessage(
-          m.chat,
-          {
-            document: media,
-            mimetype: 'video/mp4',
-            fileName: `${title}.mp4`,
-            caption:
-              `🎬 *${title}*\n\n` +
-              `👤 ${author}\n` +
-              `⏱️ ${duration}\n` +
-              `👁️ ${views} vistas\n` +
-              `🔗 ${link}`
-          },
-          { quoted: m }
-        )
-      } else {
-        await conn.sendMessage(
-          m.chat,
-          {
-            video: media,
-            mimetype: 'video/mp4',
-            fileName: `${title}.mp4`,
-            caption:
-              `🎬 *${title}*\n\n` +
-              `👤 ${author}\n` +
-              `⏱️ ${duration}\n` +
-              `👁️ ${views} vistas\n` +
-              `🔗 ${link}`
-          },
-          { quoted: m }
-        )
-      }
-    } else {
-      throw new Error('No se pudo determinar el tipo de contenido.')
     }
+
+    if (esVideo) {
+      archivo = await descargarArchivo(
+        url,
+        'best[ext=mp4][height<=720]/best[height<=720]/best',
+        'mp4'
+      )
+
+      const caption =
+        `🎬 *${title}*\n\n` +
+        `👤 ${author}\n` +
+        `⏱️ ${duration}\n` +
+        `👁️ ${views} vistas\n` +
+        `📅 ${published}\n` +
+        `🔗 ${link}`
+
+      if (enviarComoDocumento) {
+        await conn.sendMessage(
+          m.chat,
+          {
+            document: {
+              url: archivo
+            },
+            mimetype: 'video/mp4',
+            fileName: `${title}.mp4`,
+            caption
+          },
+          {
+            quoted: m
+          }
+        )
+      } else {
+        await conn.sendMessage(
+          m.chat,
+          {
+            video: {
+              url: archivo
+            },
+            mimetype: 'video/mp4',
+            fileName: `${title}.mp4`,
+            caption
+          },
+          {
+            quoted: m
+          }
+        )
+      }
+    }
+
+    try {
+      if (archivo && fs.existsSync(archivo)) {
+        await fs.promises.unlink(archivo)
+        archivo = null
+      }
+    } catch {}
+
   } catch (e) {
+    try {
+      if (archivo && fs.existsSync(archivo)) {
+        await fs.promises.unlink(archivo)
+      }
+    } catch {}
+
     let error = String(e?.message || e)
 
     if (
@@ -371,8 +396,8 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
       error.includes('ENOENT')
     ) {
       error =
-        `No se encontró el ejecutable de yt-dlp.\n\n` +
-        `Ruta esperada:\n${YTDLP_PATH}`
+        `No se encontró yt-dlp.\n` +
+        `Ruta: ${YTDLP_PATH}`
     }
 
     if (
@@ -388,6 +413,12 @@ let handler = async (m, { conn, usedPrefix, command, text }) => {
       `> Error: ${error}`
     )
   } finally {
+    try {
+      if (archivo && fs.existsSync(archivo)) {
+        await fs.promises.unlink(archivo)
+      }
+    } catch {}
+
     descargaActiva = false
   }
 }
@@ -403,8 +434,12 @@ handler.help = [
   'ytmp4 <texto o enlace>',
   'play3 <texto o enlace>',
   'ytadoc <texto o enlace>',
+  'mp3doc <texto o enlace>',
+  'ytmp3doc <texto o enlace>',
   'play4 <texto o enlace>',
-  'ytvdoc <texto o enlace>'
+  'ytvdoc <texto o enlace>',
+  'mp4doc <texto o enlace>',
+  'ytmp4doc <texto o enlace>'
 ]
 
 handler.tags = ['downloader']
