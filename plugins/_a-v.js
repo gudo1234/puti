@@ -1,7 +1,10 @@
 import fetch from "node-fetch"
 import yts from "yt-search"
 import sharp from "sharp"
-import { PassThrough } from "stream"
+import fs from "fs"
+import os from "os"
+import path from "path"
+import crypto from "crypto"
 import { generateWAMessageFromContent } from "@whiskeysockets/baileys"
 
 const mod = await import("yt-dlp-wrap-plus")
@@ -30,93 +33,109 @@ const safeFetch = async (url, options = {}) => {
   }
 }
 
-const crearStream = (url, formato) => {
-  const source = ytDlp.execStream([
-    url,
-    "--no-playlist",
-    "--no-cache-dir",
-    "--no-part",
-    "--cookies",
-    "/home/container/cookies.txt",
-    "--js-runtimes",
-    "node",
-    "--remote-components",
-    "ejs:github",
-    "--no-warnings",
-    "--quiet",
-    "-f",
-    formato,
-    "-o",
-    "-"
-  ])
-
-  const pass = new PassThrough()
-
-  let bytes = 0
-  let terminado = false
-
-  source.on("data", chunk => {
-    bytes += chunk.length
-  })
-
-  source.on("error", error => {
-    if (
-      error?.code === "ERR_STREAM_PREMATURE_CLOSE" &&
-      bytes > 0
-    ) {
-      if (!terminado) {
-        terminado = true
-        try {
-          pass.end()
-        } catch {}
-      }
-      return
-    }
-
-    if (!terminado) {
-      terminado = true
-
-      try {
-        pass.destroy(error)
-      } catch {}
-    }
-  })
-
-  source.on("end", () => {
-    if (!terminado) {
-      terminado = true
-
-      try {
-        pass.end()
-      } catch {}
-    }
-  })
-
-  source.on("close", () => {
-    if (!terminado && bytes > 0) {
-      terminado = true
-
-      try {
-        pass.end()
-      } catch {}
-    }
-  })
-
-  source.pipe(pass)
-
-  pass.on("error", () => {})
-
-  pass._ytDlpSource = source
-  pass._ytDlpBytes = () => bytes
-
-  return pass
+const crearArchivoTemporal = () => {
+  return path.join(
+    os.tmpdir(),
+    `yt-${Date.now()}-${crypto.randomBytes(6).toString("hex")}`
+  )
 }
 
-const crearMedia = (url, formato) => {
-  return {
-    stream: crearStream(url, formato),
-    replay: () => crearStream(url, formato)
-  }
+const descargarATmp = async (url, formato, extension) => {
+  const archivo = `${crearArchivoTemporal()}.${extension}`
+
+  return await new Promise((resolve, reject) => {
+
+    const source = ytDlp.execStream([
+      url,
+      "--no-playlist",
+      "--no-cache-dir",
+      "--no-part",
+      "--cookies",
+      "/home/container/cookies.txt",
+      "--js-runtimes",
+      "node",
+      "--remote-components",
+      "ejs:github",
+      "--no-warnings",
+      "--quiet",
+      "-f",
+      formato,
+      "-o",
+      "-"
+    ])
+
+    const destino = fs.createWriteStream(archivo)
+
+    let bytes = 0
+    let terminado = false
+
+    source.on("data", chunk => {
+      bytes += chunk.length
+    })
+
+    source.on("error", async error => {
+      if (terminado) return
+
+      terminado = true
+
+      try {
+        destino.destroy()
+      } catch {}
+
+      try {
+        await fs.promises.unlink(archivo)
+      } catch {}
+
+      reject(error)
+    })
+
+    destino.on("error", async error => {
+      if (terminado) return
+
+      terminado = true
+
+      try {
+        source.destroy()
+      } catch {}
+
+      try {
+        await fs.promises.unlink(archivo)
+      } catch {}
+
+      reject(error)
+    })
+
+    source.pipe(destino)
+
+    destino.on("finish", async () => {
+      if (terminado) return
+
+      terminado = true
+
+      if (!bytes) {
+        try {
+          await fs.promises.unlink(archivo)
+        } catch {}
+
+        return reject(
+          new Error("yt-dlp no produjo contenido.")
+        )
+      }
+
+      resolve({
+        path: archivo,
+        size: bytes
+      })
+    })
+  })
+}
+
+const eliminarArchivo = async archivo => {
+  if (!archivo) return
+
+  try {
+    await fs.promises.unlink(archivo)
+  } catch {}
 }
 
 const handler = async (m, { conn, text, command, args }) => {
@@ -174,6 +193,8 @@ const handler = async (m, { conn, text, command, args }) => {
   descargaActiva = true
 
   await m.react("🕒")
+
+  let archivoTemporal = null
 
   try {
 
@@ -314,16 +335,16 @@ const handler = async (m, { conn, text, command, args }) => {
 
     if (isAudio) {
 
-      const media = crearMedia(
+      const media = await descargarATmp(
         url,
-        "bestaudio[ext=m4a]"
+        "bestaudio[ext=m4a]",
+        "m4a"
       )
 
+      archivoTemporal = media.path
+
       const contenido = {
-        ...media,
-        mimetype: "audio/mp4",
-        fileName: `${title}.m4a`,
-        seconds
+        url: media.path
       }
 
       if (sendDoc) {
@@ -344,7 +365,8 @@ const handler = async (m, { conn, text, command, args }) => {
           {
             audio: contenido,
             mimetype: "audio/mp4",
-            fileName: `${title}.m4a`
+            fileName: `${title}.m4a`,
+            seconds
           },
           {
             quoted: m
@@ -354,14 +376,16 @@ const handler = async (m, { conn, text, command, args }) => {
 
     } else {
 
-      const media = crearMedia(
+      const media = await descargarATmp(
         url,
-        "best[ext=mp4][height<=720]/best[height<=720]"
+        "best[ext=mp4][height<=720]/best[height<=720]",
+        "mp4"
       )
 
+      archivoTemporal = media.path
+
       const contenido = {
-        ...media,
-        mimetype: "video/mp4"
+        url: media.path
       }
 
       if (thumb) {
@@ -440,7 +464,13 @@ const handler = async (m, { conn, text, command, args }) => {
     )
 
   } finally {
+
+    await eliminarArchivo(archivoTemporal)
+
+    archivoTemporal = null
+
     descargaActiva = false
+
   }
 }
 
