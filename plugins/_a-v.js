@@ -4,6 +4,7 @@ import sharp from 'sharp'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
+import { generateWAMessageFromContent } from '@whiskeysockets/baileys'
 
 const mod = await import('yt-dlp-wrap-plus')
 const YTDlpWrap = mod.default?.default || mod.default || mod
@@ -111,10 +112,16 @@ const obtenerVideo = async texto => {
   const esUrl = /^https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\//i.test(texto)
 
   if (esUrl) {
-    const resultado = await yts({ videoId: texto.match(/(?:v=|youtu\.be\/)([^&?/]+)/)?.[1] })
+    const id = texto.match(
+      /(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([^&?/]+)/
+    )?.[1]
 
-    if (resultado?.videos?.[0]) {
-      return resultado.videos[0]
+    if (id) {
+      const resultado = await yts({ videoId: id }).catch(() => null)
+
+      if (resultado?.title) {
+        return resultado
+      }
     }
 
     const busqueda = await yts(texto)
@@ -136,7 +143,7 @@ const obtenerVideo = async texto => {
 }
 
 const formatearVistas = vistas => {
-  if (!vistas) return 'N/A'
+  if (vistas == null) return 'N/A'
 
   try {
     return Number(vistas).toLocaleString('es-ES')
@@ -216,17 +223,21 @@ const enviarInformacion = async (m, conn, video, thumb) => {
 ✦ ᴀᴜᴛᴏʀ: ${author}
 ✦ ᴜʀʟ: ${url}`
 
-if (thumb) {
-  try {
-    const locationMessage = {
-      degreesLatitude: 0,
-      degreesLongitude: 0,
-      name: `🎧 ${title}`,
-      address: caption,
-      url: canal,
-      jpegThumbnail: thumb
-    }
+  const canal = global.canal || 'https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H'
 
+  const locationMessage = {
+    degreesLatitude: 0,
+    degreesLongitude: 0,
+    name: `🎧 ${title}`,
+    address: caption,
+    url: canal
+  }
+
+  if (thumb) {
+    locationMessage.jpegThumbnail = thumb
+  }
+
+  try {
     const msg = generateWAMessageFromContent(
       m.chat,
       { locationMessage },
@@ -239,18 +250,18 @@ if (thumb) {
     await conn.relayMessage(
       m.chat,
       msg.message,
-      { messageId: msg.key.id }
+      {
+        messageId: msg.key.id
+      }
     )
-
-    return
-  } catch {}
-}
-
-  await m.reply(caption)
+  } catch (error) {
+    console.error('ERROR AL ENVIAR LOCATION:', error)
+    await m.reply(caption)
+  }
 }
 
 let handler = async (m, { conn, usedPrefix, command }) => {
-  const texto = m.text?.trim()
+  const texto = m.text?.trim().split(/\s+/).slice(1).join(' ')
 
   if (!texto) {
     return m.reply(
@@ -275,6 +286,7 @@ let handler = async (m, { conn, usedPrefix, command }) => {
 
     const title = limpiarNombre(video.title)
     const segundos = obtenerSegundos(video)
+
     const thumb = video.thumbnail
       ? await obtenerMiniatura(video.thumbnail)
       : null
@@ -318,9 +330,7 @@ let handler = async (m, { conn, usedPrefix, command }) => {
         await conn.sendMessage(
           m.chat,
           {
-            document: {
-              url: archivo
-            },
+            document: { url: archivo },
             mimetype: 'audio/mp4',
             fileName: `${title}.m4a`,
             caption
@@ -331,9 +341,7 @@ let handler = async (m, { conn, usedPrefix, command }) => {
         await conn.sendMessage(
           m.chat,
           {
-            audio: {
-              url: archivo
-            },
+            audio: { url: archivo },
             mimetype: 'audio/mp4',
             fileName: `${title}.m4a`
           },
@@ -358,9 +366,7 @@ let handler = async (m, { conn, usedPrefix, command }) => {
         await conn.sendMessage(
           m.chat,
           {
-            document: {
-              url: archivo
-            },
+            document: { url: archivo },
             mimetype: 'video/mp4',
             fileName: `${title}.mp4`,
             caption
@@ -371,9 +377,7 @@ let handler = async (m, { conn, usedPrefix, command }) => {
         await conn.sendMessage(
           m.chat,
           {
-            video: {
-              url: archivo
-            },
+            video: { url: archivo },
             mimetype: 'video/mp4',
             fileName: `${title}.mp4`,
             caption
@@ -409,6 +413,7 @@ handler.help = [
 ]
 
 handler.tags = ['descargas']
+
 handler.command = [
   'play',
   'yta',
