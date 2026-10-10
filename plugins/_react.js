@@ -31,7 +31,7 @@ timeout: 30000
 
 if (!data?.success || !data?.token) {
   throw new Error(
-    'Recaptcha token failed: ' + (data?.message || 'No token returned')
+    data?.message || 'No se pudo obtener el token de reCAPTCHA'
   )
 }
 
@@ -45,7 +45,11 @@ const { data } = await this.http.post(
 { recaptcha_token: token }
 )
 
-if (!data?.token) throw new Error('Temp API key failed')
+if (!data?.token) {
+  throw new Error(
+    data?.message || 'No se pudo obtener la clave temporal de la API'
+  )
+}
 
 return data.token
 
@@ -56,10 +60,15 @@ const recaptcha = await this.getRecaptchaToken()
 const tempKey = await this.getTempApiKey(recaptcha)
 
 const { data } = await this.http.post(
-  `${this.backendUrl}/channel/react-to-post?apiKey=${encodeURIComponent(tempKey)}`,
+  `${this.backendUrl}/channel/react-to-post`,
   {
     post_link: postLink,
     reacts
+  },
+  {
+    params: {
+      apiKey: tempKey
+    }
   }
 )
 
@@ -71,10 +80,10 @@ return data
 let handler = async (m, { args, usedPrefix, command }) => {
 if (!args[0]) {
 return m.reply(
-`⚡ Usage:
+`⚡ Uso:
 ${usedPrefix + command} <link> <emoji1,emoji2>
 
-Example:
+Ejemplo:
 ${usedPrefix + command} https://whatsapp.com/channel/xxx 😭,🔥`
 )
 }
@@ -82,16 +91,16 @@ ${usedPrefix + command} https://whatsapp.com/channel/xxx 😭,🔥`
 await m.react('🕒')
 
 try {
-const input = args.join(' ')
+const input = args.join(' ').trim()
 const [postLink, ...emojiParts] = input.split(/\s+/)
 const reactsRaw = emojiParts.join(' ')
 
 if (!postLink || !reactsRaw) {
-  return m.reply('❌ Invalid format.')
+  throw new Error('Formato inválido. Proporciona el enlace y los emojis.')
 }
 
-if (!/^https?:\/\/(www\.)?whatsapp\.com\/channel\/[^\s]+/i.test(postLink)) {
-  return m.reply('❌ Invalid WhatsApp channel link.')
+if (!/^https?:\/\/(www\.)?whatsapp\.com\/channel\/[^\s]+$/i.test(postLink)) {
+  throw new Error('El enlace del canal de WhatsApp no es válido.')
 }
 
 const emojis = reactsRaw
@@ -100,26 +109,51 @@ const emojis = reactsRaw
   .filter(Boolean)
 
 if (!emojis.length) {
-  return m.reply('❌ No emojis provided.')
+  throw new Error('No proporcionaste ningún emoji.')
 }
 
 if (emojis.length > 4) {
-  return m.reply('❌ Max 4 emojis allowed.')
+  throw new Error('Solo puedes utilizar un máximo de 4 emojis.')
 }
 
-const client = new ReactChannel({
-  userJwt: 'YOUR_USER_JWT'
-})
+const userJwt = process.env.REACT_CHANNEL_JWT
 
-await client.reactToPost(postLink, emojis.join(','))
+if (!userJwt) {
+  throw new Error('Falta configurar la variable REACT_CHANNEL_JWT.')
+}
+
+const client = new ReactChannel({ userJwt })
+
+const result = await client.reactToPost(
+  postLink,
+  emojis.join(',')
+)
 
 await m.react('✅')
-return m.reply('🔥 Reactions sent successfully.')
+
+return m.reply(
+  `🔥 Solicitud procesada.\n\nRespuesta: ${JSON.stringify(result)}`
+)
 
 } catch (e) {
-console.error('React Error:', e.response?.data || e.message)
+const errorData = e.response?.data
+
+const error =
+  errorData?.message ||
+  errorData?.error ||
+  (typeof errorData === 'string' ? errorData : null) ||
+  e.message ||
+  'Error desconocido'
+
+console.error(
+  'React Error:',
+  errorData || e.stack || e.message
+)
+
 await m.react('❌')
-return m.reply("❌ Failed: ${e.response?.data?.message || e.message}")
+
+return m.reply(`❌ Error: ${error}`)
+
 }
 }
 
