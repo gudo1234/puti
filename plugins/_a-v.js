@@ -210,33 +210,41 @@ const enviarInformacion = async (m, conn, video, thumb) => {
   const url = video.url || ''
 
   const caption =
-`╭━━〔 𝗬𝗢𝗨𝗧𝗨𝗕𝗘 〕━━⬣
-┃ ✦ ᴛɪᴛᴜʟᴏ: ${title}
-┃ ✦ ᴅᴜʀᴀᴄɪᴏɴ: ${duration}
-┃ ✦ ᴠɪsᴛᴀs: ${views}
-┃ ✦ ᴘᴜʙʟɪᴄᴀᴅᴏ: ${ago}
-┃ ✦ ᴀᴜᴛᴏʀ: ${author}
-┃ ✦ ᴜʀʟ: ${url}
-╰━━━━━━━━━━━━⬣`
+`✦ ᴅᴜʀᴀᴄɪᴏɴ: ${duration}
+✦ ᴠɪsᴛᴀs: ${views}
+✦ ᴘᴜʙʟɪᴄᴀᴅᴏ: ${ago}
+✦ ᴀᴜᴛᴏʀ: ${author}
+✦ ᴜʀʟ: ${url}`
 
-  if (thumb) {
-    try {
-      await conn.sendMessage(
-        m.chat,
-        {
-          location: {
-            degreesLatitude: 0,
-            degreesLongitude: 0,
-            name: title,
-            address: caption,
-            jpegThumbnail: thumb
-          }
-        },
-        { quoted: m }
-      )
-      return
-    } catch {}
-  }
+if (thumb) {
+  try {
+    const locationMessage = {
+      degreesLatitude: 0,
+      degreesLongitude: 0,
+      name: `🎧 ${title}`,
+      address: caption,
+      url: canal,
+      jpegThumbnail: thumb
+    }
+
+    const msg = generateWAMessageFromContent(
+      m.chat,
+      { locationMessage },
+      {
+        userJid: conn.user.id,
+        quoted: m
+      }
+    )
+
+    await conn.relayMessage(
+      m.chat,
+      msg.message,
+      { messageId: msg.key.id }
+    )
+
+    return
+  } catch {}
+}
 
   await m.reply(caption)
 }
@@ -246,12 +254,7 @@ let handler = async (m, { conn, usedPrefix, command }) => {
 
   if (!texto) {
     return m.reply(
-      `╭━━〔 𝗬𝗢𝗨𝗧𝗨𝗕𝗘 〕━━⬣
-┃
-┃ Usa:
-┃ ${usedPrefix + command} <búsqueda o URL>
-┃
-╰━━━━━━━━━━━━⬣`
+      `${e} Ejemplo de uso *${usedPrefix + command}* <búsqueda o URL> de YouTube`
     )
   }
 
@@ -400,26 +403,12 @@ let handler = async (m, { conn, usedPrefix, command }) => {
 
 handler.help = [
   'play <texto o URL>',
-  'yta <texto o URL>',
-  'mp3 <texto o URL>',
-  'ytmp3 <texto o URL>',
-  'playaudio <texto o URL>',
-  'play3 <texto o URL>',
-  'ytadoc <texto o URL>',
-  'mp3doc <texto o URL>',
-  'ytmp3doc <texto o URL>',
   'play2 <texto o URL>',
-  'ytv <texto o URL>',
-  'mp4 <texto o URL>',
-  'ytmp4 <texto o URL>',
-  'playvid <texto o URL>',
-  'play4 <texto o URL>',
-  'ytvdoc <texto o URL>',
-  'mp4doc <texto o URL>',
-  'ytmp4doc <texto o URL>'
+  'play3 <texto o URL>',
+  'play4 <texto o URL>'
 ]
 
-handler.tags = ['downloader']
+handler.tags = ['descargas']
 handler.command = [
   'play',
   'yta',
