@@ -1,28 +1,35 @@
 let handler = async (m, { conn }) => {
-const available = [
+const names = [
 'newsletterReactMessage',
 'newsletterMetadata',
 'newsletterFetchMessages'
-].map(name => "${name}: ${typeof conn[name]}")
+]
 
-const methods = new Set()
+let output = 'DIAGNÓSTICO DE BAILEYS\n\n'
+
+for (const name of names) {
+output += name + ': ' + typeof conn[name] + '\n'
+}
+
+output += '\nOTROS MÉTODOS:\n'
+
 let obj = conn
+const methods = new Set()
 
 while (obj && obj !== Object.prototype) {
 for (const name of Object.getOwnPropertyNames(obj)) {
-if (/newsletter|channel/i.test(name)) methods.add(name)
+if (/newsletter|channel/i.test(name)) {
+methods.add(name)
+}
 }
 obj = Object.getPrototypeOf(obj)
 }
 
-return m.reply([
-'🔎 MÉTODOS DE CANALES',
-'',
-...available,
-'',
-'OTROS MÉTODOS:',
-...([...methods].sort().map(name => "${name}: ${typeof conn[name]}"))
-].join('\n'))
+output += methods.size
+? Array.from(methods).sort().join('\n')
+: 'No se encontraron métodos adicionales.'
+
+return m.reply(output)
 }
 
 handler.help = ['rchdebug']
