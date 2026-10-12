@@ -1,3 +1,4 @@
+
 import fs from 'fs'
 import { join } from 'path'
 import sharp from 'sharp'
@@ -5,673 +6,602 @@ import fetch from 'node-fetch'
 import { getDevice } from "@whiskeysockets/baileys"
 
 let handler = async (
-m,
-{
-conn,
-usedPrefix,
-__dirname,
-realUserNumber,
-userInGroup
-}
+  m,
+  {
+    conn,
+    usedPrefix,
+    __dirname,
+    realUserNumber,
+    userInGroup
+  }
 ) => {
-let groupName = ''
-
-if (m.isGroup) {
-const metadata =
-await conn.groupMetadata(m.chat)
-
-groupName =
-  metadata.subject
-
-}
-
-try {
-// --- Imagen miniatura ---
-const imgPath = join(
-__dirname,
-'../storage/catalogo.jpg'
-)
-
-const thumbLocal =
-  fs.existsSync(imgPath)
-    ? fs.readFileSync(imgPath)
-    : null
-
-const thumbResized =
-  thumbLocal
-    ? await sharp(thumbLocal)
-        .resize(300, 100, {
-          fit: 'cover'
-        })
-        .jpeg()
-        .toBuffer()
-    : null
-
-// --- Menú simple ---
-let uptime =
-  process.uptime() * 1000
-
-let run =
-  clockString(uptime)
-
-const info =
-  await global.mundo(m, conn)
-
-let categorias = {}
-
-for (
-  const plugin of Object.values(
-    global.plugins
-  )
-) {
-  const h =
-    plugin.default || plugin
-
-  if (
-    !h ||
-    !h.help ||
-    !h.tags
-  ) {
-    continue
-  }
-
-  const helps =
-    Array.isArray(h.help)
-      ? h.help
-      : [h.help]
-
-  const tags =
-    Array.isArray(h.tags)
-      ? h.tags
-      : [h.tags]
-
-  for (const tag of tags) {
-    if (!categorias[tag]) {
-      categorias[tag] = []
-    }
-
-    categorias[tag].push(
-      ...helps
-    )
-  }
-}
-
-m.react(e)
-
-// --- País ---
-let pais =
-  `${info.flag} ${info.country}`
-
-// --- Número real, resolución LID, país y rol ---
-const { default: PhoneNumber } = await import('awesome-phonenumber')
-
-const regionNames = new Intl.DisplayNames(['es'], {
-  type: 'region'
-})
-
-let numeroReal = 'No disponible'
-let codigoPais = '??'
-let participante = userInGroup || null
-
-try {
-  let participantes = []
+  let groupName = ''
 
   if (m.isGroup) {
     const metadata = await conn.groupMetadata(m.chat)
-    participantes = metadata.participants || []
-
-    participante = participantes.find(p =>
-      p.id === m.sender ||
-      p.jid === m.sender ||
-      p.lid === m.sender
-    ) || participante
+    groupName = metadata.subject
   }
 
-  const candidatos = [
-    realUserNumber,
-    participante?.phoneNumber,
-    participante?.jid,
-    participante?.id,
-    participante?.lid,
-    m.sender
-  ].filter(Boolean)
-
-  let numeroEncontrado = ''
-
-  for (const candidato of candidatos) {
-    const valor = String(candidato)
-
-    if (valor.endsWith('@lid')) {
-      const resolver =
-        conn.signalRepository?.lidMapping?.getPNForLID
-
-      if (typeof resolver === 'function') {
-        try {
-          const pn = await resolver.call(
-            conn.signalRepository.lidMapping,
-            valor
-          )
-
-          if (pn && !String(pn).endsWith('@lid')) {
-            numeroEncontrado = String(pn)
-            break
-          }
-        } catch {}
-      }
-
-      continue
-    }
-
-    if (
-      valor.endsWith('@g.us') ||
-      valor.endsWith('@newsletter')
-    ) continue
-
-    const digitos = valor
-      .split('@')[0]
-      .replace(/\D/g, '')
-
-    if (digitos.length >= 7) {
-      numeroEncontrado = digitos
-      break
-    }
-  }
-
-  if (!numeroEncontrado && m.isGroup) {
-    const lid = [
-      participante?.lid,
-      participante?.id,
-      m.sender
-    ].find(v =>
-      v && String(v).endsWith('@lid')
+  try {
+    // --- Imagen miniatura ---
+    const imgPath = join(
+      __dirname,
+      '../storage/catalogo.jpg'
     )
 
-    const resolver =
-      conn.signalRepository?.lidMapping?.getPNForLID
+    const thumbLocal =
+      fs.existsSync(imgPath)
+        ? fs.readFileSync(imgPath)
+        : null
 
-    if (lid && typeof resolver === 'function') {
-      try {
-        const pn = await resolver.call(
-          conn.signalRepository.lidMapping,
-          lid
+    const thumbResized =
+      thumbLocal
+        ? await sharp(thumbLocal)
+            .resize(300, 100, {
+              fit: 'cover'
+            })
+            .jpeg()
+            .toBuffer()
+        : null
+
+    // --- Menú simple ---
+    let uptime = process.uptime() * 1000
+    let run = clockString(uptime)
+
+    const info = await global.mundo(m, conn)
+
+    let categorias = {}
+
+    for (const plugin of Object.values(global.plugins)) {
+      const h = plugin.default || plugin
+
+      if (!h || !h.help || !h.tags) continue
+
+      const helps = Array.isArray(h.help)
+        ? h.help
+        : [h.help]
+
+      const tags = Array.isArray(h.tags)
+        ? h.tags
+        : [h.tags]
+
+      for (const tag of tags) {
+        if (!categorias[tag]) {
+          categorias[tag] = []
+        }
+
+        categorias[tag].push(...helps)
+      }
+    }
+
+    m.react(e)
+
+    // --- País ---
+    let pais = `${info.flag} ${info.country}`
+
+    // --- Número real, resolución LID, país, rol y tag ---
+    const { default: PhoneNumber } =
+      await import('awesome-phonenumber')
+
+    const regionNames = new Intl.DisplayNames(
+      ['es'],
+      { type: 'region' }
+    )
+
+    let numeroReal = 'No disponible'
+    let codigoPais = '??'
+    let participante = userInGroup || null
+    let tagJid = m.sender
+
+    try {
+      let participantes = []
+
+      if (m.isGroup) {
+        const metadata = await conn.groupMetadata(m.chat)
+        participantes = metadata.participants || []
+
+        participante = participantes.find(p =>
+          p.id === m.sender ||
+          p.jid === m.sender ||
+          p.lid === m.sender
+        ) || participante
+      }
+
+      const candidatos = [
+        realUserNumber,
+        participante?.phoneNumber,
+        participante?.jid,
+        participante?.id,
+        participante?.lid,
+        m.sender
+      ].filter(Boolean)
+
+      let numeroEncontrado = ''
+
+      for (const candidato of candidatos) {
+        const valor = String(candidato)
+
+        if (valor.endsWith('@lid')) {
+          const resolver =
+            conn.signalRepository?.lidMapping?.getPNForLID
+
+          if (typeof resolver === 'function') {
+            try {
+              const pn = await resolver.call(
+                conn.signalRepository.lidMapping,
+                valor
+              )
+
+              if (pn && !String(pn).endsWith('@lid')) {
+                numeroEncontrado = String(pn)
+                break
+              }
+            } catch {}
+          }
+
+          continue
+        }
+
+        if (
+          valor.endsWith('@g.us') ||
+          valor.endsWith('@newsletter')
+        ) continue
+
+        const digitos = valor
+          .split('@')[0]
+          .replace(/\D/g, '')
+
+        if (digitos.length >= 7) {
+          numeroEncontrado = valor
+          break
+        }
+      }
+
+      if (!numeroEncontrado && m.isGroup) {
+        const lid = [
+          participante?.lid,
+          participante?.id,
+          m.sender
+        ].find(v =>
+          v && String(v).endsWith('@lid')
         )
 
-        if (pn && !String(pn).endsWith('@lid')) {
-          numeroEncontrado = String(pn)
+        const resolver =
+          conn.signalRepository?.lidMapping?.getPNForLID
+
+        if (lid && typeof resolver === 'function') {
+          try {
+            const pn = await resolver.call(
+              conn.signalRepository.lidMapping,
+              lid
+            )
+
+            if (pn && !String(pn).endsWith('@lid')) {
+              numeroEncontrado = String(pn)
+            }
+          } catch {}
         }
-      } catch {}
+      }
+
+      if (numeroEncontrado) {
+        const digitos = numeroEncontrado
+          .split('@')[0]
+          .replace(/\D/g, '')
+
+        if (digitos.length >= 7) {
+          numeroReal = '+' + digitos
+
+          const pn = new PhoneNumber('+' + digitos)
+          codigoPais = pn.getRegionCode() || '??'
+
+          // JID telefónico para intentar generar la mención real
+          tagJid = numeroEncontrado.includes('@')
+            ? numeroEncontrado
+            : `${digitos}@s.whatsapp.net`
+
+          if (tagJid.endsWith('@lid')) {
+            tagJid = `${digitos}@s.whatsapp.net`
+          }
+        }
+      }
+    } catch (error) {
+      console.error(
+        'Error resolviendo LID:',
+        error.message
+      )
     }
-  }
 
-  if (numeroEncontrado) {
-    const digitos = numeroEncontrado
-      .split('@')[0]
-      .replace(/\D/g, '')
+    const paisUsuario = codigoPais !== '??'
+      ? `${regionNames.of(codigoPais) || 'Desconocido'}`
+      : '🌐 Desconocido'
 
-    if (digitos.length >= 7) {
-      numeroReal = '+' + digitos
+    const rol =
+      participante?.admin === 'superadmin'
+        ? 'Creador'
+        : participante?.admin === 'admin'
+          ? 'Administrador'
+          : 'Miembro'
 
-      const pn = new PhoneNumber('+' + digitos)
-      codigoPais = pn.getRegionCode() || '??'
-    }
-  }
-} catch (error) {
-  console.error(
-    'Error resolviendo LID:',
-    error.message
-  )
-}
+    // --- Tag real de WhatsApp ---
+    const tagNumero = tagJid.split('@')[0]
 
-const paisUsuario = codigoPais !== '??'
-  ? `${regionNames.of(codigoPais) || 'Desconocido'}`
-  : '🌐 Desconocido'
+    let text = `${e} _Hola ${m.pushName}_ ¿Cómo estás?
 
-const rol =
-  participante?.admin === 'superadmin'
-    ? 'Creador'
-    : participante?.admin === 'admin'
-      ? 'Administrador'
-      : 'Miembro'
-
-const tagUsuario =
-  m.pushName || m.sender.split('@')[0]
-
-let text = `${e} _Hola ${m.pushName}_ ¿Cómo estás?\n\n\`❒ᴄᴏɴᴛᴇxᴛ-ɪɴғᴏ☔\`
+\`❒ᴄᴏɴᴛᴇxᴛ-ɪɴғᴏ☔\`
 
 ┌────────────
 │ 🌎 País: ${codigoPais !== '??' ? paisUsuario : pais}
 │ 📱 Sistema/Opr: ${getDevice(m.key.id)}
 │ 📞 Número: ${numeroReal}
 │ 👤 Rol: ${rol}
-│ 🏷️ Tag: @${tagUsuario}
-└────────────\n\n🤖 MENÚ DE COMANDOS\n━━━━━━━━━━━━━━\n`
+│ 🏷️ Tag: @${tagNumero}
+└────────────
 
-for (
-  const tag of Object.keys(
-    categorias
-  ).sort()
-) {
-  text +=
-    `\n╭─❏ *${tag.toUpperCase()}*\n`
+🤖 MENÚ DE COMANDOS
+━━━━━━━━━━━━━━
+`
 
-  for (
-    const cmd of [
-      ...new Set(
-        categorias[tag]
-      )
-    ]
-  ) {
-    text +=
-      `│ • ${usedPrefix}${cmd}\n`
-  }
+    for (const tag of Object.keys(categorias).sort()) {
+      text += `\n╭─❏ *${tag.toUpperCase()}*\n`
 
-  text +=
-    `╰────────────\n`
-}
+      for (const cmd of [...new Set(categorias[tag])]) {
+        text += `│ • ${usedPrefix}${cmd}\n`
+      }
 
-// --- Estructura del mensaje interactivo ---
-const nativeFlowPayload = {
-  header: {
-    documentMessage: {
-      url: 'https://mmg.whatsapp.net/v/t62.7119-24/539012045_745537058346694_1512031191239726227_n.enc',
+      text += `╰────────────\n`
+    }
 
-      mimetype:
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    // --- Estructura del mensaje interactivo ---
+    const nativeFlowPayload = {
+      header: {
+        documentMessage: {
+          url: 'https://mmg.whatsapp.net/v/t62.7119-24/539012045_745537058346694_1512031191239726227_n.enc',
 
-      fileSha256: Buffer.from(
-        'fa09afbc207a724252bae1b764ecc7b13060440ba47a3bf59e77f01924924bfe',
-        'hex'
-      ),
+          mimetype:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 
-      fileLength: {
-        low: -727379969,
-        high: 232,
-        unsigned: true
-      },
+          fileSha256: Buffer.from(
+            'fa09afbc207a724252bae1b764ecc7b13060440ba47a3bf59e77f01924924bfe',
+            'hex'
+          ),
 
-      pageCount: 0,
-
-      mediaKey: Buffer.from(
-        '3163ba7c8db6dd363c4f48bda2735cc0d0413e57567f0a758f514f282889173c',
-        'hex'
-      ),
-
-      fileName:
-        'Bot- AI WhatsApp',
-
-      fileEncSha256: Buffer.from(
-        '652f2ff6d8a8dae9f5c9654e386de5c01c623fe98d81a28f63dfb0979a44a22f',
-        'hex'
-      ),
-
-      directPath:
-        '/v/t62.7119-24/539012045_745537058346694_1512031191239726227_n.enc',
-
-      mediaKeyTimestamp: {
-        low: 1756370084,
-        high: 0,
-        unsigned: false
-      },
-
-      jpegThumbnail:
-        thumbResized || null
-    },
-
-    hasMediaAttachment:
-      true
-  },
-
-  body: {
-    text
-  },
-
-  footer: {
-    text:
-      '🤨 xvidẹ𝆬os.er/k (๑ ิټ ิ)'
-  },
-
-  nativeFlowMessage: {
-    buttons: [
-      {
-        name:
-          'single_select',
-
-        buttonParamsJson:
-          '{"has_multiple_buttons":true}'
-      },
-
-      {
-        name:
-          'call_permission_request',
-
-        buttonParamsJson:
-          '{"has_multiple_buttons":true}'
-      },
-
-      {
-        name:
-          'single_select',
-
-        buttonParamsJson: `{
-          "title":"Más Opciones",
-          "sections":[
-            {
-              "title":"⌏Seleccione una opción requerida⌎",
-              "highlight_label":"Desarrollador",
-              "rows":[
-                {
-                  "title":"Owner/Creador",
-                  "description":"",
-                  "id":"Edar"
-                },
-                {
-                  "title":"Información del Bot",
-                  "description":"",
-                  "id":".info"
-                },
-                {
-                  "title":"Reglas/Términos",
-                  "description":"",
-                  "id":".reglas"
-                },
-                {
-                  "title":"Ping",
-                  "description":"Velocidad del bot",
-                  "id":".ping"
-                }
-              ]
-            }
-          ],
-          "has_multiple_buttons":true
-        }`
-      },
-
-      {
-        name:
-          'cta_copy',
-
-        buttonParamsJson:
-          '{"display_text":"Copiar Código","id":"123456789","copy_code":"Soy bien puto alv :v"}'
-      },
-
-      {
-        name:
-          'cta_url',
-
-        buttonParamsJson:
-          `{"display_text":"Canal de WhatsApp","url":"https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H","merchant_url":"https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H"}`
-      },
-
-      {
-        name:
-          'galaxy_message',
-
-        buttonParamsJson: `{
-          "mode":"published",
-          "flow_message_version":"3",
-          "flow_token":"1:1307913409923914:293680f87029f5a13d1ec5e35e718af3",
-          "flow_id":"1307913409923914",
-          "flow_cta":"👨🏻‍💻 ᴀᴄᴄᴇᴅᴇ ᴀ ʙᴏᴛ ᴀɪ",
-          "flow_action":"navigate",
-          "flow_action_payload":{
-            "screen":"QUESTION_ONE",
-            "params":{
-              "user_id":"123456789",
-              "referral":"campaign_xyz"
-            }
+          fileLength: {
+            low: -727379969,
+            high: 232,
+            unsigned: true
           },
-          "flow_metadata":{
-            "flow_json_version":"201",
-            "data_api_protocol":"v2",
-            "flow_name":"Lead Qualification [en]",
-            "data_api_version":"v2",
-            "categories":[
-              "Lead Generation",
-              "Sales"
-            ]
+
+          pageCount: 0,
+
+          mediaKey: Buffer.from(
+            '3163ba7c8db6dd363c4f48bda2735cc0d0413e57567f0a758f514f282889173c',
+            'hex'
+          ),
+
+          fileName: 'Bot- AI WhatsApp',
+
+          fileEncSha256: Buffer.from(
+            '652f2ff6d8a8dae9f5c9654e386de5c01c623fe98d81a28f63dfb0979a44a22f',
+            'hex'
+          ),
+
+          directPath:
+            '/v/t62.7119-24/539012045_745537058346694_1512031191239726227_n.enc',
+
+          mediaKeyTimestamp: {
+            low: 1756370084,
+            high: 0,
+            unsigned: false
+          },
+
+          jpegThumbnail: thumbResized || null
+        },
+
+        hasMediaAttachment: true
+      },
+
+      body: {
+        text
+      },
+
+      // Contexto de mención para el mensaje interactivo
+      contextInfo: {
+        mentionedJid: [tagJid]
+      },
+
+      footer: {
+        text: '🤨 xvidẹ𝆬os.er/k (๑ ิټ ิ)'
+      },
+
+      nativeFlowMessage: {
+        buttons: [
+          {
+            name: 'single_select',
+            buttonParamsJson:
+              '{"has_multiple_buttons":true}'
+          },
+
+          {
+            name: 'call_permission_request',
+            buttonParamsJson:
+              '{"has_multiple_buttons":true}'
+          },
+
+          {
+            name: 'single_select',
+            buttonParamsJson: `{
+              "title":"Más Opciones",
+              "sections":[
+                {
+                  "title":"⌏Seleccione una opción requerida⌎",
+                  "highlight_label":"Desarrollador",
+                  "rows":[
+                    {
+                      "title":"Owner/Creador",
+                      "description":"",
+                      "id":"Edar"
+                    },
+                    {
+                      "title":"Información del Bot",
+                      "description":"",
+                      "id":".info"
+                    },
+                    {
+                      "title":"Reglas/Términos",
+                      "description":"",
+                      "id":".reglas"
+                    },
+                    {
+                      "title":"Ping",
+                      "description":"Velocidad del bot",
+                      "id":".ping"
+                    }
+                  ]
+                }
+              ],
+              "has_multiple_buttons":true
+            }`
+          },
+
+          {
+            name: 'cta_copy',
+            buttonParamsJson:
+              '{"display_text":"Copiar Código","id":"123456789","copy_code":"Soy bien puto alv :v"}'
+          },
+
+          {
+            name: 'cta_url',
+            buttonParamsJson:
+              `{"display_text":"Canal de WhatsApp","url":"https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H","merchant_url":"https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H"}`
+          },
+
+          {
+            name: 'galaxy_message',
+            buttonParamsJson: `{
+              "mode":"published",
+              "flow_message_version":"3",
+              "flow_token":"1:1307913409923914:293680f87029f5a13d1ec5e35e718af3",
+              "flow_id":"1307913409923914",
+              "flow_cta":"👨🏻‍💻 ᴀᴄᴄᴇᴅᴇ ᴀ ʙᴏᴛ ᴀɪ",
+              "flow_action":"navigate",
+              "flow_action_payload":{
+                "screen":"QUESTION_ONE",
+                "params":{
+                  "user_id":"123456789",
+                  "referral":"campaign_xyz"
+                }
+              },
+              "flow_metadata":{
+                "flow_json_version":"201",
+                "data_api_protocol":"v2",
+                "flow_name":"Lead Qualification [en]",
+                "data_api_version":"v2",
+                "categories":[
+                  "Lead Generation",
+                  "Sales"
+                ]
+              }
+            }`
+          }
+        ],
+
+        messageParamsJson: `{
+          "limited_time_offer":{
+            "text":"🕒 Runtime ${run}",
+            "url":"https://github.com/edar",
+            "copy_code":"${groupName}",
+            "expiration_time":1754613436864329
+          },
+          "bottom_sheet":{
+            "in_thread_buttons_limit":2,
+            "divider_indices":[1,2,3,4,5,999],
+            "list_title":"Select Menu",
+            "button_title":"▻ Lista menú 📘"
+          },
+          "tap_target_configuration":{
+            "title":"▸ X ◂",
+            "description":"Let’s go",
+            "canonical_url":"https://github.com/edar",
+            "domain":"https://xrljosedvapi.vercel.app",
+            "button_index":0
           }
         }`
       }
-    ],
-
-    messageParamsJson: `{
-      "limited_time_offer":{
-        "text":"🕒 Runtime ${run}",
-        "url":"https://github.com/edar",
-        "copy_code":"${groupName}",
-        "expiration_time":1754613436864329
-      },
-      "bottom_sheet":{
-        "in_thread_buttons_limit":2,
-        "divider_indices":[1,2,3,4,5,999],
-        "list_title":"Select Menu",
-        "button_title":"▻ Lista menú 📘"
-      },
-      "tap_target_configuration":{
-        "title":"▸ X ◂",
-        "description":"Let’s go",
-        "canonical_url":"https://github.com/edar",
-        "domain":"https://xrljosedvapi.vercel.app",
-        "button_index":0
-      }
-    }`
-  }
-}
-
-// --- Envío del mensaje ---
-const random =
-  Math.floor(
-    Math.random() * 3
-  )
-
-const gif = [
-  "https://raw.githubusercontent.com/edar123/im/main/media/gif.mp4",
-  "https://raw.githubusercontent.com/edar123/im/main/media/giff.mp4",
-  "https://raw.githubusercontent.com/edar123/im/main/media/gifff.mp4",
-  "https://raw.githubusercontent.com/edar123/im/main/media/gif4.mp4"
-][
-  Math.floor(
-    Math.random() * 4
-  )
-]
-
-if (random === 0) {
-
-  const iconResponse =
-    await fetch(icono)
-
-  if (!iconResponse.ok) {
-    throw new Error(
-      'No se pudo obtener la imagen de icono'
-    )
-  }
-
-  const iconBuffer =
-    Buffer.from(
-      await iconResponse.arrayBuffer()
-    )
-
-  const previewThumbnail =
-    await sharp(iconBuffer)
-      .resize(640, 640, {
-        fit: 'cover',
-        position: 'centre'
-      })
-      .jpeg({
-        quality: 100,
-        chromaSubsampling: '4:4:4'
-      })
-      .toBuffer()
-
-  await conn.sendMessage(
-    m.chat,
-    {
-      text:
-        `${redes}\n${text}`,
-
-      linkPreview: {
-        'matched-text':
-          redes,
-
-        title:
-          textbot,
-
-        description:
-          wm,
-
-        jpegThumbnail:
-          previewThumbnail,
-
-        renderLargerThumbnail:
-          false
-      },
-
-      contextInfo: {
-        mentionedJid: [
-          m.sender
-        ],
-
-        remoteJid:
-          '@broadcast',
-
-        forwardingScore:
-          10,
-
-        isForwarded:
-          true,
-
-        ...(global.channelRD?.id
-          ? {
-              forwardedNewsletterMessageInfo: {
-                newsletterJid:
-                  global.channelRD.id,
-
-                serverMessageId:
-                  1,
-
-                newsletterName:
-                  global.channelRD.name || ''
-              }
-            }
-          : {})
-      }
-    },
-    {
-      quoted: m
     }
-  )
 
-  return
-}
+    // --- Envío del mensaje ---
+    const random = Math.floor(Math.random() * 3)
 
-if (random === 1) {
-  await conn.sendMessage(
-    m.chat,
-    {
-      video: {
-        url: gif
-      },
+    const gif = [
+      "https://raw.githubusercontent.com/edar123/im/main/media/gif.mp4",
+      "https://raw.githubusercontent.com/edar123/im/main/media/giff.mp4",
+      "https://raw.githubusercontent.com/edar123/im/main/media/gifff.mp4",
+      "https://raw.githubusercontent.com/edar123/im/main/media/gif4.mp4"
+    ][Math.floor(Math.random() * 4)]
 
-      gifPlayback:
-        true,
+    if (random === 0) {
+      const iconResponse = await fetch(icono)
 
-      caption:
-        text,
+      if (!iconResponse.ok) {
+        throw new Error(
+          'No se pudo obtener la imagen de icono'
+        )
+      }
 
-      mentions: [
-        m.sender
-      ]
-    },
-    {
-      quoted: m
-    }
-  )
+      const iconBuffer = Buffer.from(
+        await iconResponse.arrayBuffer()
+      )
 
-  return
-}
+      const previewThumbnail = await sharp(iconBuffer)
+        .resize(640, 640, {
+          fit: 'cover',
+          position: 'centre'
+        })
+        .jpeg({
+          quality: 100,
+          chromaSubsampling: '4:4:4'
+        })
+        .toBuffer()
 
-if (random === 2) {
-  await conn.relayMessage(
-    m.chat,
-    {
-      viewOnceMessage: {
-        message: {
-          interactiveMessage:
-            nativeFlowPayload
+      await conn.sendMessage(
+        m.chat,
+        {
+          text: `${redes}\n${text}`,
+
+          linkPreview: {
+            'matched-text': redes,
+            title: textbot,
+            description: wm,
+            jpegThumbnail: previewThumbnail,
+            renderLargerThumbnail: false
+          },
+
+          mentions: [tagJid],
+
+          contextInfo: {
+            mentionedJid: [tagJid],
+
+            remoteJid: '@broadcast',
+
+            forwardingScore: 10,
+
+            isForwarded: true,
+
+            ...(global.channelRD?.id
+              ? {
+                  forwardedNewsletterMessageInfo: {
+                    newsletterJid: global.channelRD.id,
+                    serverMessageId: 1,
+                    newsletterName:
+                      global.channelRD.name || ''
+                  }
+                }
+              : {})
+          }
+        },
+        {
+          quoted: m
         }
-      }
-    },
-    {
-      quoted: m
+      )
+
+      return
     }
-  )
-}
 
-} catch (e) {
-console.error(
-'Error al generar mensaje interactivo:',
-e
-)
+    if (random === 1) {
+      await conn.sendMessage(
+        m.chat,
+        {
+          video: {
+            url: gif
+          },
 
-await conn.reply(
-  m.chat,
-  `❌ Error al generar mensaje:\n${e.message}`,
-  m
-)
+          gifPlayback: true,
 
-}
+          caption: text,
+
+          mentions: [tagJid],
+
+          contextInfo: {
+            mentionedJid: [tagJid]
+          }
+        },
+        {
+          quoted: m
+        }
+      )
+
+      return
+    }
+
+    if (random === 2) {
+      await conn.relayMessage(
+        m.chat,
+        {
+          viewOnceMessage: {
+            message: {
+              interactiveMessage: nativeFlowPayload
+            }
+          }
+        },
+        {
+          quoted: m
+        }
+      )
+    }
+
+  } catch (e) {
+    console.error(
+      'Error al generar mensaje interactivo:',
+      e
+    )
+
+    await conn.reply(
+      m.chat,
+      `❌ Error al generar mensaje:\n${e.message}`,
+      m
+    )
+  }
 }
 
 function clockString(ms) {
-let h =
-isNaN(ms)
-? '--'
-: Math.floor(
-ms / 3600000
-)
+  let h = isNaN(ms)
+    ? '--'
+    : Math.floor(ms / 3600000)
 
-let m =
-isNaN(ms)
-? '--'
-: Math.floor(
-ms / 60000
-) % 60
+  let m = isNaN(ms)
+    ? '--'
+    : Math.floor(ms / 60000) % 60
 
-let s =
-isNaN(ms)
-? '--'
-: Math.floor(
-ms / 1000
-) % 60
+  let s = isNaN(ms)
+    ? '--'
+    : Math.floor(ms / 1000) % 60
 
-return [
-h,
-m,
-s
-]
-.map(v =>
-v.toString().padStart(2, 0)
-)
-.join(':')
+  return [
+    h,
+    m,
+    s
+  ]
+    .map(v => v.toString().padStart(2, 0))
+    .join(':')
 }
 
 handler.help = [
-'menu'
+  'menu'
 ]
 
 handler.tags = [
-'main'
+  'main'
 ]
 
 handler.group = true
 
 handler.command = [
-'menu',
-'help',
-'comandos',
-'menú',
-'m',
-'memu'
+  'menu',
+  'help',
+  'comandos',
+  'menú',
+  'm',
+  'memu'
 ]
 
 export default handler
