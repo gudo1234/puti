@@ -184,6 +184,7 @@ let text = `${e} _Hola ${m.pushName}_ ¿Cómo estás?\n\n\`❒ᴄᴏɴᴛᴇxᴛ
 │ 📱 Sistema/Opr: ${getDevice(m.key.id)}
 │ 📞 Número: ${numeroReal}
 │ 👤 Rol: ${rol}
+│ 🏷️ Tag: @${m.sender.split('@')[0]}
 └────────────\n\n🤖 MENÚ DE COMANDOS\n━━━━━━━━━━━━━━\n`
 
 for (
