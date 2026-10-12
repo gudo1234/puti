@@ -98,24 +98,33 @@ for (
 
 m.react(e)
 
+// --- País ---
 let pais =
   `${info.flag} ${info.country}`
 
-// --- Número real, resolución LID y rol ---
+// --- Número real, resolución LID, país y rol ---
+const { default: PhoneNumber } = await import('awesome-phonenumber')
+
+const regionNames = new Intl.DisplayNames(['es'], {
+  type: 'region'
+})
+
 let numeroReal = 'No disponible'
+let codigoPais = '??'
 let participante = userInGroup || null
 
 try {
+  let participantes = []
+
   if (m.isGroup) {
     const metadata = await conn.groupMetadata(m.chat)
-    const participantes = metadata.participants || []
+    participantes = metadata.participants || []
 
-    participante =
-      participantes.find(p =>
-        p.id === m.sender ||
-        p.jid === m.sender ||
-        p.lid === m.sender
-      ) || participante
+    participante = participantes.find(p =>
+      p.id === m.sender ||
+      p.jid === m.sender ||
+      p.lid === m.sender
+    ) || participante
   }
 
   const candidatos = [
@@ -127,11 +136,33 @@ try {
     m.sender
   ].filter(Boolean)
 
+  let numeroEncontrado = ''
+
   for (const candidato of candidatos) {
     const valor = String(candidato)
 
+    if (valor.endsWith('@lid')) {
+      const resolver =
+        conn.signalRepository?.lidMapping?.getPNForLID
+
+      if (typeof resolver === 'function') {
+        try {
+          const pn = await resolver.call(
+            conn.signalRepository.lidMapping,
+            valor
+          )
+
+          if (pn && !String(pn).endsWith('@lid')) {
+            numeroEncontrado = String(pn)
+            break
+          }
+        } catch {}
+      }
+
+      continue
+    }
+
     if (
-      valor.endsWith('@lid') ||
       valor.endsWith('@g.us') ||
       valor.endsWith('@newsletter')
     ) continue
@@ -141,34 +172,59 @@ try {
       .replace(/\D/g, '')
 
     if (digitos.length >= 7) {
-      numeroReal = '+' + digitos
+      numeroEncontrado = digitos
       break
     }
   }
 
-  if (numeroReal === 'No disponible' && m.isGroup) {
+  if (!numeroEncontrado && m.isGroup) {
     const lid = [
       participante?.lid,
+      participante?.id,
       m.sender
-    ].find(v => v && String(v).endsWith('@lid'))
+    ].find(v =>
+      v && String(v).endsWith('@lid')
+    )
 
-    if (lid && typeof conn.signalRepository?.lidMapping?.getPNForLID === 'function') {
-      const pn = await conn.signalRepository.lidMapping.getPNForLID(lid)
+    const resolver =
+      conn.signalRepository?.lidMapping?.getPNForLID
 
-      if (pn) {
-        const digitos = String(pn)
-          .split('@')[0]
-          .replace(/\D/g, '')
+    if (lid && typeof resolver === 'function') {
+      try {
+        const pn = await resolver.call(
+          conn.signalRepository.lidMapping,
+          lid
+        )
 
-        if (digitos.length >= 7) {
-          numeroReal = '+' + digitos
+        if (pn && !String(pn).endsWith('@lid')) {
+          numeroEncontrado = String(pn)
         }
-      }
+      } catch {}
+    }
+  }
+
+  if (numeroEncontrado) {
+    const digitos = numeroEncontrado
+      .split('@')[0]
+      .replace(/\D/g, '')
+
+    if (digitos.length >= 7) {
+      numeroReal = '+' + digitos
+
+      const pn = new PhoneNumber('+' + digitos)
+      codigoPais = pn.getRegionCode() || '??'
     }
   }
 } catch (error) {
-  console.error('Error resolviendo número LID:', error.message)
+  console.error(
+    'Error resolviendo LID:',
+    error.message
+  )
 }
+
+const paisUsuario = codigoPais !== '??'
+  ? `${regionNames.of(codigoPais) || 'Desconocido'}`
+  : '🌐 Desconocido'
 
 const rol =
   participante?.admin === 'superadmin'
@@ -177,14 +233,17 @@ const rol =
       ? 'Administrador'
       : 'Miembro'
 
+const tagUsuario =
+  m.pushName || m.sender.split('@')[0]
+
 let text = `${e} _Hola ${m.pushName}_ ¿Cómo estás?\n\n\`❒ᴄᴏɴᴛᴇxᴛ-ɪɴғᴏ☔\`
 
 ┌────────────
-│ 🌎 País: ${pais}
+│ 🌎 País: ${codigoPais !== '??' ? paisUsuario : pais}
 │ 📱 Sistema/Opr: ${getDevice(m.key.id)}
 │ 📞 Número: ${numeroReal}
 │ 👤 Rol: ${rol}
-│ 🏷️ Tag: @${m.sender.split('@')[0]}
+│ 🏷️ Tag: @${tagUsuario}
 └────────────\n\n🤖 MENÚ DE COMANDOS\n━━━━━━━━━━━━━━\n`
 
 for (
