@@ -36,6 +36,8 @@ function getQuotedId(m) {
     m.quoted?.key?.id ||
     m.msg?.contextInfo?.stanzaId ||
     m.message?.extendedTextMessage?.contextInfo?.stanzaId ||
+    m.message?.imageMessage?.contextInfo?.stanzaId ||
+    m.message?.videoMessage?.contextInfo?.stanzaId ||
     null
   )
 }
@@ -141,7 +143,7 @@ async function finishGame(conn, game, text) {
   await deleteBotMessages(conn, game)
 }
 
-let handler = async (m, { conn, text = '', usedPrefix = '.' }) => {
+async function startGame(m, conn, search = '', usedPrefix = '.') {
   const chat = m.chat
 
   if (global.songTriviaGames.has(chat)) {
@@ -155,7 +157,7 @@ let handler = async (m, { conn, text = '', usedPrefix = '.' }) => {
   try {
     await m.react('🎵')
 
-    const song = await searchITunes(text)
+    const song = await searchITunes(search)
 
     const audioResponse = await fetch(song.previewUrl, {
       signal: AbortSignal.timeout(20000)
@@ -203,7 +205,7 @@ let handler = async (m, { conn, text = '', usedPrefix = '.' }) => {
     game.audioId = audioMessage?.key?.id || audioMessage?.id || null
     rememberBotMessage(game, audioMessage)
 
-    const prefix = usedPrefix || global.songTriviaPrefix || '.'
+    const prefix = usedPrefix || '.'
 
     const prompt =
 `🎵 *TRIVIA MUSICAL*
@@ -214,9 +216,9 @@ let handler = async (m, { conn, text = '', usedPrefix = '.' }) => {
 🎯 Intentos: *${SONG_TRIVIA_ATTEMPTS} por participante*
 🎁 Premio: *${SONG_TRIVIA_XP} XP* y *${SONG_TRIVIA_COINS} monedas*
 
-💬 Puedes responder escribiendo tu respuesta directamente.
-💡 *${prefix}pista* — revela el artista.
-🏳️ *${prefix}rendirse* — revela la canción y termina la ronda.`
+💬 Puedes responder directamente o citando el audio.
+💡 Escribe *${prefix}pista* para revelar el artista.
+🏳️ Escribe *${prefix}rendirse* para revelar la canción.`
 
     const promptMessage = await conn.sendMessage(
       chat,
@@ -261,53 +263,33 @@ let handler = async (m, { conn, text = '', usedPrefix = '.' }) => {
   }
 }
 
-handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
-  const game = global.songTriviaGames?.get(m.chat)
+let handler = async (m, { conn, text = '', usedPrefix = '.', command = '' }) => {
+  const cmd = String(command || '').toLowerCase()
+  const chat = m.chat
+  const game = global.songTriviaGames?.get(chat)
 
-  if (!game || !m.sender || m.key?.fromMe) return false
+  if (cmd === 'pista') {
+    if (!game) {
+      return m.reply('❌ No hay ninguna trivia musical activa en este chat.')
+    }
 
-  const input = getText(m)
-  if (!input) return false
+    if (Date.now() - game.startedAt >= SONG_TRIVIA_TIME) {
+      await finishGame(
+        conn,
+        game,
+        `⏰ *¡Se acabó el tiempo!*\n\n🎵 Canción: *${game.songName}*\n🎤 Artista: *${game.artistName}*`
+      )
+      return
+    }
 
-  const prefix = usedPrefix || global.songTriviaPrefix || '.'
-  const command = input.trim().toLowerCase()
-
-  const isPista =
-    command === `${prefix}pista`.toLowerCase() ||
-    command === '.pista' ||
-    command === 'pista'
-
-  const isRendirse =
-    command === `${prefix}rendirse`.toLowerCase() ||
-    command === '.rendirse' ||
-    command === 'rendirse'
-
-  // Permite usar los comandos sin citar y también citando mensajes.
-  // Los comandos solo afectan la trivia del chat actual.
-  if (Date.now() - game.startedAt >= SONG_TRIVIA_TIME) {
-    await finishGame(
-      conn,
-      game,
-      `⏰ *¡Se acabó el tiempo!*
-
-🎵 Canción: *${game.songName}*
-🎤 Artista: *${game.artistName}*
-
-¡Inténtalo de nuevo!`
-    )
-    return true
-  }
-
-  if (isPista) {
     if (game.usedHint) {
-      await m.reply('💡 La pista de esta ronda ya fue revelada.')
-      return true
+      return m.reply('💡 La pista de esta ronda ya fue revelada.')
     }
 
     game.usedHint = true
 
-    await conn.sendMessage(
-      m.chat,
+    return conn.sendMessage(
+      chat,
       {
         text:
 `💡 *PISTA MUSICAL*
@@ -320,12 +302,14 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
       },
       { quoted: m }
     )
-
-    return true
   }
 
-  if (isRendirse) {
-    await finishGame(
+  if (cmd === 'rendirse') {
+    if (!game) {
+      return m.reply('❌ No hay ninguna trivia musical activa en este chat.')
+    }
+
+    return finishGame(
       conn,
       game,
       `🏳️ *¡Ronda terminada!*
@@ -333,16 +317,37 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
 🎵 Canción: *${game.songName}*
 🎤 Artista: *${game.artistName}*`
     )
+  }
+
+  if (cmd === 'songtrivia') {
+    return startGame(m, conn, text, usedPrefix)
+  }
+}
+
+handler.before = async function (m, { conn } = {}) {
+  const game = global.songTriviaGames?.get(m.chat)
+
+  if (!game || !m.sender || m.key?.fromMe) return false
+
+  const input = getText(m)
+  if (!input) return false
+
+  const command = input.trim().toLowerCase()
+
+  // Los comandos se ejecutan mediante handler.command.
+  if (/^[.!/][a-z]/i.test(command)) return false
+
+  if (Date.now() - game.startedAt >= SONG_TRIVIA_TIME) {
+    await finishGame(
+      conn,
+      game,
+      `⏰ *¡Se acabó el tiempo!*\n\n🎵 Canción: *${game.songName}*\n🎤 Artista: *${game.artistName}*`
+    )
     return true
   }
 
-  // No procesar otros comandos como respuestas de la trivia.
-  if (command.startsWith(prefix) && command.length > prefix.length) {
-    return false
-  }
-
-  // Si responde a otro mensaje sin relación con la trivia, ignorarlo.
   const quotedId = getQuotedId(m)
+
   const relatedIds = new Set([
     game.audioId,
     game.promptId,
@@ -350,13 +355,8 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
     ...game.botMessages.keys()
   ].filter(Boolean))
 
-  const quotedTrivia = Boolean(
-    quotedId && relatedIds.has(quotedId)
-  )
-
-  // Acepta mensajes sin citar para evitar que el ID citado bloquee
-  // la detección. Si cita un mensaje, debe ser de esta trivia.
-  if (quotedId && !quotedTrivia) return false
+  // Si cita otro mensaje ajeno a la trivia, no procesar la respuesta.
+  if (quotedId && !relatedIds.has(quotedId)) return false
 
   const guess = normalizeSong(input)
   if (!guess) return false
@@ -382,11 +382,7 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
       await finishGame(
         conn,
         game,
-        `🎉 ¡Respuesta correcta!
-
-🎵 *${game.songName}* — ${game.artistName}
-
-⚠️ No pude guardar el premio: ${error.message}`
+        `🎉 ¡Respuesta correcta!\n\n🎵 *${game.songName}* — ${game.artistName}\n\n⚠️ No pude guardar el premio: ${error.message}`
       )
       return true
     }
@@ -444,8 +440,18 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
   return true
 }
 
-handler.help = ['songtrivia [búsqueda opcional]']
+handler.help = [
+  'songtrivia [búsqueda opcional]',
+  'pista',
+  'rendirse'
+]
+
 handler.tags = ['juegos']
-handler.command = ['songtrivia']
+
+handler.command = [
+  'songtrivia',
+  'pista',
+  'rendirse'
+]
 
 export default handler
