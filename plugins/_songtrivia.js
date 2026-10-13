@@ -24,6 +24,8 @@ function getText(m) {
     m.body ||
     m.message?.conversation ||
     m.message?.extendedTextMessage?.text ||
+    m.message?.imageMessage?.caption ||
+    m.message?.videoMessage?.caption ||
     ''
   ).trim()
 }
@@ -35,6 +37,7 @@ function getQuotedId(m) {
     m.message?.imageMessage?.contextInfo?.stanzaId ||
     m.message?.videoMessage?.contextInfo?.stanzaId ||
     m.message?.audioMessage?.contextInfo?.stanzaId ||
+    m.message?.documentMessage?.contextInfo?.stanzaId ||
     null
   )
 }
@@ -101,19 +104,63 @@ async function searchITunes(term = '') {
   return songs[Math.floor(Math.random() * songs.length)]
 }
 
-async function finishGame(conn, chat, game, text) {
+function rememberBotMessage(game, message) {
+  const id = message?.key?.id
+  if (id) game.botMessages.set(id, true)
+}
+
+async function deleteBotMessages(conn, game, keepId = null) {
+  for (const id of game.botMessages.keys()) {
+    if (id === keepId) continue
+
+    try {
+      await conn.sendMessage(game.chat, {
+        delete: {
+          remoteJid: game.chat,
+          fromMe: true,
+          id,
+          participant: conn.user?.id
+        }
+      })
+    } catch (error) {
+      console.error('[SONGTRIVIA DELETE]', error?.message || error)
+    }
+  }
+
+  game.botMessages.clear()
+}
+
+async function sendTracked(conn, chat, game, content, options = {}) {
+  const sent = await conn.sendMessage(chat, content, options)
+  rememberBotMessage(game, sent)
+  return sent
+}
+
+async function finishGame(conn, chat, game, text, keepId = null) {
   if (global.songTriviaGames.get(chat) !== game) return
 
   clearTimeout(game.timer)
   global.songTriviaGames.delete(chat)
 
-  await conn.sendMessage(
-    chat,
-    { text },
-    game.promptMessage
-      ? { quoted: game.promptMessage }
-      : {}
+  let finalMessage
+
+  try {
+    finalMessage = await conn.sendMessage(
+      chat,
+      { text },
+      game.promptMessage ? { quoted: game.promptMessage } : {}
+    )
+  } catch (error) {
+    console.error('[SONGTRIVIA FINISH]', error?.message || error)
+  }
+
+  await deleteBotMessages(
+    conn,
+    game,
+    keepId || finalMessage?.key?.id || null
   )
+
+  return finalMessage
 }
 
 let handler = async (m, { conn, text = '' }) => {
@@ -132,10 +179,9 @@ let handler = async (m, { conn, text = '' }) => {
 
     const song = await searchITunes(text)
 
-    const audioResponse = await fetch(
-      song.previewUrl,
-      { signal: AbortSignal.timeout(20000) }
-    )
+    const audioResponse = await fetch(song.previewUrl, {
+      signal: AbortSignal.timeout(20000)
+    })
 
     if (!audioResponse.ok) {
       throw new Error('No pude descargar la vista previa de la canción.')
@@ -149,6 +195,22 @@ let handler = async (m, { conn, text = '' }) => {
       throw new Error('El audio recibido está vacío.')
     }
 
+    game = {
+      chat,
+      songName: song.trackName,
+      artistName: song.artistName,
+      startedAt: Date.now(),
+      attempts: new Map(),
+      usedHint: false,
+      timer: null,
+      audioId: null,
+      promptId: null,
+      promptMessage: null,
+      botMessages: new Map()
+    }
+
+    global.songTriviaGames.set(chat, game)
+
     const audioMessage = await conn.sendMessage(
       chat,
       {
@@ -159,6 +221,9 @@ let handler = async (m, { conn, text = '' }) => {
       { quoted: m }
     )
 
+    game.audioId = audioMessage?.key?.id || null
+    rememberBotMessage(game, audioMessage)
+
     const prefix = global.songTriviaPrefix || '.'
 
     const prompt =
@@ -167,13 +232,13 @@ let handler = async (m, { conn, text = '' }) => {
 🎧 Escucha el audio y adivina el nombre de la canción.
 
 ⏱️ Tiempo: *75 segundos*
-🎯 Intentos: *${SONG_TRIVIA_ATTEMPTS}*
+🎯 Intentos: *${SONG_TRIVIA_ATTEMPTS} por participante*
 🎁 Premio: *${SONG_TRIVIA_XP} XP* y *${SONG_TRIVIA_COINS} monedas*
 
-📌 *Responde citando este mensaje con el nombre de la canción.*
+📌 Debes responder citando un mensaje del bot de esta trivia.
 
-💡 Escribe *${prefix}pista* citando la trivia para conocer el artista.
-🏳️ Escribe *${prefix}rendirse* citando la trivia para revelar la respuesta.`
+💡 Escribe *${prefix}pista* citando un mensaje de esta ronda para conocer el artista.
+🏳️ Escribe *${prefix}rendirse* citando un mensaje de esta ronda para revelar la respuesta.`
 
     const promptMessage = await conn.sendMessage(
       chat,
@@ -181,38 +246,24 @@ let handler = async (m, { conn, text = '' }) => {
       { quoted: audioMessage || m }
     )
 
-    game = {
-      player: m.sender,
-      songName: song.trackName,
-      artistName: song.artistName,
-      audioId: audioMessage?.key?.id || null,
-      promptId: promptMessage?.key?.id || null,
-      promptMessage,
-      attempts: 0,
-      usedHint: false,
-      timer: null
-    }
-
-    global.songTriviaGames.set(chat, game)
+    game.promptMessage = promptMessage
+    game.promptId = promptMessage?.key?.id || null
+    rememberBotMessage(game, promptMessage)
 
     game.timer = setTimeout(async () => {
       if (global.songTriviaGames.get(chat) !== game) return
 
-      try {
-        await finishGame(
-          conn,
-          chat,
-          game,
-          `⏰ *¡Se acabó el tiempo!*
+      await finishGame(
+        conn,
+        chat,
+        game,
+        `⏰ *¡Se acabó el tiempo!*
 
 🎵 Canción: *${game.songName}*
 🎤 Artista: *${game.artistName}*
 
 ¡Inténtalo de nuevo!`
-        )
-      } catch (error) {
-        console.error('[SONGTRIVIA]', error)
-      }
+      )
     }, SONG_TRIVIA_TIME)
 
     await m.react('🎧')
@@ -221,7 +272,12 @@ let handler = async (m, { conn, text = '' }) => {
 
     if (game) {
       clearTimeout(game.timer)
-      global.songTriviaGames.delete(chat)
+
+      if (global.songTriviaGames.get(chat) === game) {
+        global.songTriviaGames.delete(chat)
+      }
+
+      await deleteBotMessages(conn, game)
     }
 
     await m.reply(
@@ -230,90 +286,78 @@ let handler = async (m, { conn, text = '' }) => {
   }
 }
 
-handler.before = async function (m, { conn, usedPrefix = '.' }) {
+handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
   const game = global.songTriviaGames.get(m.chat)
 
-  if (!game) return false
+  if (!game || !m.sender || m.key?.fromMe) return false
 
   const input = getText(m)
-
   if (!input) return false
 
-  const prefix = usedPrefix || '.'
-  const command = input.toLowerCase().trim()
-  const pista = `${prefix}pista`.toLowerCase()
-  const rendirse = `${prefix}rendirse`.toLowerCase()
-
-  const isPista =
-    command === pista ||
-    command === 'pista'
-
-  const isRendirse =
-    command === rendirse ||
-    command === 'rendirse'
-
+  // La respuesta debe citar un mensaje del bot registrado en esta ronda.
   const quotedId = getQuotedId(m)
 
-  const quotedTrivia = Boolean(
-    quotedId &&
-    (
-      quotedId === game.promptId ||
-      quotedId === game.audioId
-    )
-  )
-
-  if (m.sender !== game.player) {
+  if (!quotedId || !game.botMessages.has(quotedId)) {
     return false
   }
 
-  if (Date.now() - gameStartTime(game) >= SONG_TRIVIA_TIME) {
+  if (Date.now() - game.startedAt >= SONG_TRIVIA_TIME) {
     await finishGame(
       conn,
       m.chat,
       game,
-      `⏰ *¡Se acabó el tiempo!*\n\n🎵 Canción: *${game.songName}*\n🎤 Artista: *${game.artistName}*`
+      `⏰ *¡Se acabó el tiempo!*
+
+🎵 Canción: *${game.songName}*
+🎤 Artista: *${game.artistName}*`
     )
     return true
   }
 
-  if (isPista || isRendirse) {
-    if (!quotedTrivia) {
-      await m.reply(
-        '↩️ Responde citando el mensaje de la trivia para usar esa opción.'
-      )
+  const prefix = usedPrefix || global.songTriviaPrefix || '.'
+  const command = input.toLowerCase().trim()
+
+  const isPista =
+    command === `${prefix}pista`.toLowerCase() ||
+    command === 'pista'
+
+  const isRendirse =
+    command === `${prefix}rendirse`.toLowerCase() ||
+    command === 'rendirse'
+
+  if (isPista) {
+    if (game.usedHint) {
+      await m.reply('💡 Ya utilizaron la pista de esta ronda.')
       return true
     }
 
-    if (isPista) {
-      if (game.usedHint) {
-        await m.reply('💡 Ya utilizaste la pista de esta ronda.')
-        return true
-      }
+    game.usedHint = true
 
-      game.usedHint = true
-
-      await conn.sendMessage(
-        m.chat,
-        {
-          text:
+    await sendTracked(
+      conn,
+      m.chat,
+      game,
+      {
+        text:
 `💡 *PISTA MUSICAL*
 
 🎤 Artista: *${game.artistName}*
 
 🎁 Premio reducido:
 *${SONG_TRIVIA_XP / 2} XP* y *${SONG_TRIVIA_COINS / 2} monedas*`
-        },
-        { quoted: m }
-      )
+      },
+      { quoted: m }
+    )
 
-      return true
-    }
+    return true
+  }
 
+  if (isRendirse) {
     await finishGame(
       conn,
       m.chat,
       game,
-      `🏳️ *Te has rendido.*
+      `🏳️ *La ronda ha terminado.*
 
 🎵 Canción: *${game.songName}*
 🎤 Artista: *${game.artistName}*`
@@ -322,8 +366,7 @@ handler.before = async function (m, { conn, usedPrefix = '.' }) {
     return true
   }
 
-  if (!quotedTrivia) return false
-
+  // No procesar otros comandos como respuestas musicales.
   if (
     command.startsWith(prefix) &&
     command.length > prefix.length
@@ -332,15 +375,22 @@ handler.before = async function (m, { conn, usedPrefix = '.' }) {
   }
 
   const guess = normalizeSong(input)
-  const answer = normalizeSong(game.songName)
+  if (!guess) return false
 
-  if (!guess) return true
+  const answer = normalizeSong(game.songName)
 
   const correct =
     guess === answer ||
     (guess.length >= 5 && answer.includes(guess))
 
   if (correct) {
+    const userAttempts = game.attempts.get(m.sender) || 0
+
+    if (userAttempts >= SONG_TRIVIA_ATTEMPTS) {
+      await m.reply('❌ Ya agotaste tus intentos en esta ronda.')
+      return true
+    }
+
     const xp = game.usedHint
       ? SONG_TRIVIA_XP / 2
       : SONG_TRIVIA_XP
@@ -351,22 +401,6 @@ handler.before = async function (m, { conn, usedPrefix = '.' }) {
 
     try {
       givePrize(m.sender, xp, coins)
-
-      await m.react('🎉')
-
-      await finishGame(
-        conn,
-        m.chat,
-        game,
-        `🎉 *¡RESPUESTA CORRECTA!*
-
-🎵 Canción: *${game.songName}*
-🎤 Artista: *${game.artistName}*
-
-🎁 *Premios recibidos*
-✨ +${xp} XP
-🪙 +${coins} monedas`
-      )
     } catch (error) {
       console.error('[SONGTRIVIA PREMIO]', error)
 
@@ -374,40 +408,86 @@ handler.before = async function (m, { conn, usedPrefix = '.' }) {
         conn,
         m.chat,
         game,
-        `🎉 ¡Acertaste!\n\n🎵 *${game.songName}* — ${game.artistName}\n\n⚠️ No pude guardar el premio: ${error.message}`
+        `🎉 ¡Respuesta correcta!
+
+🎵 *${game.songName}* — ${game.artistName}
+
+⚠️ No pude guardar el premio: ${error.message}`
       )
+
+      return true
     }
 
-    return true
-  }
+    clearTimeout(game.timer)
+    global.songTriviaGames.delete(m.chat)
 
-  game.attempts++
-
-  const remaining = SONG_TRIVIA_ATTEMPTS - game.attempts
-
-  if (remaining <= 0) {
-    await finishGame(
-      conn,
+    const finalMessage = await conn.sendMessage(
       m.chat,
-      game,
-      `❌ *Se acabaron tus intentos.*
+      {
+        text:
+`🎉 *¡RESPUESTA CORRECTA!*
+
+👤 Ganador: @${m.sender.split('@')[0]}
 
 🎵 Canción: *${game.songName}*
-🎤 Artista: *${game.artistName}*`
+🎤 Artista: *${game.artistName}*
+
+🎁 *Premios recibidos*
+✨ +${xp} XP
+🪙 +${coins} monedas`,
+        mentions: [m.sender]
+      },
+      { quoted: m }
+    )
+
+    // Conservar el mensaje final de respuesta correcta.
+    await deleteBotMessages(
+      conn,
+      game,
+      finalMessage?.key?.id || null
     )
 
     return true
   }
 
-  await m.reply(
-    `❌ Respuesta incorrecta.\n\n🎯 Intentos restantes: *${remaining}*`
+  const attempts = (game.attempts.get(m.sender) || 0) + 1
+  game.attempts.set(m.sender, attempts)
+
+  const remaining = SONG_TRIVIA_ATTEMPTS - attempts
+
+  if (remaining <= 0) {
+    await sendTracked(
+      conn,
+      m.chat,
+      game,
+      {
+        text:
+`❌ @${m.sender.split('@')[0]}, agotaste tus intentos.
+
+🎵 Los demás participantes todavía pueden responder.`,
+        mentions: [m.sender]
+      },
+      { quoted: m }
+    )
+
+    return true
+  }
+
+  await sendTracked(
+    conn,
+    m.chat,
+    game,
+    {
+      text:
+`❌ Respuesta incorrecta, @${m.sender.split('@')[0]}.
+
+🎯 Te quedan *${remaining} intentos*.`,
+      mentions: [m.sender]
+    },
+    { quoted: m }
   )
 
   return true
-}
-
-function gameStartTime(game) {
-  return game.startedAt || Date.now()
 }
 
 handler.help = ['songtrivia [búsqueda opcional]']
