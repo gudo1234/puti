@@ -33,6 +33,8 @@ function getText(m) {
 function getQuotedId(m) {
   return (
     m.quoted?.id ||
+    m.quoted?.key?.id ||
+    m.msg?.contextInfo?.stanzaId ||
     m.message?.extendedTextMessage?.contextInfo?.stanzaId ||
     m.message?.imageMessage?.contextInfo?.stanzaId ||
     m.message?.videoMessage?.contextInfo?.stanzaId ||
@@ -148,17 +150,17 @@ async function finishGame(conn, chat, game, text, keepId = null) {
     finalMessage = await conn.sendMessage(
       chat,
       { text },
-      game.promptMessage ? { quoted: game.promptMessage } : {}
+      game.promptMessage
+        ? { quoted: game.promptMessage }
+        : {}
     )
+
+    rememberBotMessage(game, finalMessage)
   } catch (error) {
     console.error('[SONGTRIVIA FINISH]', error?.message || error)
   }
 
-  await deleteBotMessages(
-    conn,
-    game,
-    keepId || finalMessage?.key?.id || null
-  )
+  await deleteBotMessages(conn, game, keepId)
 
   return finalMessage
 }
@@ -268,7 +270,7 @@ let handler = async (m, { conn, text = '' }) => {
 
     await m.react('🎧')
   } catch (error) {
-    console.error('[SONGTRIVIA]', error)
+    console.error('[SONGTRIVIA]', error?.message || error)
 
     if (game) {
       clearTimeout(game.timer)
@@ -294,12 +296,19 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
   const input = getText(m)
   if (!input) return false
 
-  // La respuesta debe citar un mensaje del bot registrado en esta ronda.
   const quotedId = getQuotedId(m)
 
-  if (!quotedId || !game.botMessages.has(quotedId)) {
-    return false
-  }
+  const relatedIds = new Set([
+    game.audioId,
+    game.promptId,
+    ...(game.botMessages?.keys?.() || [])
+  ].filter(Boolean))
+
+  const quotedTrivia = Boolean(
+    quotedId && relatedIds.has(quotedId)
+  )
+
+  if (!quotedTrivia) return false
 
   if (Date.now() - game.startedAt >= SONG_TRIVIA_TIME) {
     await finishGame(
@@ -309,7 +318,9 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
       `⏰ *¡Se acabó el tiempo!*
 
 🎵 Canción: *${game.songName}*
-🎤 Artista: *${game.artistName}*`
+🎤 Artista: *${game.artistName}*
+
+¡Inténtalo de nuevo!`
     )
     return true
   }
@@ -366,7 +377,6 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
     return true
   }
 
-  // No procesar otros comandos como respuestas musicales.
   if (
     command.startsWith(prefix) &&
     command.length > prefix.length
@@ -384,13 +394,6 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
     (guess.length >= 5 && answer.includes(guess))
 
   if (correct) {
-    const userAttempts = game.attempts.get(m.sender) || 0
-
-    if (userAttempts >= SONG_TRIVIA_ATTEMPTS) {
-      await m.reply('❌ Ya agotaste tus intentos en esta ronda.')
-      return true
-    }
-
     const xp = game.usedHint
       ? SONG_TRIVIA_XP / 2
       : SONG_TRIVIA_XP
@@ -402,7 +405,7 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
     try {
       givePrize(m.sender, xp, coins)
     } catch (error) {
-      console.error('[SONGTRIVIA PREMIO]', error)
+      console.error('[SONGTRIVIA PREMIO]', error?.message || error)
 
       await finishGame(
         conn,
@@ -440,12 +443,7 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
       { quoted: m }
     )
 
-    // Conservar el mensaje final de respuesta correcta.
-    await deleteBotMessages(
-      conn,
-      game,
-      finalMessage?.key?.id || null
-    )
+    await deleteBotMessages(conn, game)
 
     return true
   }
