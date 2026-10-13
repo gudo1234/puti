@@ -24,8 +24,20 @@ function getText(m) {
     m.body ||
     m.message?.conversation ||
     m.message?.extendedTextMessage?.text ||
+    m.message?.imageMessage?.caption ||
+    m.message?.videoMessage?.caption ||
     ''
   ).trim()
+}
+
+function getQuotedId(m) {
+  return (
+    m.quoted?.id ||
+    m.quoted?.key?.id ||
+    m.msg?.contextInfo?.stanzaId ||
+    m.message?.extendedTextMessage?.contextInfo?.stanzaId ||
+    null
+  )
 }
 
 function getUsers() {
@@ -110,12 +122,6 @@ async function deleteBotMessages(conn, game) {
   game.botMessages.clear()
 }
 
-async function sendTracked(conn, game, content, options = {}) {
-  const sent = await conn.sendMessage(game.chat, content, options)
-  rememberBotMessage(game, sent)
-  return sent
-}
-
 async function finishGame(conn, game, text) {
   if (global.songTriviaGames.get(game.chat) !== game) return
 
@@ -135,7 +141,7 @@ async function finishGame(conn, game, text) {
   await deleteBotMessages(conn, game)
 }
 
-let handler = async (m, { conn, text = '' }) => {
+let handler = async (m, { conn, text = '', usedPrefix = '.' }) => {
   const chat = m.chat
 
   if (global.songTriviaGames.has(chat)) {
@@ -197,7 +203,7 @@ let handler = async (m, { conn, text = '' }) => {
     game.audioId = audioMessage?.key?.id || audioMessage?.id || null
     rememberBotMessage(game, audioMessage)
 
-    const prefix = global.songTriviaPrefix || '.'
+    const prefix = usedPrefix || global.songTriviaPrefix || '.'
 
     const prompt =
 `🎵 *TRIVIA MUSICAL*
@@ -208,10 +214,9 @@ let handler = async (m, { conn, text = '' }) => {
 🎯 Intentos: *${SONG_TRIVIA_ATTEMPTS} por participante*
 🎁 Premio: *${SONG_TRIVIA_XP} XP* y *${SONG_TRIVIA_COINS} monedas*
 
-📌 Responde citando el audio, este mensaje o una respuesta de la trivia.
-
-💡 Escribe *${prefix}pista* citando un mensaje de esta ronda para conocer el artista.
-🏳️ Escribe *${prefix}rendirse* citando un mensaje de esta ronda para revelar la respuesta.`
+💬 Puedes responder escribiendo tu respuesta directamente.
+💡 *${prefix}pista* — revela el artista.
+🏳️ *${prefix}rendirse* — revela la canción y termina la ronda.`
 
     const promptMessage = await conn.sendMessage(
       chat,
@@ -264,30 +269,21 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
   const input = getText(m)
   if (!input) return false
 
-  // MISMO MÉTODO DE DETECCIÓN QUE TU TRIVIA DE BANDERAS
-  const repliedMessageId = m.quoted?.id
+  const prefix = usedPrefix || global.songTriviaPrefix || '.'
+  const command = input.trim().toLowerCase()
 
-  const incorrectIds = Array.isArray(game.incorrectIds)
-    ? game.incorrectIds
-    : []
+  const isPista =
+    command === `${prefix}pista`.toLowerCase() ||
+    command === '.pista' ||
+    command === 'pista'
 
-  const repliedToQuestion = Boolean(
-    repliedMessageId &&
-    (
-      repliedMessageId === game.audioId ||
-      repliedMessageId === game.promptId
-    )
-  )
+  const isRendirse =
+    command === `${prefix}rendirse`.toLowerCase() ||
+    command === '.rendirse' ||
+    command === 'rendirse'
 
-  const repliedToIncorrect = Boolean(
-    repliedMessageId &&
-    incorrectIds.includes(repliedMessageId)
-  )
-
-  const repliedToTrivia = repliedToQuestion || repliedToIncorrect
-
-  if (!repliedToTrivia) return false
-
+  // Permite usar los comandos sin citar y también citando mensajes.
+  // Los comandos solo afectan la trivia del chat actual.
   if (Date.now() - game.startedAt >= SONG_TRIVIA_TIME) {
     await finishGame(
       conn,
@@ -302,26 +298,15 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
     return true
   }
 
-  const prefix = usedPrefix || global.songTriviaPrefix || '.'
-  const command = input.toLowerCase().trim()
-
-  const isPista =
-    command === `${prefix}pista`.toLowerCase() ||
-    command === 'pista'
-
-  const isRendirse =
-    command === `${prefix}rendirse`.toLowerCase() ||
-    command === 'rendirse'
-
   if (isPista) {
     if (game.usedHint) {
-      await m.reply('💡 Ya utilizaron la pista de esta ronda.')
+      await m.reply('💡 La pista de esta ronda ya fue revelada.')
       return true
     }
 
     game.usedHint = true
 
-    const hintMessage = await conn.sendMessage(
+    await conn.sendMessage(
       m.chat,
       {
         text:
@@ -330,12 +315,12 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
 🎤 Artista: *${game.artistName}*
 
 🎁 Premio reducido:
-*${SONG_TRIVIA_XP / 2} XP* y *${SONG_TRIVIA_COINS / 2} monedas*`
+✨ +${SONG_TRIVIA_XP / 2} XP
+🪙 +${SONG_TRIVIA_COINS / 2} monedas`
       },
       { quoted: m }
     )
 
-    rememberBotMessage(game, hintMessage)
     return true
   }
 
@@ -343,7 +328,7 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
     await finishGame(
       conn,
       game,
-      `🏳️ *La ronda ha terminado.*
+      `🏳️ *¡Ronda terminada!*
 
 🎵 Canción: *${game.songName}*
 🎤 Artista: *${game.artistName}*`
@@ -351,13 +336,27 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
     return true
   }
 
-  // No interceptar otros comandos del bot.
-  if (
-    command.startsWith(prefix) &&
-    command.length > prefix.length
-  ) {
+  // No procesar otros comandos como respuestas de la trivia.
+  if (command.startsWith(prefix) && command.length > prefix.length) {
     return false
   }
+
+  // Si responde a otro mensaje sin relación con la trivia, ignorarlo.
+  const quotedId = getQuotedId(m)
+  const relatedIds = new Set([
+    game.audioId,
+    game.promptId,
+    ...game.incorrectIds,
+    ...game.botMessages.keys()
+  ].filter(Boolean))
+
+  const quotedTrivia = Boolean(
+    quotedId && relatedIds.has(quotedId)
+  )
+
+  // Acepta mensajes sin citar para evitar que el ID citado bloquee
+  // la detección. Si cita un mensaje, debe ser de esta trivia.
+  if (quotedId && !quotedTrivia) return false
 
   const guess = normalizeSong(input)
   if (!guess) return false
@@ -434,7 +433,6 @@ handler.before = async function (m, { conn, usedPrefix = '.' } = {}) {
     { quoted: m }
   )
 
-  // Guardar el ID para aceptar respuestas citando el mensaje de error.
   const incorrectId = wrongMessage?.key?.id || wrongMessage?.id
 
   if (incorrectId) {
