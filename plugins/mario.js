@@ -35,6 +35,7 @@ await conn.relayMessage(m.chat, {
     "type": "botForwardedMessage"
   }
 }, {});
+}
 
 handler.help = ["mario"]
 handler.tags = ["juegos"]
