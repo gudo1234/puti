@@ -38,6 +38,7 @@ await conn.relayMessage(m.chat, {
 }, {});
 } catch (error) {
   console.error('Error al ejecutar Mario Bros. 3:', error);
+  m.reply(error)
   try {
     await conn.reply(m.chat, `❌ No se pudo iniciar Mario Bros. 3.\n${error.message || error}`, m);
   } catch {}
