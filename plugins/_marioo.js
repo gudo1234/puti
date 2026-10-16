@@ -46,6 +46,6 @@ await conn.relayMessage(m.chat, {
 
 handler.help = ["mario"]
 handler.tags = ["juegos"]
-handler.command = ['mario']
+handler.command = ['marioo']
 handler.owner = true
 export default handler
