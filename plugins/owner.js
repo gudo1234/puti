@@ -20,9 +20,10 @@ let handler = async (m, { conn }) => {
             "VERSION:3.0",
             `N:${author};;;;`,
             `FN:${author}`,
-            "ORG:Zentrix-AI",
-            "TEL;TYPE=CELL;TYPE=VOICE;waid=50492280729:+50492280729",
-            "EMAIL:izumilitee@gmail.com",
+            "ORG:Zentrix-AI;",
+            "TITLE:Developer & Owner",
+            "TEL;TYPE=WORK;TYPE=VOICE;waid=50492280729:+50492280729",
+            "EMAIL;TYPE=WORK:izumilitee@gmail.com",
             "ADR;TYPE=WORK:;;Honduras;;;;",
             "URL:https://www.instagram.com/edi504_",
             "END:VCARD"
@@ -33,12 +34,10 @@ let handler = async (m, { conn }) => {
             {
                 contacts: {
                     displayName: author,
-                    contacts: [
-                        {
-                            displayName: author,
-                            vcard
-                        }
-                    ]
+                    contacts: [{
+                        displayName: author,
+                        vcard
+                    }]
                 }
             },
             { quoted: m }
