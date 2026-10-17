@@ -134,7 +134,7 @@ const handler = async (m, { conn, usedPrefix, command, text }) => {
   }
 }
 
-handler.help = ["perfil"]
+handler.help = ["perfil\nᵐᵘᵉˢᵗʳᵃ ˡᵃ ᶤᶰᶠᵒʳᵐᵃᶜᶤᵒᶰ ᵈᵉ ᵘᶰ ᵘˢᵘᵃʳᶤᵒ"]
 handler.tags = ["buscador"]
 handler.command = ['wastalk', 'perfil', 'ava', 'profile']
 handler.group = true
