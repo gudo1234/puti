@@ -19,8 +19,8 @@ let handler = async (m, { conn }) => {
         const vcard =
 `BEGIN:VCARD
 VERSION:3.0
-N:${wm};;;;
-FN:${wm}
+N:${author};;;;
+FN:${author}
 ORG:Zentrix-AI;
 TITLE:Developer & Owner
 item1.TEL;waid=50492280729:+50492280729
