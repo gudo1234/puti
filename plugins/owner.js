@@ -18,7 +18,7 @@ let handler = async (m, { conn }) => {
         const vcard = [
             "BEGIN:VCARD",
             "VERSION:3.0",
-            `N:${author};;;;`,
+            `N:;;;;`,
             `FN:${author}`,
             "ORG:Zentrix-AI;",
             "TITLE:Artificial Intelligence & Software Development",
@@ -39,7 +39,7 @@ let handler = async (m, { conn }) => {
                     contacts: [{
                         displayName: author,
                         vcard
-                    }]ah
+                    }]
                 }
             },
             { quoted: m }
