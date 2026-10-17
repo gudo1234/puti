@@ -1,66 +1,65 @@
-
 let handler = async (m, { conn }) => {
+    try {
 
-        try {
-            const nombre =
-                "🍁̶͢͞▻⟅ẹ𝆊ϋ⟆٭⳺֟፝͜⳻٭.er/k";
+        const emojis = [
+            "🍎", "🍒", "🍉", "🍊", "🍋",
+            "🍏", "🍌", "🍍", "🍓", "🍇",
+            "🍈", "🍒", "🍑", "🥭", "🍐",
+            "🥥", "🍋‍🟩"
+        ];
 
-            const emojis = [
-                "🍎", "🍒", "🍉", "🍊", "🍋",
-                "🍏", "🍌", "🍍", "🍓", "🍇",
-                "🍈", "🍒", "🍑", "🥭", "🍐",
-                "🥥", "🍋‍🟩"
-            ];
+        for (let i = 0; i < emojis.length; i++) {
+            setTimeout(async () => {
+                try {
+                    await m.react(emojis[i]);
+                } catch {}
+            }, i * 1000);
+        }
 
-            for (let i = 0; i < emojis.length; i++) {
-                setTimeout(async () => {
-                    try {
-                        await m.react(emojis[i]);
-                    } catch {}
-                }, i * 1000);
-            }
-
-            const vcard =
+        const vcard =
 `BEGIN:VCARD
 VERSION:3.0
-N:${nombre};;;
-FN:${nombre}
-ORG:Zentrix Bot
+N:${wm};;;;
+FN:${wm}
+ORG:Zentrix-AI;
 TITLE:Developer & Owner
-TEL;type=CELL;type=VOICE;waid=50492280729:+504 9228 0727
-TEL;type=WORK;type=VOICE:+504 9228 0729
+item1.TEL;waid=50492280729:+50492280729
+item1.X-ABLabel:Empresa
+X-WA-BIZ-NAME:Zentrix-AI
+X-WA-BIZ-DESCRIPTION:Desarrollo de software e inteligencia artificial
+TEL;type=CELL;type=VOICE;waid=50492280729:+50492280729
 EMAIL:izumilitee@gmail.com
 ADR;type=WORK:;;Honduras;;;;
 URL:https://www.instagram.com/edi504_
 NOTE:ᴢᴇɴᴛʀɪx-ʙᴏᴛ
 END:VCARD`;
 
-            await conn.sendMessage(
-                m.chat,
-                {
-                    contacts: {
-                        contacts: [{
-                            displayName: nombre,
-                            vcard
-                        }]
-                    }
-                },
-                {
-                    quoted: m
+        await conn.sendMessage(
+            m.chat,
+            {
+                contacts: {
+                    displayName: "Zentrix-AI",
+                    contacts: [{
+                        displayName: "Zentrix-AI",
+                        vcard
+                    }]
                 }
-            );
+            },
+            {
+                quoted: m
+            }
+        );
 
-        } catch (e) {
-            console.error("❌ Error en OWNER:", e);
+    } catch (e) {
+        console.error("❌ Error en OWNER:", e);
+        await m.reply(
+            `❌ No se pudo mostrar la información del propietario.\n\n> ${e.message}`
+        );
+    }
+};
 
-            await m.reply(
-                `❌ No se pudo mostrar la información del propietario.\n\n> ${e.message}`
-            );
-        }
-}
+handler.help = ["owner"];
+handler.tags = ["main"];
+handler.command = ["owner", "dueño", "desarrollador", "creador", "edar", "zeus"];
 
-handler.help = ["owner"]
-handler.tags = ["main"]
-handler.command = ["owner", "dueño", "desarrollador", "creador", "edar", "zeus"]
-
-export default handler
+export default handler;
