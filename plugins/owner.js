@@ -21,15 +21,16 @@ let handler = async (m, { conn }) => {
             "VERSION:3.0",
             `N:${author};;;;`,
             `FN:${author}`,
-            "ORG:Zentrix-AI;",
-            "TITLE:Developer & Owner",
+            "ORG:Zentrix-AI",
+            "TITLE:Artificial Intelligence & Software Development",
             "TEL;type=CELL;type=VOICE;waid=50492280729:+50492280729",
-            "EMAIL:izumilitee@gmail.com",
+            "EMAIL;type=WORK:izumilitee@gmail.com",
             "ADR;type=WORK:;;Honduras;;;;",
             "URL:https://www.instagram.com/edi504_",
-            "NOTE:ᴢᴇɴᴛʀɪx-ʙᴏᴛ",
+            "URL:https://github.com/gudo1234",
+            "NOTE:Zentrix-AI | WhatsApp Bot Development | AI & Automation",
             "X-WA-BIZ-NAME:Zentrix-AI",
-            "X-WA-BIZ-DESCRIPTION:Desarrollo de software e inteligencia artificial",
+            "X-WA-BIZ-DESCRIPTION:Desarrollo de bots de WhatsApp, software e inteligencia artificial.",
             "END:VCARD"
         ].join("\n");
 
