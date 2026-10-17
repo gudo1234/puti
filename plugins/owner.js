@@ -39,7 +39,7 @@ let handler = async (m, { conn }) => {
                     contacts: [{
                         displayName: author,
                         vcard
-                    }]
+                    }]ah
                 }
             },
             { quoted: m }
