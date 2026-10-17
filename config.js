@@ -130,7 +130,7 @@ ch1: "120363401404146384@newsletter"
 
 global.packname = "🤖⃧►iʑυвöτ◃2.0▹"
 global.textbot = "Bot de mierd4";
-global.author = "🪐 ݁𝆹𝅥𐙚˖ܵʑєܲυsܵ˖݁𝆹𝅥˃͈◡˂͈";
+global.author = "🎃𝆆⃕͜𔑻͓𝇃𔕛𝅄𝆭⟅є꯭υ⟆𝅄𝆭𝅵𔕛𝇃᭼፝֟͜᭼";
 global.wm = "🤖⃧►iʑυвöτ◃2.0▹"
 global.wait = 'Espera Por Favot'
 global.botname = '🤖⃧►iʑυвöτ◃2.0▹'
