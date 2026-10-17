@@ -37,10 +37,10 @@ let handler = async (m, { conn }) => {
             m.chat,
             {
                 contacts: {
-                    displayName: nombre,
+                    displayName: author,
                     contacts: [
                         {
-                            displayName: nombre,
+                            displayName: author,
                             vcard
                         }
                     ]
