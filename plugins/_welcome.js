@@ -1,3 +1,4 @@
+
 import fs from 'fs'
 import { join } from 'path'
 import sharp from 'sharp'
@@ -799,29 +800,23 @@ let handler = async (m, { conn, __dirname }) => {
 }
 
 function clockString(ms) {
-  let h = isNaN(ms)
-    ? '--'
-    : Math.floor(
-        ms / 3600000
-      )
+  if (!Number.isFinite(ms) || ms < 0) return '--'
 
-  let m = isNaN(ms)
-    ? '--'
-    : Math.floor(
-        ms / 60000
-      ) % 60
+  const totalSeconds = Math.floor(ms / 1000)
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
 
-  let s = isNaN(ms)
-    ? '--'
-    : Math.floor(
-        ms / 1000
-      ) % 60
+  const hh = String(hours).padStart(2, '0')
+  const mm = String(minutes).padStart(2, '0')
+  const ss = String(seconds).padStart(2, '0')
 
-  return [h, m, s]
-    .map(v =>
-      v.toString().padStart(2, '0')
-    )
-    .join(':')
+  if (days > 0) {
+    return `${days}d:${hh}:${mm}:${ss}`
+  }
+
+  return `${hh}:${mm}:${ss}`
 }
 
 handler.before = handler
