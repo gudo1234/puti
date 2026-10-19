@@ -81,19 +81,19 @@ const regionNames = new Intl.DisplayNames(
   { type: 'region' }
 )
 
-const banderaEmoji = (code) => {
+const banderaEmoji = codigo => {
   if (
-    !code ||
-    code.length !== 2 ||
-    code === 'ZZ'
+    !codigo ||
+    codigo === '??' ||
+    codigo.length !== 2
   ) {
     return '🌐'
   }
 
-  return [...code.toUpperCase()]
-    .map(char =>
+  return [...codigo.toUpperCase()]
+    .map(letra =>
       String.fromCodePoint(
-        0x1F1E6 - 65 + char.charCodeAt(0)
+        0x1F1E6 + letra.charCodeAt(0) - 65
       )
     )
     .join('')
@@ -118,35 +118,6 @@ try {
     ) || participante
   }
 
-  const resolverLID = async (lid) => {
-    if (!lid || !String(lid).endsWith('@lid')) {
-      return ''
-    }
-
-    const resolver =
-      conn.signalRepository?.lidMapping?.getPNForLID
-
-    if (typeof resolver !== 'function') {
-      return ''
-    }
-
-    try {
-      const pn = await resolver.call(
-        conn.signalRepository.lidMapping,
-        String(lid)
-      )
-
-      if (
-        pn &&
-        !String(pn).endsWith('@lid')
-      ) {
-        return String(pn)
-      }
-    } catch {}
-
-    return ''
-  }
-
   const candidatos = [
     realUserNumber,
     participante?.phoneNumber,
@@ -162,17 +133,21 @@ try {
     const valor = String(candidato)
 
     if (valor.endsWith('@lid')) {
-      const pn = await resolverLID(valor)
+      const resolver =
+        conn.signalRepository?.lidMapping?.getPNForLID
 
-      if (pn) {
-        const digitos = pn
-          .split('@')[0]
-          .replace(/\D/g, '')
+      if (typeof resolver === 'function') {
+        try {
+          const pn = await resolver.call(
+            conn.signalRepository.lidMapping,
+            valor
+          )
 
-        if (digitos.length >= 7) {
-          numeroEncontrado = pn
-          break
-        }
+          if (pn && !String(pn).endsWith('@lid')) {
+            numeroEncontrado = String(pn)
+            break
+          }
+        } catch {}
       }
 
       continue
@@ -180,11 +155,8 @@ try {
 
     if (
       valor.endsWith('@g.us') ||
-      valor.endsWith('@newsletter') ||
-      valor.endsWith('@broadcast')
-    ) {
-      continue
-    }
+      valor.endsWith('@newsletter')
+    ) continue
 
     const digitos = valor
       .split('@')[0]
@@ -196,7 +168,7 @@ try {
     }
   }
 
-  if (!numeroEncontrado) {
+  if (!numeroEncontrado && m.isGroup) {
     const lid = [
       participante?.lid,
       participante?.id,
@@ -205,18 +177,20 @@ try {
       v && String(v).endsWith('@lid')
     )
 
-    if (lid) {
-      const pn = await resolverLID(lid)
+    const resolver =
+      conn.signalRepository?.lidMapping?.getPNForLID
 
-      if (pn) {
-        const digitos = pn
-          .split('@')[0]
-          .replace(/\D/g, '')
+    if (lid && typeof resolver === 'function') {
+      try {
+        const pn = await resolver.call(
+          conn.signalRepository.lidMapping,
+          lid
+        )
 
-        if (digitos.length >= 7) {
-          numeroEncontrado = pn
+        if (pn && !String(pn).endsWith('@lid')) {
+          numeroEncontrado = String(pn)
         }
-      }
+      } catch {}
     }
   }
 
@@ -226,20 +200,17 @@ try {
       .replace(/\D/g, '')
 
     if (digitos.length >= 7) {
-      const phone = new PhoneNumber('+' + digitos)
-      const region = phone.getRegionCode()
+      numeroReal = '+' + digitos
 
-      if (phone.isValid()) {
-        numeroReal = '+' + digitos
-        codigoPais = region || '??'
+      const pn = new PhoneNumber('+' + digitos)
+      codigoPais = pn.getRegionCode() || '??'
 
-        tagJid = numeroEncontrado.includes('@')
-          ? numeroEncontrado
-          : `${digitos}@s.whatsapp.net`
+      tagJid = numeroEncontrado.includes('@')
+        ? numeroEncontrado
+        : `${digitos}@s.whatsapp.net`
 
-        if (tagJid.endsWith('@lid')) {
-          tagJid = `${digitos}@s.whatsapp.net`
-        }
+      if (tagJid.endsWith('@lid')) {
+        tagJid = `${digitos}@s.whatsapp.net`
       }
     }
   }
@@ -260,7 +231,7 @@ const banderaPais = banderaEmoji(codigoPais)
 const paisUsuario =
   codigoPais !== '??'
     ? `${nombrePais} (${banderaPais})`
-    : `${info.country || 'Desconocido'} (${info.flag || '🌐'})`
+    : `${info?.country || 'Desconocido'} (${info?.flag || '🌐'})`
 
 const rol =
   participante?.admin === 'superadmin'
