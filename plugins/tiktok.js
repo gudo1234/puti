@@ -173,21 +173,7 @@ const handler = async (m, { conn, args, usedPrefix, command }) => {
                     "GataDios no devolvió el enlace del video."
                 )
             }
-
-            await conn.sendMessage(
-                m.chat,
-                {
-                    video: {
-                        url: result.dl
-                    },
-                    caption,
-                    mimetype: "video/mp4",
-                    fileName: "tiktok.mp4"
-                },
-                {
-                    quoted: m
-                }
-            )
+            await conn.sendFile(m.chat, result.dl, 'tiktok.mp4', caption, m, null, rcanal);
         }
 
         await m.react?.("✅")
