@@ -23,7 +23,6 @@ let handler = async (
   }
 
   try {
-    // --- Imagen miniatura ---
     const imgPath = join(
       __dirname,
       '../storage/catalogo.jpg'
@@ -44,9 +43,8 @@ let handler = async (
             .toBuffer()
         : null
 
-    // --- Menú simple ---
-    let uptime = process.uptime() * 1000
-    let run = clockString(uptime)
+    const uptime = process.uptime() * 1000
+    const run = clockString(uptime)
 
     const info = await global.mundo(m, conn)
 
@@ -76,10 +74,8 @@ let handler = async (
 
     m.react(e)
 
-    // --- País ---
-    let pais = `${info.flag} ${info.country}`
+    const pais = `${info.flag} ${info.country}`
 
-    // --- Número real, resolución LID, país, rol y tag ---
     const { default: PhoneNumber } =
       await import('awesome-phonenumber')
 
@@ -194,7 +190,6 @@ let handler = async (
           const pn = new PhoneNumber('+' + digitos)
           codigoPais = pn.getRegionCode() || '??'
 
-          // JID telefónico para intentar generar la mención real
           tagJid = numeroEncontrado.includes('@')
             ? numeroEncontrado
             : `${digitos}@s.whatsapp.net`
@@ -222,7 +217,6 @@ let handler = async (
           ? 'Administrador'
           : 'Miembro'
 
-    // --- Tag real de WhatsApp ---
     const tagNumero = tagJid.split('@')[0]
 
     let text = `${e} _Hola ${m.pushName}_ ¿Cómo estás?
@@ -251,7 +245,6 @@ let handler = async (
       text += `╰────────────\n`
     }
 
-    // --- Estructura del mensaje interactivo ---
     const nativeFlowPayload = {
       header: {
         documentMessage: {
@@ -294,7 +287,9 @@ let handler = async (
             unsigned: false
           },
 
-          jpegThumbnail: thumbResized || null
+          ...(thumbResized
+            ? { jpegThumbnail: thumbResized }
+            : {})
         },
 
         hasMediaAttachment: true
@@ -304,7 +299,6 @@ let handler = async (
         text
       },
 
-      // Contexto de mención para el mensaje interactivo
       contextInfo: {
         mentionedJid: [tagJid]
       },
@@ -329,114 +323,119 @@ let handler = async (
 
           {
             name: 'single_select',
-            buttonParamsJson: `{
-              "title":"Más Opciones",
-              "sections":[
+            buttonParamsJson: JSON.stringify({
+              title: 'Más Opciones',
+              sections: [
                 {
-                  "title":"⌏Seleccione una opción requerida⌎",
-                  "highlight_label":"Desarrollador",
-                  "rows":[
+                  title: '⌏Seleccione una opción requerida⌎',
+                  highlight_label: 'Desarrollador',
+                  rows: [
                     {
-                      "title":"Owner/Creador",
-                      "description":"",
-                      "id":"Edar"
+                      title: 'Owner/Creador',
+                      description: '',
+                      id: 'Edar'
                     },
                     {
-                      "title":"Información del Bot",
-                      "description":"",
-                      "id":".info"
+                      title: 'Información del Bot',
+                      description: '',
+                      id: '.info'
                     },
                     {
-                      "title":"Reglas/Términos",
-                      "description":"",
-                      "id":".reglas"
+                      title: 'Reglas/Términos',
+                      description: '',
+                      id: '.reglas'
                     },
                     {
-                      "title":"Ping",
-                      "description":"Velocidad del bot",
-                      "id":".ping"
+                      title: 'Ping',
+                      description: 'Velocidad del bot',
+                      id: '.ping'
                     }
                   ]
                 }
               ],
-              "has_multiple_buttons":true
-            }`
+              has_multiple_buttons: true
+            })
           },
 
           {
             name: 'cta_copy',
-            buttonParamsJson:
-              '{"display_text":"Copiar Código","id":"123456789","copy_code":"Soy bien puto alv :v"}'
+            buttonParamsJson: JSON.stringify({
+              display_text: 'Copiar Código',
+              id: '123456789',
+              copy_code: 'Soy bien puto alv :v'
+            })
           },
 
           {
             name: 'cta_url',
-            buttonParamsJson:
-              `{"display_text":"Canal de WhatsApp","url":"https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H","merchant_url":"https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H"}`
+            buttonParamsJson: JSON.stringify({
+              display_text: 'Canal de WhatsApp',
+              url: 'https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H',
+              merchant_url: 'https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H'
+            })
           },
 
           {
             name: 'galaxy_message',
-            buttonParamsJson: `{
-              "mode":"published",
-              "flow_message_version":"3",
-              "flow_token":"1:1307913409923914:293680f87029f5a13d1ec5e35e718af3",
-              "flow_id":"1307913409923914",
-              "flow_cta":"👨🏻‍💻 ᴀᴄᴄᴇᴅᴇ ᴀ ʙᴏᴛ ᴀɪ",
-              "flow_action":"navigate",
-              "flow_action_payload":{
-                "screen":"QUESTION_ONE",
-                "params":{
-                  "user_id":"123456789",
-                  "referral":"campaign_xyz"
+            buttonParamsJson: JSON.stringify({
+              mode: 'published',
+              flow_message_version: '3',
+              flow_token: '1:1307913409923914:293680f87029f5a13d1ec5e35e718af3',
+              flow_id: '1307913409923914',
+              flow_cta: '👨🏻‍💻 ᴀᴄᴄᴇᴅᴇ ᴀ ʙᴏᴛ ᴀɪ',
+              flow_action: 'navigate',
+              flow_action_payload: {
+                screen: 'QUESTION_ONE',
+                params: {
+                  user_id: '123456789',
+                  referral: 'campaign_xyz'
                 }
               },
-              "flow_metadata":{
-                "flow_json_version":"201",
-                "data_api_protocol":"v2",
-                "flow_name":"Lead Qualification [en]",
-                "data_api_version":"v2",
-                "categories":[
-                  "Lead Generation",
-                  "Sales"
+              flow_metadata: {
+                flow_json_version: '201',
+                data_api_protocol: 'v2',
+                flow_name: 'Lead Qualification [en]',
+                data_api_version: 'v2',
+                categories: [
+                  'Lead Generation',
+                  'Sales'
                 ]
               }
-            }`
+            })
           }
         ],
 
-        messageParamsJson: `{
-          "limited_time_offer":{
-            "text":"🕒 Runtime ${run}",
-            "url":"https://github.com/edar",
-            "copy_code":"${groupName}",
-            "expiration_time":1754613436864329
+        messageParamsJson: JSON.stringify({
+          limited_time_offer: {
+            text: `🕒 Runtime ${run}`,
+            url: 'https://github.com/edar',
+            copy_code: groupName,
+            expiration_time: 1754613436864329
           },
-          "bottom_sheet":{
-            "in_thread_buttons_limit":2,
-            "divider_indices":[1,2,3,4,5,999],
-            "list_title":"Select Menu",
-            "button_title":"▻ Lista menú 📘"
+          bottom_sheet: {
+            in_thread_buttons_limit: 2,
+            divider_indices: [1, 2, 3, 4, 5, 999],
+            list_title: 'Select Menu',
+            button_title: '▻ Lista menú 📘'
           },
-          "tap_target_configuration":{
-            "title":"▸ X ◂",
-            "description":"Let’s go",
-            "canonical_url":"https://github.com/edar",
-            "domain":"https://xrljosedvapi.vercel.app",
-            "button_index":0
+          tap_target_configuration: {
+            title: '▸ X ◂',
+            description: 'Let’s go',
+            canonical_url: 'https://github.com/edar',
+            domain: 'https://xrljosedvapi.vercel.app',
+            button_index: 0
           }
-        }`
+        })
       }
     }
 
-    // --- Envío del mensaje ---
     const random = Math.floor(Math.random() * 3)
 
     const gif = [
-      "https://raw.githubusercontent.com/edar123/im/main/media/gif.mp4",
-      "https://raw.githubusercontent.com/edar123/im/main/media/giff.mp4",
-      "https://raw.githubusercontent.com/edar123/im/main/media/gifff.mp4",
-      "https://raw.githubusercontent.com/edar123/im/main/media/gif4.mp4"
+      'https://raw.githubusercontent.com/edar123/im/main/media/gif.mp4',
+      'https://raw.githubusercontent.com/edar123/im/main/media/giff.mp4',
+      'https://raw.githubusercontent.com/edar123/im/main/media/gifff.mp4',
+      'https://raw.githubusercontent.com/edar123/im/main/media/gif4.mp4'
     ][Math.floor(Math.random() * 4)]
 
     if (random === 0) {
@@ -480,11 +479,8 @@ let handler = async (
 
           contextInfo: {
             mentionedJid: [tagJid],
-
             remoteJid: '@broadcast',
-
             forwardingScore: 10,
-
             isForwarded: true,
 
             ...(global.channelRD?.id
@@ -516,9 +512,7 @@ let handler = async (
           },
 
           gifPlayback: true,
-
           caption: text,
-
           mentions: [tagJid],
 
           contextInfo: {
@@ -564,25 +558,23 @@ let handler = async (
 }
 
 function clockString(ms) {
-  let h = isNaN(ms)
-    ? '--'
-    : Math.floor(ms / 3600000)
+  if (!Number.isFinite(ms) || ms < 0) return '--'
 
-  let m = isNaN(ms)
-    ? '--'
-    : Math.floor(ms / 60000) % 60
+  const totalSeconds = Math.floor(ms / 1000)
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
 
-  let s = isNaN(ms)
-    ? '--'
-    : Math.floor(ms / 1000) % 60
+  const hh = String(hours).padStart(2, '0')
+  const mm = String(minutes).padStart(2, '0')
+  const ss = String(seconds).padStart(2, '0')
 
-  return [
-    h,
-    m,
-    s
-  ]
-    .map(v => v.toString().padStart(2, 0))
-    .join(':')
+  if (days > 0) {
+    return `${days}d:${hh}:${mm}:${ss}`
+  }
+
+  return `${hh}:${mm}:${ss}`
 }
 
 handler.help = [
