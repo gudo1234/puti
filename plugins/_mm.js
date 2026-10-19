@@ -244,7 +244,7 @@ const tagNumero = tagJid.split('@')[0]
 
 let text = `${e} _Hola ${m.pushName}_ ¿Cómo estás?
 
-`❒ᴄᴏɴᴛᴇxᴛ-ɪɴғᴏ☔`
+\`❒ᴄᴏɴᴛᴇxᴛ-ɪɴғᴏ☔\`
 
 ┌────────────
 │ 🌎 País: ${paisUsuario}
