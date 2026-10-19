@@ -2,7 +2,10 @@ import fs from 'fs'
 import { join } from 'path'
 import sharp from 'sharp'
 import fetch from 'node-fetch'
-import { getDevice } from "@whiskeysockets/baileys"
+import {
+getDevice,
+generateWAMessageFromContent
+} from '@whiskeysockets/baileys'
 
 let handler = async (
 m,
@@ -27,24 +30,19 @@ __dirname,
 '../storage/catalogo.jpg'
 )
 
-const thumbLocal =
-  fs.existsSync(imgPath)
-    ? fs.readFileSync(imgPath)
-    : null
+const thumbLocal = fs.existsSync(imgPath)
+  ? fs.readFileSync(imgPath)
+  : null
 
-const thumbResized =
-  thumbLocal
-    ? await sharp(thumbLocal)
-        .resize(300, 100, {
-          fit: 'cover'
-        })
-        .jpeg()
-        .toBuffer()
-    : null
+const thumbResized = thumbLocal
+  ? await sharp(thumbLocal)
+      .resize(300, 100, { fit: 'cover' })
+      .jpeg()
+      .toBuffer()
+  : null
 
 const uptime = process.uptime() * 1000
 const run = clockString(uptime)
-
 const info = await global.mundo(m, conn)
 
 let categorias = {}
@@ -54,19 +52,11 @@ for (const plugin of Object.values(global.plugins)) {
 
   if (!h || !h.help || !h.tags) continue
 
-  const helps = Array.isArray(h.help)
-    ? h.help
-    : [h.help]
-
-  const tags = Array.isArray(h.tags)
-    ? h.tags
-    : [h.tags]
+  const helps = Array.isArray(h.help) ? h.help : [h.help]
+  const tags = Array.isArray(h.tags) ? h.tags : [h.tags]
 
   for (const tag of tags) {
-    if (!categorias[tag]) {
-      categorias[tag] = []
-    }
-
+    if (!categorias[tag]) categorias[tag] = []
     categorias[tag].push(...helps)
   }
 }
@@ -85,10 +75,8 @@ const banderaEmoji = codigo => {
   if (
     !codigo ||
     codigo === '??' ||
-    codigo.length !== 2
-  ) {
-    return '🌐'
-  }
+    !/^[A-Z]{2}$/i.test(codigo)
+  ) return '🌐'
 
   return [...codigo.toUpperCase()]
     .map(letra =>
@@ -114,7 +102,8 @@ try {
     participante = participantes.find(p =>
       p.id === m.sender ||
       p.jid === m.sender ||
-      p.lid === m.sender
+      p.lid === m.sender ||
+      p.phoneNumber === m.sender
     ) || participante
   }
 
@@ -221,17 +210,16 @@ try {
   )
 }
 
-const nombrePais =
-  codigoPais !== '??'
-    ? regionNames.of(codigoPais) || 'Desconocido'
-    : 'Desconocido'
+const nombrePais = codigoPais !== '??'
+  ? regionNames.of(codigoPais) || 'Desconocido'
+  : info?.country || 'Desconocido'
 
-const banderaPais = banderaEmoji(codigoPais)
+const banderaPais = codigoPais !== '??'
+  ? banderaEmoji(codigoPais)
+  : info?.flag || '🌐'
 
 const paisUsuario =
-  codigoPais !== '??'
-    ? `${nombrePais} (${banderaPais})`
-    : `${info?.country || 'Desconocido'} (${info?.flag || '🌐'})`
+  `${nombrePais} (${banderaPais})`
 
 const rol =
   participante?.admin === 'superadmin'
@@ -267,6 +255,27 @@ for (const tag of Object.keys(categorias).sort()) {
 
   text += `╰────────────\n`
 }
+
+const channelInfo = global.channelRD || {}
+
+const newsletterInfo = channelInfo.id
+  ? {
+      forwardedNewsletterMessageInfo: {
+        newsletterJid: channelInfo.id,
+        newsletterName: channelInfo.name || '',
+        serverMessageId: 1
+      }
+    }
+  : {}
+
+const createContextInfo = (extra = {}) => ({
+  ...newsletterInfo,
+  mentionedJid: [tagJid],
+  remoteJid: '@broadcast',
+  forwardingScore: 10,
+  isForwarded: true,
+  ...extra
+})
 
 const nativeFlowPayload = {
   header: {
@@ -318,13 +327,9 @@ const nativeFlowPayload = {
     hasMediaAttachment: true
   },
 
-  body: {
-    text
-  },
+  body: { text },
 
-  contextInfo: {
-    mentionedJid: [tagJid]
-  },
+  contextInfo: createContextInfo(),
 
   footer: {
     text: '🤨 xvidẹ𝆬os.er/k (๑ ิټ ิ)'
@@ -337,13 +342,11 @@ const nativeFlowPayload = {
         buttonParamsJson:
           '{"has_multiple_buttons":true}'
       },
-
       {
         name: 'call_permission_request',
         buttonParamsJson:
           '{"has_multiple_buttons":true}'
       },
-
       {
         name: 'single_select',
         buttonParamsJson: JSON.stringify({
@@ -379,7 +382,6 @@ const nativeFlowPayload = {
           has_multiple_buttons: true
         })
       },
-
       {
         name: 'cta_copy',
         buttonParamsJson: JSON.stringify({
@@ -388,7 +390,6 @@ const nativeFlowPayload = {
           copy_code: 'Soy bien puto alv :v'
         })
       },
-
       {
         name: 'cta_url',
         buttonParamsJson: JSON.stringify({
@@ -397,7 +398,6 @@ const nativeFlowPayload = {
           merchant_url: 'https://whatsapp.com/channel/0029VaXHNMZL7UVTeseuqw3H'
         })
       },
-
       {
         name: 'galaxy_message',
         buttonParamsJson: JSON.stringify({
@@ -500,27 +500,9 @@ if (random === 0) {
 
       mentions: [tagJid],
 
-      contextInfo: {
-        mentionedJid: [tagJid],
-        remoteJid: '@broadcast',
-        forwardingScore: 10,
-        isForwarded: true,
-
-        ...(global.channelRD?.id
-          ? {
-              forwardedNewsletterMessageInfo: {
-                newsletterJid: global.channelRD.id,
-                serverMessageId: 1,
-                newsletterName:
-                  global.channelRD.name || ''
-              }
-            }
-          : {})
-      }
+      contextInfo: createContextInfo()
     },
-    {
-      quoted: m
-    }
+    { quoted: m }
   )
 
   return
@@ -530,28 +512,20 @@ if (random === 1) {
   await conn.sendMessage(
     m.chat,
     {
-      video: {
-        url: gif
-      },
-
+      video: { url: gif },
       gifPlayback: true,
       caption: text,
       mentions: [tagJid],
-
-      contextInfo: {
-        mentionedJid: [tagJid]
-      }
+      contextInfo: createContextInfo()
     },
-    {
-      quoted: m
-    }
+    { quoted: m }
   )
 
   return
 }
 
 if (random === 2) {
-  await conn.relayMessage(
+  const message = generateWAMessageFromContent(
     m.chat,
     {
       viewOnceMessage: {
@@ -561,8 +535,15 @@ if (random === 2) {
       }
     },
     {
+      userJid: conn.user.id,
       quoted: m
     }
+  )
+
+  await conn.relayMessage(
+    m.chat,
+    message.message,
+    { messageId: message.key.id }
   )
 }
 
@@ -601,14 +582,8 @@ return `${days}d:${hh}:${mm}:${ss}`
 return "${hh}:${mm}:${ss}"
 }
 
-handler.help = [
-'menu'
-]
-
-handler.tags = [
-'main'
-]
-
+handler.help = ['menu']
+handler.tags = ['main']
 handler.group = true
 
 handler.command = [
