@@ -1,3 +1,4 @@
+
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '1'
 
 import './config.js'
@@ -23,6 +24,16 @@ const makeCacheableSignalKeyStore = B.makeCacheableSignalKeyStore || baileys.mak
 const useMultiFileAuthState = B.useMultiFileAuthState || baileys.useMultiFileAuthState
 const DisconnectReason = B.DisconnectReason || baileys.DisconnectReason
 const fetchLatestBaileysVersion = B.fetchLatestBaileysVersion || baileys.fetchLatestBaileysVersion
+
+if (typeof makeWASocket !== 'function') {
+  throw new Error('ZEUSBOT6: ./lib/simple.js no exporta makeWASocket como función.')
+}
+if (typeof useMultiFileAuthState !== 'function') {
+  throw new Error('ZEUSBOT6: la versión instalada de Baileys no exporta useMultiFileAuthState().')
+}
+if (typeof makeCacheableSignalKeyStore !== 'function') {
+  throw new Error('ZEUSBOT6: la versión instalada de Baileys no exporta makeCacheableSignalKeyStore().')
+}
 
 const { chain } = lodash
 
@@ -195,7 +206,7 @@ const connectionOptions = {
   connectTimeoutMs: 60000,
   qrTimeout: 60000,
   ...(baileysVersion ? { version: baileysVersion } : {}),
-  browser: ['Windows', 'Chrome', '120.0.0'],
+  browser: ['ZEUSBOT6', 'Chrome', '120.0.0'],
   cachedGroupMetadata: global.cachedGroupMetadata
 }
 
@@ -209,10 +220,11 @@ let reconnectPending = false
 let connectionGeneration = 0
 let lastSocketActivity = Date.now()
 let lastMessageActivity = Date.now()
-let watchdogTimer = null
 let pairingPhoneNumber = ''
 let pairingInProgress = false
 let pairingRequestedForGeneration = 0
+let pairingFailed = false
+let initialSetupComplete = false
 
 function getDisconnectCode(update = {}) {
   const error = update?.lastDisconnect?.error
@@ -237,18 +249,24 @@ function closeSocket(socket) {
   } catch {}
 
   try {
-    socket.end?.(new Error('Reinicio de conexión'))
+    socket.end?.(new Error('ZEUSBOT6: cierre controlado del socket'))
   } catch {}
 }
 
 function scheduleReconnect(reason = 'desconocido', delay = null) {
-  if (reconnectTimer) return
-  if (restarting) {
+  // No reconectar mientras la cuenta todavía no esté vinculada.
+  if (!state.creds.registered) {
+    console.warn(
+      chalk.yellow('⏸️ ZEUSBOT6: reconexión pausada porque la cuenta todavía no está vinculada.')
+    )
+    return
+  }
+
+  if (reconnectTimer || restarting) {
     reconnectPending = true
     return
   }
 
-  reconnectPending = true
   reconnectAttempt++
 
   const wait = delay ?? Math.min(
@@ -270,7 +288,7 @@ function scheduleReconnect(reason = 'desconocido', delay = null) {
 }
 
 async function requestPairingCodeForCurrentSocket(socket, generation) {
-  if (state.creds.registered || pairingInProgress) return
+  if (state.creds.registered || pairingInProgress || pairingFailed) return
   if (pairingRequestedForGeneration === generation) return
 
   pairingInProgress = true
@@ -278,49 +296,63 @@ async function requestPairingCodeForCurrentSocket(socket, generation) {
 
   try {
     if (!pairingPhoneNumber) {
-      let entered = await question(
-        chalk.blue('Ingresa el número de WhatsApp para vincular el bot (ej. 504XXXXXXXX):\n')
+      const entered = await question(
+        chalk.blue('ZEUSBOT6 · Ingresa el número de WhatsApp con código de país (ej. 504XXXXXXXX):\n')
       )
-      entered = entered.replace(/\D/g, '')
 
-      if (!entered) {
+      pairingPhoneNumber = entered.replace(/\D/g, '')
+
+      if (!pairingPhoneNumber || pairingPhoneNumber.length < 8) {
         pairingRequestedForGeneration = 0
-        throw new Error('Número de WhatsApp inválido. Ejecuta el bot de nuevo e introduce el número con código de país.')
+        throw new Error('Número inválido. Introduce el número completo con código de país, solo dígitos.')
       }
-
-      pairingPhoneNumber = entered
     }
 
+    // Dar tiempo a Baileys para inicializar el WebSocket.
     await new Promise(resolve => setTimeout(resolve, 3000))
 
     if (socket !== conn || generation !== connectionGeneration) return
     if (state.creds.registered) return
 
     const readyState = socket.ws?.readyState
-    if (typeof readyState === 'number' && readyState !== 1 && readyState !== 0) {
-      throw new Error(`WebSocket cerrado antes de solicitar el código (estado ${readyState}).`)
+
+    if (typeof readyState === 'number' && readyState !== 0 && readyState !== 1) {
+      throw new Error(`El WebSocket ya está cerrado (estado ${readyState}). No se solicitará el código en un socket cerrado.`)
     }
 
     if (typeof socket.requestPairingCode !== 'function') {
-      throw new Error('La versión instalada de Baileys no ofrece requestPairingCode().')
+      throw new Error('La versión instalada de Baileys no ofrece requestPairingCode(). Actualiza o revisa @whiskeysockets/baileys.')
     }
+
+    console.log(chalk.gray('🔐 Solicitando código de vinculación a WhatsApp...'))
 
     const code = await socket.requestPairingCode(pairingPhoneNumber)
 
     if (socket !== conn || generation !== connectionGeneration) return
 
+    if (!code) {
+      throw new Error('Baileys no devolvió un código de vinculación.')
+    }
+
     console.log(
       chalk.magenta(
-        `Código de vinculación: ${String(code).match(/.{1,4}/g)?.join('-') || code}`
+        `🔑 Código de vinculación ZEUSBOT6: ${String(code).match(/.{1,4}/g)?.join('-') || code}`
       )
     )
+
+    console.log(chalk.cyan('📱 En WhatsApp: Dispositivos vinculados → Vincular dispositivo → Vincular con número de teléfono.'))
+    console.log(chalk.gray('⏸️ La reconexión automática permanecerá pausada mientras completas la vinculación.'))
   } catch (error) {
+    pairingFailed = true
+
     console.error(
       chalk.red('❌ No se pudo solicitar el código de vinculación:'),
-      error?.message || error
+      error?.stack || error?.message || error
     )
 
-    scheduleReconnect('fallo solicitando código de vinculación', 10000)
+    console.error(
+      chalk.yellow('⏸️ No se reconectará automáticamente durante la vinculación. Revisa el error anterior y reinicia manualmente cuando lo hayas corregido.')
+    )
   } finally {
     pairingInProgress = false
   }
@@ -359,6 +391,7 @@ async function connectionUpdate(update) {
     lastMessageActivity = Date.now()
     reconnectAttempt = 0
     reconnectPending = false
+    pairingFailed = false
 
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
@@ -366,40 +399,33 @@ async function connectionUpdate(update) {
     }
 
     conn.isInit = true
-    console.log(chalk.green('✅ Conectado correctamente.'))
+    console.log(chalk.green('✅ ZEUSBOT6 conectado correctamente.'))
     console.log(chalk.gray(`📡 WebSocket activo · generación ${connectionGeneration}`))
     return
   }
 
   if (connection !== 'close') return
 
-const code = getDisconnectCode(update)
+  const code = getDisconnectCode(update)
 
-if (!state.creds.registered) {
-  console.error(
-    chalk.red(
-      `❌ Conexión cerrada durante la vinculación (código ${code ?? 'desconocido'}).`
+  // No reiniciar ni solicitar otro código automáticamente durante la vinculación.
+  if (!state.creds.registered) {
+    console.error(
+      chalk.red(`❌ Conexión cerrada durante la vinculación (código ${code ?? 'desconocido'}).`)
     )
-  )
 
-  console.error(
-    chalk.yellow(
-      '⚠️ No se iniciará otra conexión automáticamente mientras se investiga el fallo de vinculación.'
+    console.error(
+      chalk.yellow('⏸️ ZEUSBOT6 queda en pausa. No se intentará reconectar ni pedir otro código automáticamente.')
     )
-  )
+    return
+  }
 
-  return
-}
-
-if (code === DisconnectReason?.loggedOut) {
-  console.error(
-    chalk.red(
-      '❌ Sesión cerrada. No se borrarán las credenciales automáticamente.'
+  if (code === DisconnectReason?.loggedOut) {
+    console.error(
+      chalk.red('❌ Sesión cerrada por WhatsApp. No se borrarán las credenciales automáticamente.')
     )
-  )
-
-  return
-}
+    return
+  }
 
   console.warn(
     chalk.yellow(
@@ -411,6 +437,11 @@ if (code === DisconnectReason?.loggedOut) {
 }
 
 async function restartConnection(reason = 'reinicio') {
+  if (!state.creds.registered) {
+    console.warn(chalk.yellow('⏸️ Reconexión cancelada: ZEUSBOT6 aún no está vinculado.'))
+    return
+  }
+
   if (restarting) {
     reconnectPending = true
     return
@@ -419,7 +450,7 @@ async function restartConnection(reason = 'reinicio') {
   restarting = true
 
   try {
-    console.log(chalk.gray(`🔁 Reiniciando conexión · ${reason}`))
+    console.log(chalk.gray(`🔁 Reiniciando conexión ZEUSBOT6 · ${reason}`))
 
     const newConn = await createConnection()
     await attachHandlers()
@@ -428,16 +459,17 @@ async function restartConnection(reason = 'reinicio') {
     lastMessageActivity = Date.now()
 
     if (!state.creds.registered) {
-      void requestPairingCodeForCurrentSocket(newConn, newConn.__generation)
+      console.warn(chalk.yellow('⏸️ Se pausó la reconexión porque la sesión ya no figura como vinculada.'))
     }
   } catch (error) {
-    console.error('[RESTART]', error?.stack || error)
-    reconnectPending = true
+    console.error('[ZEUSBOT6:RESTART]', error?.stack || error)
+    reconnectPending = false
+    scheduleReconnect('error creando conexión')
   } finally {
     restarting = false
   }
 
-  if (reconnectPending && !reconnectTimer) {
+  if (reconnectPending && !reconnectTimer && state.creds.registered) {
     reconnectPending = false
     scheduleReconnect('reconexión pendiente')
   }
@@ -519,16 +551,17 @@ global.reloadHandler = async function (restart = false) {
   return true
 }
 
-watchdogTimer = setInterval(() => {
+setInterval(() => {
   if (restarting || !conn) return
+
+  // El watchdog no debe interferir con la vinculación.
+  if (!state.creds.registered) return
 
   const ws = conn.ws
   const readyState = ws?.readyState
 
   if (typeof readyState === 'number' && readyState !== 1 && readyState !== 0) {
-    console.warn(
-      chalk.yellow(`⚠️ Watchdog: WebSocket cerrado (estado ${readyState}).`)
-    )
+    console.warn(chalk.yellow(`⚠️ Watchdog: WebSocket cerrado (estado ${readyState}).`))
     scheduleReconnect(`watchdog estado ${readyState}`)
     return
   }
@@ -541,6 +574,7 @@ watchdogTimer = setInterval(() => {
 
     try {
       const result = conn.sendPresenceUpdate?.('available')
+
       if (result?.catch) {
         result.catch(error => {
           console.warn(chalk.yellow('⚠️ Watchdog: el socket no respondió.'))
@@ -586,11 +620,15 @@ async function loadPlugin(filename) {
 }
 
 async function filesInit() {
+  if (!existsSync(pluginFolder)) {
+    mkdirSync(pluginFolder, { recursive: true })
+  }
+
   const files = readdirSync(pluginFolder).filter(pluginFilter).sort()
   for (const filename of files) await loadPlugin(filename)
 
   console.log(
-    chalk.cyan(`📦 Plugins cargados: ${Object.keys(global.plugins).length}/${files.length}`)
+    chalk.cyan(`📦 ZEUSBOT6 · Plugins cargados: ${Object.keys(global.plugins).length}/${files.length}`)
   )
 }
 
@@ -658,7 +696,10 @@ const initialConn = await createConnection()
 await attachHandlers()
 
 if (!state.creds.registered) {
+  // El código se solicita una sola vez. Si falla, no hay bucle de reconexiones.
   void requestPairingCodeForCurrentSocket(initialConn, initialConn.__generation)
+} else {
+  initialSetupComplete = true
 }
 
-console.log(chalk.green('🚀 Bot iniciado.'))
+console.log(chalk.green('🚀 ZEUSBOT6 iniciado.'))
