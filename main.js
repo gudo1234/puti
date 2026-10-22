@@ -1,3 +1,4 @@
+
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '1'
 
 import './config.js'
@@ -5,33 +6,75 @@ import { createRequire } from 'module'
 import path, { join } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { platform } from 'process'
-import { readdirSync, statSync, unlinkSync, existsSync, readFileSync, mkdirSync, watch } from 'fs'
-import { spawn } from 'child_process'
+import {
+  readdirSync,
+  statSync,
+  unlinkSync,
+  existsSync,
+  readFileSync,
+  mkdirSync,
+  watch
+} from 'fs'
 import lodash from 'lodash'
 import chalk from 'chalk'
 import syntaxerror from 'syntax-error'
 import { tmpdir } from 'os'
 import { format } from 'util'
 import pino from 'pino'
-import { makeWASocket, protoType, serialize } from './lib/simple.js'
+import {
+  makeWASocket,
+  protoType,
+  serialize
+} from './lib/simple.js'
 import { Low, JSONFile } from 'lowdb'
 import readline from 'readline'
 import NodeCache from 'node-cache'
 
+const BOT_NAME = 'ZeusBot6'
+
 const baileys = await import('@whiskeysockets/baileys')
 const B = baileys.default || baileys
-const makeCacheableSignalKeyStore = B.makeCacheableSignalKeyStore || baileys.makeCacheableSignalKeyStore
-const useMultiFileAuthState = B.useMultiFileAuthState || baileys.useMultiFileAuthState
-const DisconnectReason = B.DisconnectReason || baileys.DisconnectReason
-const fetchLatestBaileysVersion = B.fetchLatestBaileysVersion || baileys.fetchLatestBaileysVersion
+
+const makeCacheableSignalKeyStore =
+  B.makeCacheableSignalKeyStore ||
+  baileys.makeCacheableSignalKeyStore
+
+const useMultiFileAuthState =
+  B.useMultiFileAuthState ||
+  baileys.useMultiFileAuthState
+
+const DisconnectReason =
+  B.DisconnectReason ||
+  baileys.DisconnectReason
+
+const fetchLatestBaileysVersion =
+  B.fetchLatestBaileysVersion ||
+  baileys.fetchLatestBaileysVersion
 
 const { chain } = lodash
+
+if (
+  typeof makeWASocket !== 'function' ||
+  typeof useMultiFileAuthState !== 'function' ||
+  typeof makeCacheableSignalKeyStore !== 'function'
+) {
+  throw new Error(
+    `[${BOT_NAME}] La versión instalada de Baileys no ofrece las funciones necesarias. Revisa @whiskeysockets/baileys.`
+  )
+}
 
 protoType()
 serialize()
 
-global.__filename = function filename(pathURL = import.meta.url, rmPrefix = platform !== 'win32') {
-  return rmPrefix ? /file:\/\/\//.test(pathURL) ? fileURLToPath(pathURL) : pathURL : pathToFileURL(pathURL).toString()
+global.__filename = function filename(
+  pathURL = import.meta.url,
+  rmPrefix = platform !== 'win32'
+) {
+  return rmPrefix
+    ? (/file:\/\/\//.test(pathURL)
+        ? fileURLToPath(pathURL)
+        : pathURL)
+    : pathToFileURL(pathURL).toString()
 }
 
 global.__dirname = function dirname(pathURL) {
@@ -70,11 +113,18 @@ const prefixValue = global.opts.prefix || '‎z/#$%.\\-'
 
 global.prefix = new RegExp(
   '^[' +
-  String(prefixValue).replace(/[|\\{}()[\]^$+*?.\-\^]/g, '\\$&') +
+  String(prefixValue).replace(
+    /[|\\{}()[\]^$+*?.\-\^]/g,
+    '\\$&'
+  ) +
   ']'
 )
 
-const storageDir = join(__dirname, 'storage', 'databases')
+const storageDir = join(
+  __dirname,
+  'storage',
+  'databases'
+)
 
 mkdirSync(storageDir, { recursive: true })
 
@@ -89,13 +139,17 @@ global.loadDatabase = async function loadDatabase() {
       const timer = setInterval(() => {
         if (!global.db.READ) {
           clearInterval(timer)
-          resolve(global.db.data || global.loadDatabase())
+          resolve(
+            global.db.data || global.loadDatabase()
+          )
         }
       }, 100)
     })
   }
 
-  if (global.db.data !== null) return global.db.data
+  if (global.db.data !== null) {
+    return global.db.data
+  }
 
   global.db.READ = true
 
@@ -145,7 +199,8 @@ const question = text => new Promise(resolve => {
   })
 })
 
-const { state, saveCreds } = await useMultiFileAuthState(sessionsDir)
+const { state, saveCreds } =
+  await useMultiFileAuthState(sessionsDir)
 
 const msgRetryCounterCache = new NodeCache({
   stdTTL: 0,
@@ -179,7 +234,10 @@ global.cachedGroupMetadata = async function (jid) {
   if (cached) return cached
 
   try {
-    const metadata = await global.conn.groupMetadata(jid)
+    if (!global.conn) return {}
+
+    const metadata =
+      await global.conn.groupMetadata(jid)
 
     global.groupMetadataCache.set(jid, metadata)
 
@@ -217,13 +275,16 @@ const connectionOptions = {
   printQRInTerminal: false,
   mobile: false,
   emitOwnEvents: true,
-  keepAliveIntervalMs: 20000,
+  keepAliveIntervalMs: 25000,
   mediaCache,
   msgRetryCounterCache,
   userDevicesCache,
   auth: {
     creds: state.creds,
-    keys: makeCacheableSignalKeyStore(state.keys, logger)
+    keys: makeCacheableSignalKeyStore(
+      state.keys,
+      logger
+    )
   },
   getMessage: async () => undefined,
   generateHighQualityLinkPreview: true,
@@ -233,7 +294,9 @@ const connectionOptions = {
   defaultQueryTimeoutMs: 60000,
   connectTimeoutMs: 60000,
   qrTimeout: 60000,
-  ...(baileysVersion ? { version: baileysVersion } : {}),
+  ...(baileysVersion
+    ? { version: baileysVersion }
+    : {}),
   browser: ['Windows', 'Chrome', '120.0.0'],
   cachedGroupMetadata: global.cachedGroupMetadata
 }
@@ -250,6 +313,12 @@ let lastSocketActivity = Date.now()
 let lastMessageActivity = Date.now()
 let watchdogTimer = null
 
+let pairingPhoneNumber = ''
+let pairingInProgress = false
+let pairingRequested = false
+let pairingFailed = false
+let initialPairingFinished = false
+
 function getDisconnectCode(update = {}) {
   const error = update?.lastDisconnect?.error
 
@@ -260,6 +329,10 @@ function getDisconnectCode(update = {}) {
     error?.data?.statusCode ??
     null
   )
+}
+
+function normalizePhone(input) {
+  return String(input || '').replace(/\D/g, '')
 }
 
 function closeSocket(socket) {
@@ -275,34 +348,221 @@ function closeSocket(socket) {
 
   try {
     socket.end?.(
-      new Error('Reinicio de conexión')
+      new Error('Cierre controlado de conexión')
     )
   } catch {}
 }
 
-function scheduleReconnect(reason = 'desconocido', delay = null) {
+function scheduleReconnect(
+  reason = 'desconocido',
+  delay = null
+) {
+  // Nunca reconectar mientras la cuenta no esté vinculada.
+  if (!state.creds.registered) {
+    console.warn(
+      chalk.yellow(
+        `[${BOT_NAME}] Reconexión pausada: primero debes completar la vinculación.`
+      )
+    )
+
+    return
+  }
+
   if (reconnectTimer || restarting) {
     reconnectPending = true
     return
   }
 
-  reconnectPending = true
+  reconnectPending = false
   reconnectAttempt++
 
-  const wait = 0
+  const wait = delay ?? Math.min(
+    5000 * (2 ** Math.min(reconnectAttempt - 1, 5)),
+    120000
+  )
 
   console.warn(
     chalk.yellow(
-      `🔄 Reconexión inmediata · motivo: ${reason} · intento ${reconnectAttempt}`
+      `🔄 Reconexión en ${Math.ceil(wait / 1000)} s · motivo: ${reason} · intento ${reconnectAttempt}`
     )
   )
 
   reconnectTimer = setTimeout(async () => {
     reconnectTimer = null
-    reconnectPending = false
+
+    if (!state.creds.registered) {
+      console.warn(
+        chalk.yellow(
+          `[${BOT_NAME}] Reconexión cancelada: la sesión aún no está vinculada.`
+        )
+      )
+
+      return
+    }
 
     await restartConnection(reason)
   }, wait)
+}
+
+async function requestPairingCodeForCurrentSocket(
+  socket,
+  generation
+) {
+  if (state.creds.registered) return
+
+  if (pairingInProgress || pairingRequested) return
+
+  if (
+    socket !== conn ||
+    generation !== connectionGeneration
+  ) {
+    return
+  }
+
+  pairingInProgress = true
+  pairingRequested = true
+
+  try {
+    if (!pairingPhoneNumber) {
+      throw new Error(
+        'No se ha introducido el número de teléfono.'
+      )
+    }
+
+    console.log(
+      chalk.gray(
+        `[${BOT_NAME}] Preparando la solicitud del código de vinculación...`
+      )
+    )
+
+    // Permite que el socket se inicialice antes
+    // de solicitar el código, como en el código de referencia.
+    await new Promise(resolve => setTimeout(resolve, 3000))
+
+    if (
+      socket !== conn ||
+      generation !== connectionGeneration
+    ) {
+      throw new Error(
+        'La conexión cambió antes de solicitar el código.'
+      )
+    }
+
+    if (state.creds.registered) {
+      console.log(
+        chalk.green(
+          `[${BOT_NAME}] La sesión ya aparece vinculada.`
+        )
+      )
+
+      return
+    }
+
+    if (
+      typeof socket.requestPairingCode !== 'function'
+    ) {
+      throw new Error(
+        'La versión instalada de Baileys no dispone de requestPairingCode().'
+      )
+    }
+
+    const readyState = socket.ws?.readyState
+
+    if (
+      typeof readyState === 'number' &&
+      readyState !== 1 &&
+      readyState !== 0
+    ) {
+      throw new Error(
+        `El WebSocket se cerró antes de solicitar el código (estado ${readyState}).`
+      )
+    }
+
+    console.log(
+      chalk.cyan(
+        `[${BOT_NAME}] Solicitando código para +${pairingPhoneNumber}...`
+      )
+    )
+
+    const code = await socket.requestPairingCode(
+      pairingPhoneNumber
+    )
+
+    if (
+      socket !== conn ||
+      generation !== connectionGeneration
+    ) {
+      return
+    }
+
+    if (!code) {
+      throw new Error(
+        'WhatsApp no devolvió ningún código de vinculación.'
+      )
+    }
+
+    const formattedCode =
+      String(code).match(/.{1,4}/g)?.join('-') ||
+      String(code)
+
+    console.log('')
+    console.log(
+      chalk.bgMagenta.white.bold(
+        ' CÓDIGO DE VINCULACIÓN '
+      )
+    )
+    console.log(
+      chalk.white.bold(
+        `\n       ${formattedCode}\n`
+      )
+    )
+    console.log(
+      chalk.yellow(
+        'Abre WhatsApp en tu teléfono y entra en Dispositivos vinculados.'
+      )
+    )
+    console.log(
+      chalk.yellow(
+        'Selecciona Vincular un dispositivo y después Vincular con número de teléfono.'
+      )
+    )
+    console.log(
+      chalk.cyan(
+        'Introduce el código mostrado arriba en tu teléfono.'
+      )
+    )
+    console.log('')
+    console.log(
+      chalk.gray(
+        'La reconexión automática permanecerá pausada hasta completar la vinculación.'
+      )
+    )
+
+    initialPairingFinished = true
+  } catch (error) {
+    pairingFailed = true
+
+    console.error(
+      chalk.red(
+        `[${BOT_NAME}] No se pudo generar el código de vinculación:`
+      ),
+      error?.message || error
+    )
+
+    console.error(
+      chalk.yellow(
+        'No se realizarán reconexiones automáticas mientras la sesión no esté vinculada.'
+      )
+    )
+
+    console.error(
+      chalk.gray(
+        'Revisa el número con código de país y la compatibilidad de la versión de Baileys.'
+      )
+    )
+  } finally {
+    pairingInProgress = false
+  }
 }
 
 async function createConnection() {
@@ -316,57 +576,18 @@ async function createConnection() {
     closeSocket(previous)
   }
 
-  conn = global.conn = makeWASocket(connectionOptions)
+  const socket = makeWASocket(connectionOptions)
 
-  conn.__generation = generation
-  conn.__createdAt = Date.now()
-  conn.isInit = false
-  conn.well = false
+  conn = global.conn = socket
+
+  socket.__generation = generation
+  socket.__createdAt = Date.now()
+  socket.isInit = false
+  socket.well = false
 
   lastSocketActivity = Date.now()
 
-  if (!state.creds.registered) {
-    let phoneNumber = await question(
-      chalk.blue(
-        'Ingresa el número de WhatsApp para vincular el bot (ej. 504XXXXXXXX):\n'
-      )
-    )
-
-    phoneNumber = phoneNumber.replace(/\D/g, '')
-
-    if (!phoneNumber) {
-      throw new Error('Número de WhatsApp inválido.')
-    }
-
-    if (!conn.requestPairingCode) {
-      throw new Error(
-        'Esta versión de Baileys no soporta código de vinculación.'
-      )
-    }
-
-    try {
-      const code = await conn.requestPairingCode(phoneNumber)
-
-      console.log(
-        chalk.magenta(
-          `Código de vinculación: ${String(code).match(/.{1,4}/g)?.join('-') || code}`
-        )
-      )
-    } catch (error) {
-      console.error(
-        chalk.red(
-          '❌ No se pudo solicitar el código de vinculación:',
-          error?.message || error
-        )
-      )
-
-      scheduleReconnect(
-        'fallo solicitando código de vinculación'
-      )
-    }
-  }
-
-  return conn
+  return socket
 }
 
 async function connectionUpdate(update) {
@@ -386,13 +607,16 @@ async function connectionUpdate(update) {
   }
 
   if (connection === 'open') {
-    global.botStartTime = Math.floor(Date.now() / 1000)
+    global.botStartTime = Math.floor(
+      Date.now() / 1000
+    )
 
     lastSocketActivity = Date.now()
     lastMessageActivity = Date.now()
 
     reconnectAttempt = 0
     reconnectPending = false
+    pairingFailed = false
 
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
@@ -402,7 +626,9 @@ async function connectionUpdate(update) {
     conn.isInit = true
 
     console.log(
-      chalk.green('✅ Conectado correctamente.')
+      chalk.green(
+        `✅ ${BOT_NAME} conectado correctamente.`
+      )
     )
 
     console.log(
@@ -418,10 +644,52 @@ async function connectionUpdate(update) {
 
   const code = getDisconnectCode(update)
 
-  if (code === DisconnectReason?.loggedOut) {
+  // Caso especial: sesión todavía sin vincular.
+  // No crear sockets nuevos ni entrar en un bucle 405.
+  if (!state.creds.registered) {
     console.error(
       chalk.red(
-        '❌ Sesión cerrada. No se borrarán las credenciales automáticamente.'
+        `[${BOT_NAME}] La conexión se cerró antes de completar la vinculación. Código: ${code ?? 'desconocido'}.`
+      )
+    )
+
+    console.error(
+      chalk.yellow(
+        'La reconexión automática permanece desactivada para proteger el proceso de vinculación.'
+      )
+    )
+
+    if (!pairingFailed && !initialPairingFinished) {
+      console.error(
+        chalk.gray(
+          'Comprueba que el número sea correcto y que Baileys permita generar el código.'
+        )
+      )
+    }
+
+    return
+  }
+
+  if (
+    code === DisconnectReason?.loggedOut ||
+    code === DisconnectReason?.forbidden ||
+    code === DisconnectReason?.multideviceMismatch
+  ) {
+    console.error(
+      chalk.red(
+        `[${BOT_NAME}] WhatsApp cerró o rechazó la sesión (${code}). No se borrarán las credenciales automáticamente.`
+      )
+    )
+
+    return
+  }
+
+  if (
+    code === DisconnectReason?.connectionReplaced
+  ) {
+    console.warn(
+      chalk.yellow(
+        'La conexión fue reemplazada por otra sesión. Comprueba los dispositivos vinculados.'
       )
     )
 
@@ -430,20 +698,33 @@ async function connectionUpdate(update) {
 
   console.warn(
     chalk.yellow(
-      `⚠️ Conexión cerrada${code ? ` (código ${code})` : ''}. Reconectando inmediatamente...`
+      `⚠️ Conexión cerrada${code ? ` (código ${code})` : ''}. Se reintentará con espera progresiva.`
     )
   )
 
   scheduleReconnect(
-    code
-      ? `código ${code}`
-      : 'conexión cerrada'
+    code ? `código ${code}` : 'conexión cerrada'
   )
 }
 
-async function restartConnection(reason = 'reinicio') {
+async function restartConnection(
+  reason = 'reinicio'
+) {
   if (restarting) {
     reconnectPending = true
+    return
+  }
+
+  // No reiniciar sockets durante la vinculación.
+  if (!state.creds.registered) {
+    reconnectPending = false
+
+    console.warn(
+      chalk.yellow(
+        `[${BOT_NAME}] Reinicio cancelado: sesión pendiente de vinculación.`
+      )
+    )
+
     return
   }
 
@@ -452,29 +733,29 @@ async function restartConnection(reason = 'reinicio') {
   try {
     console.log(
       chalk.gray(
-        `🔁 Iniciando reconexión inmediata · ${reason}`
+        `🔁 Reiniciando conexión de ${BOT_NAME} · ${reason}`
       )
     )
 
-    closeSocket(conn)
-
     const newConn = await createConnection()
 
-    if (newConn === conn) {
-      await attachHandlers()
-    }
+    await attachHandlers()
 
     lastSocketActivity = Date.now()
     lastMessageActivity = Date.now()
+
+    if (newConn !== conn) {
+      throw new Error(
+        'La conexión creada dejó de ser la conexión activa.'
+      )
+    }
   } catch (error) {
     console.error(
       '[RESTART]',
       error?.stack || error
     )
 
-    scheduleReconnect(
-      'error creando conexión'
-    )
+    reconnectPending = true
   } finally {
     restarting = false
   }
@@ -482,9 +763,10 @@ async function restartConnection(reason = 'reinicio') {
   if (
     reconnectPending &&
     !reconnectTimer &&
-    conn
+    state.creds.registered
   ) {
     reconnectPending = false
+
     scheduleReconnect(
       'reconexión pendiente'
     )
@@ -496,9 +778,7 @@ async function attachHandlers() {
     handler = await import('./handler.js')
   }
 
-  try {
-    if (conn.__handlersAttached) return
-  } catch {}
+  if (!conn || conn.__handlersAttached) return
 
   const currentConn = conn
   const currentGeneration = connectionGeneration
@@ -555,9 +835,7 @@ async function attachHandlers() {
       try {
         for (
           const update of
-          Array.isArray(updates)
-            ? updates
-            : []
+          Array.isArray(updates) ? updates : []
         ) {
           if (update?.id) {
             global.groupMetadataCache?.del(
@@ -583,11 +861,12 @@ async function attachHandlers() {
   )
 
   currentConn.__handlersAttached = true
-
   isInit = true
 }
 
-global.reloadHandler = async function (restart = false) {
+global.reloadHandler = async function (
+  restart = false
+) {
   try {
     const Handler = await import(
       `./handler.js?update=${Date.now()}`
@@ -599,17 +878,14 @@ global.reloadHandler = async function (restart = false) {
   } catch (error) {
     console.error(
       '[HANDLER] No se pudo recargar:',
-      error
+      error?.stack || error
     )
 
     return false
   }
 
   if (restart) {
-    scheduleReconnect(
-      'reloadHandler'
-    )
-
+    scheduleReconnect('reloadHandler')
     return true
   }
 
@@ -658,17 +934,21 @@ global.reloadHandler = async function (restart = false) {
 watchdogTimer = setInterval(() => {
   if (restarting || !conn) return
 
+  // El watchdog tampoco debe reiniciar la conexión
+  // si aún no se ha vinculado la cuenta.
+  if (!state.creds.registered) return
+
   const ws = conn.ws
   const readyState = ws?.readyState
 
   if (
-    ws &&
     typeof readyState === 'number' &&
-    readyState !== 1
+    readyState !== 1 &&
+    readyState !== 0
   ) {
     console.warn(
       chalk.yellow(
-        `⚠️ Watchdog: WebSocket no está abierto (estado ${readyState}). Reconectando inmediatamente...`
+        `⚠️ Watchdog: WebSocket cerrado (estado ${readyState}).`
       )
     )
 
@@ -680,8 +960,6 @@ watchdogTimer = setInterval(() => {
   }
 
   if (
-    ws &&
-    typeof readyState === 'number' &&
     readyState === 1 &&
     Date.now() - lastSocketActivity >
       10 * 60 * 1000
@@ -694,15 +972,13 @@ watchdogTimer = setInterval(() => {
 
     try {
       const result =
-        conn.sendPresenceUpdate?.(
-          'available'
-        )
+        conn.sendPresenceUpdate?.('available')
 
       if (result?.catch) {
         result.catch(error => {
           console.warn(
             chalk.yellow(
-              '⚠️ Watchdog: el socket no respondió. Reconectando inmediatamente...'
+              '⚠️ Watchdog: error comprobando la conexión.'
             )
           )
 
@@ -714,7 +990,7 @@ watchdogTimer = setInterval(() => {
     } catch (error) {
       console.warn(
         chalk.yellow(
-          '⚠️ Watchdog: error comprobando socket. Reconectando inmediatamente...'
+          '⚠️ Watchdog: error comprobando el socket.'
         )
       )
 
@@ -725,7 +1001,7 @@ watchdogTimer = setInterval(() => {
 
     lastSocketActivity = Date.now()
   }
-}, 60 * 1000)
+}, 60000)
 
 const pluginFolder = join(
   __dirname,
@@ -733,15 +1009,13 @@ const pluginFolder = join(
 )
 
 const pluginFilter = filename =>
+  typeof filename === 'string' &&
   /\.js$/.test(filename)
 
 global.plugins = {}
 
 async function loadPlugin(filename) {
-  const dir = join(
-    pluginFolder,
-    filename
-  )
+  const dir = join(pluginFolder, filename)
 
   if (!existsSync(dir)) return false
 
@@ -785,6 +1059,10 @@ async function loadPlugin(filename) {
 }
 
 async function filesInit() {
+  if (!existsSync(pluginFolder)) {
+    mkdirSync(pluginFolder, { recursive: true })
+  }
+
   const files = readdirSync(pluginFolder)
     .filter(pluginFilter)
     .sort()
@@ -818,7 +1096,7 @@ try {
 } catch (error) {
   console.error(
     '[PLUGINS] No se pudo activar el watcher:',
-    error
+    error?.stack || error
   )
 }
 
@@ -839,7 +1117,7 @@ if (!global.opts.test) {
     } catch (error) {
       console.error(
         '[DB] Error guardando:',
-        error
+        error?.stack || error
       )
     }
   }, 30000)
@@ -862,7 +1140,7 @@ async function clearTmp() {
 
         if (
           stats.isFile() &&
-          Date.now() - stats.mtimeMs >= 60_000
+          Date.now() - stats.mtimeMs >= 60000
         ) {
           unlinkSync(full)
         }
@@ -871,34 +1149,98 @@ async function clearTmp() {
   }
 }
 
-setInterval(
-  () => clearTmp().catch?.(console.error),
-  5 * 60 * 1000
-)
-
-process.on(
-  'uncaughtException',
-  error => {
+setInterval(() => {
+  clearTmp().catch(error => {
     console.error(
-      '❌ uncaughtException:',
-      error?.stack || error
+      '[TMP]',
+      error?.message || error
     )
-  }
-)
+  })
+}, 5 * 60 * 1000)
 
-process.on(
-  'unhandledRejection',
-  error => {
-    console.error(
-      '❌ unhandledRejection:',
-      error?.stack || error
+process.on('uncaughtException', error => {
+  console.error(
+    '❌ uncaughtException:',
+    error?.stack || error
+  )
+})
+
+process.on('unhandledRejection', error => {
+  console.error(
+    '❌ unhandledRejection:',
+    error?.stack || error
+  )
+})
+
+// Solicitar el número ANTES de crear el socket.
+// Así el bot no inicia conexiones mientras esperas
+// a escribir el teléfono en la consola.
+if (!state.creds.registered) {
+  console.log('')
+  console.log(
+    chalk.cyan.bold(
+      `══════ ${BOT_NAME} · VINCULACIÓN ══════`
     )
-  }
-)
+  )
 
-await createConnection()
+  console.log(
+    chalk.yellow(
+      'Introduce tu número con el código del país, sin el signo +.'
+    )
+  )
+
+  console.log(
+    chalk.gray(
+      'Ejemplo de Honduras: 504XXXXXXXX'
+    )
+  )
+
+  while (!pairingPhoneNumber) {
+    const answer = await question(
+      chalk.blue(
+        'Número de WhatsApp: '
+      )
+    )
+
+    pairingPhoneNumber = normalizePhone(answer)
+
+    if (!pairingPhoneNumber) {
+      console.log(
+        chalk.red(
+          'Número inválido. Inténtalo nuevamente.'
+        )
+      )
+    }
+  }
+
+  console.log(
+    chalk.gray(
+      `Número introducido: +${pairingPhoneNumber}`
+    )
+  )
+
+  console.log(
+    chalk.gray(
+      'Iniciando el socket para solicitar el código...'
+    )
+  )
+}
+
+const initialConn = await createConnection()
+
 await attachHandlers()
 
+if (!state.creds.registered) {
+  // Se solicita una sola vez. No se generan sockets
+  // nuevos automáticamente mientras se vincula.
+  void requestPairingCodeForCurrentSocket(
+    initialConn,
+    initialConn.__generation
+  )
+}
+
 console.log(
-  chalk.green('🚀 Bot iniciado.')
+  chalk.green(
+    `🚀 ${BOT_NAME} iniciado.`
+  )
 )
