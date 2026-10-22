@@ -373,12 +373,33 @@ async function connectionUpdate(update) {
 
   if (connection !== 'close') return
 
-  const code = getDisconnectCode(update)
+const code = getDisconnectCode(update)
 
-  if (code === DisconnectReason?.loggedOut) {
-    console.error(chalk.red('❌ Sesión cerrada. No se borrarán las credenciales automáticamente.'))
-    return
-  }
+if (!state.creds.registered) {
+  console.error(
+    chalk.red(
+      `❌ Conexión cerrada durante la vinculación (código ${code ?? 'desconocido'}).`
+    )
+  )
+
+  console.error(
+    chalk.yellow(
+      '⚠️ No se iniciará otra conexión automáticamente mientras se investiga el fallo de vinculación.'
+    )
+  )
+
+  return
+}
+
+if (code === DisconnectReason?.loggedOut) {
+  console.error(
+    chalk.red(
+      '❌ Sesión cerrada. No se borrarán las credenciales automáticamente.'
+    )
+  )
+
+  return
+}
 
   console.warn(
     chalk.yellow(
