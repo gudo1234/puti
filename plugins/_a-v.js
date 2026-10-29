@@ -5,182 +5,242 @@ import sharp from 'sharp'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import { generateWAMessageFromContent } from '@whiskeysockets/baileys'
 
-const execFileAsync = promisify(execFile)
-
-const mod = await import('yt-dlp-wrap-plus')
-const YTDlpWrap =
-  mod.default?.default ||
-  mod.default ||
-  mod.YTDlpWrap
-
-const YTDLP_PATH = path.resolve('./yt-dlp')
+const YTDLP_PATH = '/home/container/yt-dlp'
 const COOKIES_PATH = '/home/container/cookies.txt'
-const DOWNLOAD_DIR = path.resolve('./descargas-yt')
-const TEMP_DIR = path.join(DOWNLOAD_DIR, '.yt-dlp-tmp')
+const DOWNLOAD_DIR = '/home/container/tmp'
+const TEMP_DIR = '/home/container/tmp'
 const MAX_INTENTOS = 3
-
-fs.mkdirSync(DOWNLOAD_DIR, { recursive: true })
-fs.mkdirSync(TEMP_DIR, { recursive: true })
 
 process.env.TMPDIR = TEMP_DIR
 process.env.TMP = TEMP_DIR
 process.env.TEMP = TEMP_DIR
 
-try {
-  fs.chmodSync(TEMP_DIR, 0o700)
-} catch {}
+fs.mkdirSync(DOWNLOAD_DIR, { recursive: true })
 
-if (!YTDlpWrap) {
-  throw new Error('No se pudo cargar yt-dlp-wrap-plus.')
-}
-
-if (!fs.existsSync(YTDLP_PATH)) {
-  await YTDlpWrap.downloadFromGithub(YTDLP_PATH)
-}
-
-try {
-  await fs.promises.chmod(YTDLP_PATH, 0o755)
-} catch {}
-
-let ytDlp = new YTDlpWrap(YTDLP_PATH)
+let YTDlpWrap
+let ytDlp
+let instalacionYtDlp
 let descargaActiva = false
 
 const esperar = ms => new Promise(resolve => setTimeout(resolve, ms))
 
-const crearArchivoTemporal = () => {
-  return path.join(
-    DOWNLOAD_DIR,
-    `yt_${Date.now()}_${crypto.randomBytes(8).toString('hex')}.%(ext)s`
-  )
-}
+async function cargarYtDlp() {
+  if (ytDlp && fs.existsSync(YTDLP_PATH)) {
+    return ytDlp
+  }
 
-const limpiarArchivos = async id => {
-  const archivos = await fs.promises.readdir(DOWNLOAD_DIR).catch(() => [])
+  if (instalacionYtDlp) {
+    return instalacionYtDlp
+  }
 
-  for (const nombre of archivos) {
-    if (nombre.startsWith(`${id}.`) || nombre.startsWith(`${id}_`)) {
-      await fs.promises.unlink(
-        path.join(DOWNLOAD_DIR, nombre)
-      ).catch(() => {})
+  instalacionYtDlp = (async () => {
+    const modulo = await import('yt-dlp-wrap-plus')
+
+    YTDlpWrap =
+      modulo.default?.default ||
+      modulo.default ||
+      modulo.YTDlpWrap
+
+    if (!YTDlpWrap) {
+      throw new Error('No se pudo cargar yt-dlp-wrap-plus.')
     }
+
+    if (!fs.existsSync(YTDLP_PATH)) {
+      await YTDlpWrap.downloadFromGithub(YTDLP_PATH)
+    }
+
+    await fs.promises.chmod(YTDLP_PATH, 0o755)
+
+    const instancia = new YTDlpWrap(YTDLP_PATH)
+    await instancia.execPromise(['--version'])
+
+    ytDlp = instancia
+    return ytDlp
+  })()
+
+  try {
+    return await instalacionYtDlp
+  } finally {
+    instalacionYtDlp = null
   }
 }
 
-const descargarArchivo = async (url, tipo) => {
+function crearIdentificador() {
+  return `yt_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`
+}
+
+async function limpiarArchivos(id) {
+  if (!id) return
+
+  let archivos = []
+
+  try {
+    archivos = await fs.promises.readdir(DOWNLOAD_DIR)
+  } catch {
+    return
+  }
+
+  for (const nombre of archivos) {
+    if (
+      !nombre.startsWith(`${id}.`) &&
+      !nombre.startsWith(`${id}_`)
+    ) {
+      continue
+    }
+
+    const archivo = path.join(DOWNLOAD_DIR, nombre)
+
+    try {
+      const stat = await fs.promises.lstat(archivo)
+
+      if (stat.isSymbolicLink() || stat.isFile()) {
+        await fs.promises.unlink(archivo)
+      } else if (stat.isDirectory()) {
+        await fs.promises.rm(archivo, {
+          recursive: true,
+          force: true,
+          maxRetries: 3,
+          retryDelay: 200
+        })
+      }
+    } catch {}
+  }
+}
+
+function buscarArchivoDescargado(id, tipo) {
+  const extensiones = tipo === 'audio'
+    ? ['.m4a', '.mp3', '.opus', '.webm', '.aac', '.wav']
+    : ['.mp4', '.mkv', '.webm', '.mov']
+
+  const archivos = fs.readdirSync(DOWNLOAD_DIR)
+
+  const encontrados = archivos
+    .filter(nombre => {
+      if (!nombre.startsWith(`${id}.`)) return false
+
+      const extension = path.extname(nombre).toLowerCase()
+
+      if (!extensiones.includes(extension)) return false
+      if (/\.(part|ytdl|temp)$/i.test(nombre)) return false
+
+      return true
+    })
+    .map(nombre => {
+      const archivo = path.join(DOWNLOAD_DIR, nombre)
+
+      try {
+        const stat = fs.statSync(archivo)
+
+        if (!stat.isFile() || stat.size <= 0) return null
+
+        return {
+          archivo,
+          nombre,
+          size: stat.size,
+          extension: path.extname(nombre).slice(1).toLowerCase()
+        }
+      } catch {
+        return null
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.size - a.size)
+
+  return encontrados[0] || null
+}
+
+async function descargarArchivo(url, tipo) {
   let ultimoError
 
   for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
-    const salida = crearArchivoTemporal()
-    const id = path.basename(salida).split('.')[0]
-
-    const argumentos = [
-      url,
-      '--no-playlist',
-      '--no-cache-dir',
-      '--no-part',
-      '--no-overwrites',
-      '--no-mtime',
-      '--no-warnings',
-      '--retries', '5',
-      '--fragment-retries', '5',
-      '--extractor-retries', '3',
-      '--file-access-retries', '3',
-      '--retry-sleep', '2',
-      '--js-runtimes', 'node',
-      '--remote-components', 'ejs:github',
-      '--output', salida,
-      '--paths', `temp:${TEMP_DIR}`
-    ]
-
-    if (fs.existsSync(COOKIES_PATH)) {
-      argumentos.push('--cookies', COOKIES_PATH)
-    }
-
-    if (tipo === 'audio') {
-      argumentos.push(
-        '-f',
-        'bestaudio[ext=m4a]/bestaudio',
-        '--extract-audio',
-        '--audio-format', 'm4a',
-        '--audio-quality', '0'
-      )
-    } else {
-      argumentos.push(
-        '-f',
-        'best[ext=mp4][height<=720]/best[height<=720]/best',
-        '--merge-output-format', 'mp4'
-      )
-    }
+    const id = crearIdentificador()
 
     try {
-      fs.mkdirSync(TEMP_DIR, { recursive: true })
+      const downloader = await cargarYtDlp()
+      await fs.promises.mkdir(DOWNLOAD_DIR, { recursive: true })
 
-      // Recrear el wrapper en caso de que una ejecución previa haya fallado.
-      if (!fs.existsSync(YTDLP_PATH)) {
-        await YTDlpWrap.downloadFromGithub(YTDLP_PATH)
-        await fs.promises.chmod(YTDLP_PATH, 0o755).catch(() => {})
-        ytDlp = new YTDlpWrap(YTDLP_PATH)
+      const salida = path.join(DOWNLOAD_DIR, `${id}.%(ext)s`)
+
+      const argumentos = [
+        '--ignore-config',
+        '--no-playlist',
+        '--no-cache-dir',
+        '--no-part',
+        '--no-overwrites',
+        '--no-mtime',
+        '--no-warnings',
+        '--retries', '5',
+        '--fragment-retries', '5',
+        '--extractor-retries', '3',
+        '--file-access-retries', '3',
+        '--retry-sleep', '2',
+        '--socket-timeout', '30',
+        '--js-runtimes', 'node',
+        '--remote-components', 'ejs:github',
+        '--output', salida
+      ]
+
+      if (fs.existsSync(COOKIES_PATH)) {
+        argumentos.push('--cookies', COOKIES_PATH)
       }
 
-      await ytDlp.execPromise(argumentos)
-
-      const archivos = await fs.promises.readdir(DOWNLOAD_DIR)
-
-      const encontrados = archivos
-        .filter(nombre => nombre.startsWith(`${id}.`))
-        .map(nombre => path.join(DOWNLOAD_DIR, nombre))
-        .filter(archivo => {
-          try {
-            return fs.statSync(archivo).isFile() &&
-              fs.statSync(archivo).size > 0 &&
-              !/\.(part|ytdl|json|description|jpg|jpeg|png|webp)$/i.test(archivo)
-          } catch {
-            return false
-          }
-        })
-
-      if (!encontrados.length) {
-        throw new Error('yt-dlp no generó ningún archivo válido.')
+      if (tipo === 'audio') {
+        argumentos.push(
+          '-f', 'bestaudio[ext=m4a]/bestaudio',
+          '--extract-audio',
+          '--audio-format', 'm4a',
+          '--audio-quality', '0'
+        )
+      } else {
+        argumentos.push(
+          '-f', 'best[ext=mp4][height<=720]/best[height<=720]/best',
+          '--merge-output-format', 'mp4'
+        )
       }
 
-      encontrados.sort((a, b) => {
-        return fs.statSync(b).size - fs.statSync(a).size
-      })
+      argumentos.push(url)
 
-      const archivo = encontrados[0]
-      const stat = await fs.promises.stat(archivo)
+      await downloader.execPromise(argumentos)
 
-      return {
-        archivo,
-        extension: path.extname(archivo).slice(1) ||
-          (tipo === 'audio' ? 'm4a' : 'mp4'),
-        size: stat.size
+      const resultado = buscarArchivoDescargado(id, tipo)
+
+      if (!resultado) {
+        throw new Error(
+          `yt-dlp terminó, pero no se encontró el archivo descargado en ${DOWNLOAD_DIR}.`
+        )
       }
+
+      return { ...resultado, id }
     } catch (error) {
       ultimoError = error
+
       await limpiarArchivos(id)
 
       const mensaje = String(error?.message || error)
 
-      // Si el ejecutable está ausente, intentar reinstalarlo una vez.
-      if (
-        intento < MAX_INTENTOS &&
-        (
-          mensaje.includes('PYI-70') ||
-          mensaje.includes('Failed to extract') ||
-          mensaje.includes('Permission denied')
-        )
-      ) {
+      const errorEjecutable =
+        !fs.existsSync(YTDLP_PATH) ||
+        /permission denied|failed to extract|exec format error|pyi-70/i.test(mensaje)
+
+      if (errorEjecutable && intento < MAX_INTENTOS) {
         try {
-          await fs.promises.unlink(YTDLP_PATH).catch(() => {})
-          await YTDlpWrap.downloadFromGithub(YTDLP_PATH)
-          await fs.promises.chmod(YTDLP_PATH, 0o755)
-          ytDlp = new YTDlpWrap(YTDLP_PATH)
-        } catch {}
+          ytDlp = null
+
+          if (YTDlpWrap) {
+            await fs.promises.unlink(YTDLP_PATH).catch(() => {})
+            await YTDlpWrap.downloadFromGithub(YTDLP_PATH)
+            await fs.promises.chmod(YTDLP_PATH, 0o755)
+
+            ytDlp = new YTDlpWrap(YTDLP_PATH)
+            await ytDlp.execPromise(['--version'])
+          } else {
+            await cargarYtDlp()
+          }
+        } catch (errorInstalacion) {
+          ultimoError = errorInstalacion
+        }
       }
 
       if (intento < MAX_INTENTOS) {
@@ -338,7 +398,7 @@ const enviarInformacion = async (m, conn, video, thumb) => {
   }
 
   try {
-    const msg = generateWAMessageFromContent(
+    const mensaje = generateWAMessageFromContent(
       m.chat,
       { locationMessage },
       {
@@ -349,11 +409,10 @@ const enviarInformacion = async (m, conn, video, thumb) => {
 
     await conn.relayMessage(
       m.chat,
-      msg.message,
-      { messageId: msg.key.id }
+      mensaje.message,
+      { messageId: mensaje.key.id }
     )
-  } catch (error) {
-    console.error('ERROR AL ENVIAR LOCATION:', error)
+  } catch {
     await m.reply(caption)
   }
 }
@@ -372,7 +431,7 @@ let handler = async (m, { conn, usedPrefix, command }) => {
   }
 
   descargaActiva = true
-  let archivo = null
+  let descarga = null
 
   try {
     const video = await obtenerVideo(texto)
@@ -417,11 +476,10 @@ let handler = async (m, { conn, usedPrefix, command }) => {
       segundos > 1200
 
     const tipo = esAudio ? 'audio' : 'video'
-    const descargado = await descargarArchivo(video.url, tipo)
 
-    archivo = descargado.archivo
+    descarga = await descargarArchivo(video.url, tipo)
 
-    const extension = descargado.extension
+    const extension = descarga.extension
     const caption =
       `${tipo === 'audio' ? '🎵' : '🎬'} *${title}*\n\n` +
       `> Duración: ${video.timestamp || formatearDuracion(segundos)}\n` +
@@ -441,7 +499,7 @@ let handler = async (m, { conn, usedPrefix, command }) => {
       await conn.sendMessage(
         m.chat,
         {
-          document: { url: archivo },
+          document: { url: descarga.archivo },
           ...opciones,
           caption
         },
@@ -451,7 +509,7 @@ let handler = async (m, { conn, usedPrefix, command }) => {
       await conn.sendMessage(
         m.chat,
         {
-          audio: { url: archivo },
+          audio: { url: descarga.archivo },
           ...opciones
         },
         { quoted: m }
@@ -460,7 +518,7 @@ let handler = async (m, { conn, usedPrefix, command }) => {
       await conn.sendMessage(
         m.chat,
         {
-          video: { url: archivo },
+          video: { url: descarga.archivo },
           ...opciones,
           caption
         },
@@ -468,16 +526,14 @@ let handler = async (m, { conn, usedPrefix, command }) => {
       )
     }
   } catch (error) {
-    console.error('YT-DLP ERROR:', error)
-
     await m.reply(
       `🌙 *No se pudo procesar la descarga.*\n\n> Error: ${String(error?.message || error).slice(0, 1200)}`
     )
   } finally {
     descargaActiva = false
 
-    if (archivo) {
-      await fs.promises.unlink(archivo).catch(() => {})
+    if (descarga?.id) {
+      await limpiarArchivos(descarga.id)
     }
   }
 }
