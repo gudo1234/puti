@@ -579,7 +579,7 @@ if (days > 0) {
 return `${days}d:${hh}:${mm}:${ss}`
 }
 
-return "${hh}:${mm}:${ss}"
+return `${hh}:${mm}:${ss}`
 }
 
 handler.help = ['menu']
