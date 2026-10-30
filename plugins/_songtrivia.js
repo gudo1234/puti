@@ -1,185 +1,30 @@
+import fetch from 'node-fetch'
 
-import fs from 'fs'
-import path from 'path'
+const games = new Map()
+const timers = new Map()
 
-const songTriviaFile = path.resolve(
-  './src/database/songtrivia.json'
-)
-
-function ensureSongTriviaFile() {
-  const dir = path.dirname(songTriviaFile)
-
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true })
-  }
-
-  if (!fs.existsSync(songTriviaFile)) {
-    fs.writeFileSync(songTriviaFile, '{}', 'utf8')
-  }
-}
-
-function loadSongTrivia() {
+let handler = async (m, { conn, text, command, usedPrefix }) => {
   try {
-    ensureSongTriviaFile()
-    const data = fs.readFileSync(songTriviaFile, 'utf8')
-    return data.trim() ? JSON.parse(data) : {}
-  } catch {
-    return {}
-  }
-}
+    if (!m.isGroup) return m.reply('❌ Este comando solo funciona en grupos.')
 
-function saveSongTrivia(data) {
-  try {
-    ensureSongTriviaFile()
-    fs.writeFileSync(
-      songTriviaFile,
-      JSON.stringify(data, null, 2),
-      'utf8'
-    )
-  } catch (e) {
-    console.error('[SONGTRIVIA SAVE]', e)
-  }
-}
+    const chat = m.chat
+    const input = String(text || '').trim()
 
-let songTriviaData = loadSongTrivia()
-let songTimers = {}
-
-function getSongState(chatId) {
-  return songTriviaData[chatId] || null
-}
-
-function saveSongState(chatId, state) {
-  songTriviaData[chatId] = {
-    track: state.track,
-    artist: state.artist,
-    audioId: state.audioId,
-    questionId: state.questionId,
-    incorrectIds: state.incorrectIds || [],
-    timestamp: state.timestamp
-  }
-
-  saveSongTrivia(songTriviaData)
-}
-
-function clearSongState(chatId) {
-  if (songTimers[chatId]) {
-    clearTimeout(songTimers[chatId])
-    delete songTimers[chatId]
-  }
-
-  delete songTriviaData[chatId]
-  saveSongTrivia(songTriviaData)
-}
-
-function normalizeSong(text) {
-  return String(text || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-async function deleteSongMessage(conn, chatId, messageId) {
-  if (!messageId) return
-
-  try {
-    await conn.sendMessage(chatId, {
-      delete: {
-        remoteJid: chatId,
-        id: messageId,
-        fromMe: true
-      }
-    })
-  } catch {}
-}
-
-async function deleteSongChallenge(conn, chatId, state) {
-  const ids = [
-    state.audioId,
-    state.questionId,
-    ...(state.incorrectIds || [])
-  ].filter(Boolean)
-
-  for (const id of [...new Set(ids)]) {
-    await deleteSongMessage(conn, chatId, id)
-  }
-}
-
-function startSongTimer(conn, chatId, state) {
-  if (songTimers[chatId]) {
-    clearTimeout(songTimers[chatId])
-  }
-
-  const elapsed = Date.now() - state.timestamp
-  const remaining = Math.max(0, 180000 - elapsed)
-
-  songTimers[chatId] = setTimeout(async () => {
-    const current = getSongState(chatId)
-
-    if (!current || current.timestamp !== state.timestamp) {
-      return
+    if (games.has(chat)) {
+      return m.reply('⚠️ Ya hay una partida activa en este grupo.')
     }
 
-    await deleteSongChallenge(conn, chatId, current)
-
-    clearSongState(chatId)
-
-    await conn.sendMessage(chatId, {
-      text: `⏰ *¡Se acabó el tiempo!*
-
-🎵 La canción era: *${current.track}*
-🎤 Artista: *${current.artist}*
-
-🎮 ¡Inténtalo en la próxima partida!`
-    })
-  }, remaining + 100)
-}
-
-let handler = async (m, { conn, text }) => {
-  if (!m.isGroup) {
-    return m.reply('❌ Este juego solamente funciona en grupos.')
-  }
-
-  const chatId = m.chat
-  const current = getSongState(chatId)
-
-  if (current) {
-    const elapsed = Date.now() - current.timestamp
-
-    if (elapsed < 180000) {
-      return m.reply(
-        '🎵 Ya hay una canción en juego.\n\nResponde al audio para participar.\nEscribe *pista* respondiendo al desafío para recibir una ayuda.'
-      )
+    if (!input) {
+      return m.reply(`🎵 Escribe el nombre de una canción.\n\nEjemplo: ${usedPrefix + command} Romeo Santos`)
     }
 
-    await deleteSongChallenge(conn, chatId, current)
-    clearSongState(chatId)
-  }
+    await m.reply('🔎 Buscando una canción...')
 
-  try {
-    await m.reply('🎧 Buscando una canción en iTunes...')
-
-    const term = text?.trim() || 'top hits'
-
-    const url = new URL('https://itunes.apple.com/search')
-    url.searchParams.set('term', term)
-    url.searchParams.set('entity', 'song')
-    url.searchParams.set('limit', '50')
-    url.searchParams.set('media', 'music')
-    url.searchParams.set('country', 'US')
-
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(20000)
-    })
-
-    if (!response.ok) {
-      throw new Error(`iTunes respondió con código ${response.status}`)
-    }
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(input)}&entity=song&limit=50&country=US`
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`iTunes respondió HTTP ${response.status}`)
 
     const data = await response.json()
-
     const songs = (data.results || []).filter(song =>
       song.trackName &&
       song.artistName &&
@@ -187,212 +32,152 @@ let handler = async (m, { conn, text }) => {
     )
 
     if (!songs.length) {
-      return m.reply(
-        '❌ No encontré canciones disponibles.\n\nPrueba con otro artista o género.'
-      )
+      return m.reply('❌ No encontré canciones con audio disponible. Intenta con otro nombre.')
     }
 
-    const song = songs[
-      Math.floor(Math.random() * songs.length)
-    ]
-
-    const audioResponse = await fetch(song.previewUrl, {
-      signal: AbortSignal.timeout(30000)
-    })
+    const song = songs[Math.floor(Math.random() * songs.length)]
+    const audioResponse = await fetch(song.previewUrl)
 
     if (!audioResponse.ok) {
-      throw new Error('No se pudo descargar el audio de iTunes.')
+      throw new Error(`No se pudo descargar el audio: HTTP ${audioResponse.status}`)
     }
 
-    const audio = Buffer.from(
-      await audioResponse.arrayBuffer()
-    )
+    const audio = Buffer.from(await audioResponse.arrayBuffer())
+    if (!audio.length) throw new Error('El audio descargado está vacío.')
 
-    if (!audio.length) {
-      throw new Error('El audio recibido está vacío.')
-    }
+    const sentAudio = await conn.sendMessage(chat, {
+      audio,
+      mimetype: 'audio/mp4',
+      ptt: false
+    }, { quoted: m })
 
-    const audioMessage = await conn.sendMessage(
-      chatId,
-      {
-        audio,
-        mimetype: 'audio/mp4',
-        ptt: false
-      },
-      { quoted: m }
-    )
+    const sentQuestion = await conn.sendMessage(chat, {
+      text: `🎧 *¡Adivina la canción!*\n\nEscucha el audio y responde a este mensaje con el nombre de la canción.\n\n⏳ Tienes 120 segundos.\n\n💡 Escribe *pista* para recibir una ayuda.`
+    }, { quoted: m })
 
-    const audioId =
-      audioMessage?.key?.id ||
-      audioMessage?.id
-
-    if (!audioId) {
-      throw new Error('No se pudo obtener el ID del audio enviado.')
-    }
-
-    const questionMessage = await conn.sendMessage(
-      chatId,
-      {
-        text: `🎶 *SONG TRIVIA*
-
-🎧 ¡Adivina el nombre de la canción!
-
-🏆 El primero en responder correctamente gana.
-⏳ Tienes *3 minutos*.
-
-💡 Responde a este mensaje o al audio para participar.
-🔎 Escribe *pista* respondiendo al desafío para recibir una ayuda.`
-      },
-      { quoted: audioMessage }
-    )
-
-    const questionId =
-      questionMessage?.key?.id ||
-      questionMessage?.id
-
-    const state = {
-      track: song.trackName,
+    const game = {
+      answer: song.trackName,
       artist: song.artistName,
-      audioId,
-      questionId: questionId || audioId,
-      incorrectIds: [],
-      timestamp: Date.now()
+      chat,
+      audioId: sentAudio?.key?.id,
+      questionId: sentQuestion?.key?.id,
+      allowedIds: new Set([
+        sentAudio?.key?.id,
+        sentQuestion?.key?.id
+      ].filter(Boolean))
     }
 
-    saveSongState(chatId, state)
-    startSongTimer(conn, chatId, state)
+    games.set(chat, game)
+
+    const timer = setTimeout(async () => {
+      try {
+        if (games.get(chat) !== game) return
+
+        games.delete(chat)
+        timers.delete(chat)
+
+        await conn.sendMessage(chat, {
+          text: `⏰ *¡Se acabó el tiempo!*\n\n🎵 Canción: *${game.answer}*\n🎤 Artista: *${game.artist}*`
+        })
+      } catch (e) {
+        console.error('Error en temporizador SongTrivia:', e)
+        try {
+          await conn.sendMessage(chat, {
+            text: `❌ Error al finalizar SongTrivia:\n${e.message || e}`
+          })
+        } catch {}
+      }
+    }, 120000)
+
+    timer.unref?.()
+    timers.set(chat, timer)
 
   } catch (e) {
-    console.error('[SONGTRIVIA ERROR]', e)
-    await m.reply(`❌ Error al iniciar SongTrivia:\n${e.message}`)
+    console.error('Error en SongTrivia:', e)
+    await m.reply(`❌ *Error en SongTrivia:*\n${e.stack || e.message || e}`)
   }
 }
 
 handler.before = async function (m) {
-  if (!m.isGroup || !m.message) return true
+  try {
+    if (!m.isGroup || !m.text || m.key?.fromMe) return
 
-  if (m.key?.fromMe || m.fromMe) return true
+    const chat = m.chat
+    const game = games.get(chat)
+    if (!game) return
 
-  const chatId = m.chat
-  const state = getSongState(chatId)
+    const body = String(m.text || '').trim()
+    if (!body) return
 
-  if (!state) return true
+    const prefix = global.prefix
+    if (prefix instanceof RegExp && prefix.test(body)) return
 
-  const elapsed = Date.now() - state.timestamp
+    const context = m.message?.extendedTextMessage?.contextInfo ||
+      m.message?.imageMessage?.contextInfo ||
+      m.message?.videoMessage?.contextInfo
 
-  if (elapsed >= 180000) {
-    await deleteSongChallenge(conn, chatId, state)
-    clearSongState(chatId)
+    const quotedId =
+      m.quoted?.id ||
+      m.quoted?.key?.id ||
+      context?.stanzaId
 
-    await conn.sendMessage(chatId, {
-      text: `⏰ *¡Se acabó el tiempo!*
+    if (!quotedId || !game.allowedIds.has(quotedId)) return
 
-🎵 La canción era: *${state.track}*
-🎤 Artista: *${state.artist}*`
-    })
+    const normalize = value => String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
 
-    return true
-  }
+    const answer = normalize(game.answer)
+    const guess = normalize(body)
 
-  const quotedId = m.quoted?.id
+    if (/^(pista|dame pista|ayuda)$/i.test(body)) {
+      const words = game.answer.split(' ')
+      const hint = words.map(word => word.length > 2
+        ? `${word[0]}${'_'.repeat(word.length - 1)}`
+        : word
+      ).join(' ')
 
-  if (!quotedId) return true
+      const sentHint = await this.sendMessage(chat, {
+        text: `💡 *Pista:* ${hint}\n🎤 Artista: ${game.artist}`
+      }, { quoted: m })
 
-  const incorrectIds = state.incorrectIds || []
-
-  const repliedToChallenge =
-    quotedId === state.audioId ||
-    quotedId === state.questionId ||
-    incorrectIds.includes(quotedId)
-
-  if (!repliedToChallenge) return true
-
-  const answer = normalizeSong(m.text)
-
-  if (!answer) return true
-
-  if (
-    answer === 'pista' ||
-    answer === 'dame pista' ||
-    answer === 'ayuda'
-  ) {
-    const firstLetter = state.track.charAt(0).toUpperCase()
-    const remaining = Math.max(0, 180000 - elapsed)
-
-    const minutes = Math.floor(remaining / 60000)
-    const seconds = Math.floor((remaining % 60000) / 1000)
-
-    const hint = await conn.reply(
-      chatId,
-      `🔎 *PISTA*
-
-🎵 La canción comienza con la letra *${firstLetter}*.
-🔠 Tiene *${state.track.length} letras*.
-
-⏳ Tiempo restante: *${minutes} minutos y ${seconds} segundos*.`,
-      m
-    )
-
-    const hintId = hint?.key?.id || hint?.id
-
-    if (hintId) {
-      state.incorrectIds.push(hintId)
-      state.incorrectIds = [...new Set(state.incorrectIds)]
-      saveSongState(chatId, state)
+      const hintId = sentHint?.key?.id
+      if (hintId) game.allowedIds.add(hintId)
+      return
     }
 
-    return true
+    if (guess === answer) {
+      const timer = timers.get(chat)
+      if (timer) clearTimeout(timer)
+
+      games.delete(chat)
+      timers.delete(chat)
+
+      await this.sendMessage(chat, {
+        text: `🎉 *¡Respuesta correcta!*\n\n🏆 @${m.sender.split('@')[0]} adivinó la canción.\n\n🎵 Canción: *${game.answer}*\n🎤 Artista: *${game.artist}*`,
+        mentions: [m.sender]
+      }, { quoted: m })
+
+      return
+    }
+
+    const sent = await this.sendMessage(chat, {
+      text: '❌ Respuesta incorrecta. ¡Inténtalo de nuevo!'
+    }, { quoted: m })
+
+    const wrongId = sent?.key?.id
+    if (wrongId) game.allowedIds.add(wrongId)
+
+  } catch (e) {
+    console.error('Error en listener SongTrivia:', e)
+    try {
+      await m.reply(`❌ *Error en SongTrivia:*\n${e.stack || e.message || e}`)
+    } catch {}
   }
-
-  if (answer === normalizeSong(state.track)) {
-    await m.react('🎉')
-
-    await conn.reply(
-      chatId,
-      `🎉 *¡RESPUESTA CORRECTA!*
-
-🏆 ¡Felicidades, ${m.pushName}!
-
-🎵 Canción: *${state.track}*
-🎤 Artista: *${state.artist}*
-
-🥇 ¡Has ganado SongTrivia!`,
-      m
-    )
-
-    await deleteSongChallenge(conn, chatId, state)
-    clearSongState(chatId)
-
-    return true
-  }
-
-  await m.react('❌')
-
-  const remaining = Math.max(0, 180000 - elapsed)
-  const minutes = Math.floor(remaining / 60000)
-  const seconds = Math.floor((remaining % 60000) / 1000)
-
-  const incorrectMessage = await conn.reply(
-    chatId,
-    `❌ *¡Respuesta incorrecta!*
-
-💡 Sigue intentando.
-
-⏳ Tiempo restante: *${minutes} minutos y ${seconds} segundos*.`,
-    m
-  )
-
-  const incorrectId =
-    incorrectMessage?.key?.id ||
-    incorrectMessage?.id
-
-  if (incorrectId) {
-    state.incorrectIds.push(incorrectId)
-    state.incorrectIds = [...new Set(state.incorrectIds)]
-    saveSongState(chatId, state)
-  }
-
-  return true
 }
 
 handler.help = ['songtrivia']
