@@ -1,679 +1,210 @@
-import fs from 'fs'
-import path from 'path'
 
-let songTrivia = {}
+const games = global.songTriviaGames ||= new Map()
+const listeners = global.songTriviaListeners ||= new WeakSet()
 
-const songTriviaFile = path.resolve(
-  './src/database/songtrivia.json'
-)
+const normalize = text => String(text || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase()
+  .replace(/[^a-z0-9 ]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim()
 
-function ensureFile() {
+function getText(message) {
+  const msg = message?.message || {}
 
-  const dir = path.dirname(songTriviaFile)
-
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, {
-      recursive: true
-    })
-  }
-
-  if (!fs.existsSync(songTriviaFile)) {
-    fs.writeFileSync(
-      songTriviaFile,
-      '{}',
-      'utf8'
-    )
-  }
-}
-
-function loadData() {
-
-  try {
-
-    ensureFile()
-
-    const data = fs.readFileSync(
-      songTriviaFile,
-      'utf8'
-    )
-
-    return data.trim()
-      ? JSON.parse(data)
-      : {}
-
-  } catch {
-
-    return {}
-  }
-}
-
-function saveData() {
-
-  try {
-
-    ensureFile()
-
-    fs.writeFileSync(
-      songTriviaFile,
-      JSON.stringify(
-        songTrivia,
-        null,
-        2
-      ),
-      'utf8'
-    )
-
-  } catch {}
-}
-
-songTrivia = loadData()
-
-const activeGames = {}
-
-function getGame(chatId) {
-
-  return songTrivia[chatId] || null
-}
-
-function saveGame(chatId, data) {
-
-  songTrivia[chatId] = data
-
-  saveData()
-}
-
-function clearGame(chatId) {
-
-  if (activeGames[chatId]?.timer) {
-
-    clearTimeout(
-      activeGames[chatId].timer
-    )
-  }
-
-  delete activeGames[chatId]
-
-  delete songTrivia[chatId]
-
-  saveData()
-}
-
-function normalizeText(text = '') {
-
-  return String(text)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\(feat[^)]*\)/gi, '')
-    .replace(/\[feat[^\]]*\]/gi, '')
-    .replace(/[^a-z0-9]/g, '')
-    .trim()
-}
-
-function getCorrectAnswer(answer, song) {
-
-  const normalized = normalizeText(answer)
-
-  if (!normalized) {
-    return false
-  }
-
-  const title = normalizeText(
-    song.trackName
-  )
-
-  const artist = normalizeText(
-    song.artistName
-  )
-
-  const combinations = [
-    title,
-    `${title}${artist}`,
-    `${artist}${title}`
-  ]
-
-  return combinations.includes(
-    normalized
+  return (
+    msg.conversation ||
+    msg.extendedTextMessage?.text ||
+    msg.imageMessage?.caption ||
+    msg.videoMessage?.caption ||
+    msg.documentMessage?.caption ||
+    msg.buttonsResponseMessage?.selectedButtonId ||
+    msg.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    msg.templateButtonReplyMessage?.selectedId ||
+    msg.ephemeralMessage?.message?.conversation ||
+    msg.ephemeralMessage?.message?.extendedTextMessage?.text ||
+    ''
   )
 }
 
-async function searchITunes() {
-
-  const terms = [
-    'popular music',
-    'top hits',
-    'latin hits',
-    'reggaeton',
-    'bachata',
-    'romantic songs',
-    'pop music',
-    'rock hits',
-    'urban music'
-  ]
-
-  const term =
-    terms[
-      Math.floor(
-        Math.random() * terms.length
-      )
-    ]
-
-  const url =
-    `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=song&limit=200&country=US`
-
-  const response = await fetch(url)
-
-  if (!response.ok) {
-    throw new Error(
-      'Error consultando iTunes'
-    )
-  }
-
-  const data = await response.json()
-
-  const results = (
-    data.results || []
-  ).filter(song =>
-    song.trackName &&
-    song.artistName &&
-    song.previewUrl
-  )
-
-  if (!results.length) {
-    throw new Error(
-      'iTunes no encontró canciones disponibles'
-    )
-  }
-
-  return results[
-    Math.floor(
-      Math.random() * results.length
-    )
-  ]
+function getHint(title) {
+  return `🔎 Pista: comienza con *${title[0].toUpperCase()}* y tiene *${title.length} letras*.`
 }
 
-async function deleteMessage(
-  conn,
-  chatId,
-  messageId
-) {
+function installListener(conn) {
+  if (listeners.has(conn)) return
+  if (!conn.ev?.on) return
 
-  if (!messageId) {
-    return
-  }
+  listeners.add(conn)
 
-  try {
+  conn.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (type && type !== 'notify') return
 
-    await conn.sendMessage(
-      chatId,
-      {
-        delete: {
-          remoteJid: chatId,
-          id: messageId,
-          fromMe: true
+    for (const msg of messages || []) {
+      try {
+        const chat = msg.key?.remoteJid
+        if (!chat || chat === 'status@broadcast') continue
+        if (msg.key?.fromMe) continue
+
+        const game = games.get(chat)
+        if (!game) continue
+
+        const text = getText(msg).trim()
+        if (!text) continue
+
+        if (/^[#/.!]songtrivia\b/i.test(text)) continue
+
+        const answer = normalize(text)
+
+        if (answer === normalize(game.track)) {
+          clearTimeout(game.timer)
+          games.delete(chat)
+
+          const sender = msg.key.participant || msg.key.remoteJid
+
+          await conn.sendMessage(chat, {
+            text: `🎉 ¡CORRECTO!\n\n🏆 @${sender.split('@')[0]} adivinó la canción.\n\n🎵 *${game.track}*\n🎤 *${game.artist}*\n\n✨ ¡Felicidades!`,
+            mentions: [sender]
+          }, { quoted: msg })
+
+        } else if (
+          answer === 'pista' ||
+          answer === 'dame pista' ||
+          answer === 'ayuda'
+        ) {
+          await conn.sendMessage(chat, {
+            text: getHint(game.track)
+          }, { quoted: msg })
         }
+      } catch (e) {
+        console.error('[SONGTRIVIA]', e)
       }
-    )
-
-  } catch {}
-}
-
-async function deleteGameMessages(
-  conn,
-  chatId
-) {
-
-  const state = getGame(chatId)
-
-  if (!state) {
-    return
-  }
-
-  const ids = [
-    ...(state.questionIds || []),
-    ...(state.incorrectIds || [])
-  ]
-
-  const uniqueIds = [
-    ...new Set(ids.filter(Boolean))
-  ]
-
-  for (const id of uniqueIds) {
-
-    await deleteMessage(
-      conn,
-      chatId,
-      id
-    )
-  }
-}
-
-async function expireGame(
-  conn,
-  chatId,
-  timestamp
-) {
-
-  const state = getGame(chatId)
-
-  if (
-    !state ||
-    state.timestamp !== timestamp
-  ) {
-    return
-  }
-
-  const elapsed =
-    Date.now() - timestamp
-
-  if (elapsed < 180000) {
-
-    activeGames[chatId] = {
-      timer: setTimeout(
-        () => expireGame(
-          conn,
-          chatId,
-          timestamp
-        ),
-        180000 - elapsed + 100
-      )
     }
-
-    return
-  }
-
-  await deleteGameMessages(
-    conn,
-    chatId
-  )
-
-  clearGame(chatId)
+  })
 }
 
-async function startTimer(
-  conn,
-  chatId,
-  timestamp
-) {
-
-  if (activeGames[chatId]?.timer) {
-
-    clearTimeout(
-      activeGames[chatId].timer
-    )
-  }
-
-  activeGames[chatId] = {
-    timer: setTimeout(
-      () => expireGame(
-        conn,
-        chatId,
-        timestamp
-      ),
-      180000
-    )
-  }
-}
-
-let handler = async (
-  m,
-  { conn }
-) => {
-
+let handler = async (m, { conn, text, command }) => {
   if (!m.isGroup) {
+    return m.reply('❌ Este juego solamente funciona en grupos.')
+  }
+
+  installListener(conn)
+
+  const chat = m.chat
+  const option = normalize(text)
+
+  if (option === 'pista') {
+    const game = games.get(chat)
+    if (!game) return m.reply('❌ No hay ninguna canción en juego.')
+    return m.reply(getHint(game.track))
+  }
+
+  if (option === 'rendirse' || option === 'cancelar') {
+    const game = games.get(chat)
+    if (!game) return m.reply('❌ No hay ninguna partida activa.')
+
+    clearTimeout(game.timer)
+    games.delete(chat)
+
     return m.reply(
-      '❌ Este desafío solamente está disponible en grupos.'
+      `🏳️ La partida terminó.\n\n🎵 Canción: *${game.track}*\n🎤 Artista: *${game.artist}*`
     )
   }
 
-  const existing = getGame(m.chat)
-
-  if (existing) {
-
-    const elapsed =
-      Date.now() - existing.timestamp
-
-    if (elapsed < 180000) {
-
-      const remaining =
-        180000 - elapsed
-
-      const minutes =
-        Math.floor(remaining / 60000)
-
-      const seconds =
-        Math.floor(
-          (remaining % 60000) / 1000
-        )
-
-      return m.reply(
-        `🎵 *Ya existe una partida de Song Trivia en este grupo.*
-
-⏳ Tiempo restante: *${minutes} minutos y ${seconds} segundos.*
-
-_Responde a la canción para participar._`
-      )
-    }
-
-    await deleteGameMessages(
-      conn,
-      m.chat
-    )
-
-    clearGame(m.chat)
+  if (games.has(chat)) {
+    return m.reply('🎵 Ya hay una canción en juego.\n\nEscribe *pista* para recibir una ayuda o *rendirse* para revelar la respuesta.')
   }
-
-  await m.reply(
-    '🎧 *Preparando un nuevo desafío musical...*'
-  )
 
   try {
+    await m.reply('🎧 Buscando una canción en iTunes...')
 
-    const song = await searchITunes()
+    const term = text?.trim() || 'popular music hits'
 
-    const audioResponse = await fetch(
+    const url = new URL('https://itunes.apple.com/search')
+    url.searchParams.set('term', term)
+    url.searchParams.set('entity', 'song')
+    url.searchParams.set('limit', '50')
+    url.searchParams.set('media', 'music')
+    url.searchParams.set('country', 'US')
+
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(15000)
+    })
+
+    if (!response.ok) {
+      throw new Error(`iTunes respondió ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    const songs = (data.results || []).filter(song =>
+      song.trackName &&
+      song.artistName &&
       song.previewUrl
     )
 
+    if (!songs.length) {
+      return m.reply('❌ No encontré canciones con fragmento de audio. Intenta con otro género o artista.')
+    }
+
+    const song = songs[Math.floor(Math.random() * songs.length)]
+
+    const audioResponse = await fetch(song.previewUrl, {
+      signal: AbortSignal.timeout(20000)
+    })
+
     if (!audioResponse.ok) {
-      throw new Error(
-        'No se pudo descargar la vista previa'
-      )
+      throw new Error('No se pudo descargar el fragmento de audio.')
     }
 
-    const audioBuffer = Buffer.from(
-      await audioResponse.arrayBuffer()
-    )
+    const audio = Buffer.from(await audioResponse.arrayBuffer())
 
-    if (!audioBuffer.length) {
-      throw new Error(
-        'El audio está vacío'
-      )
+    if (!audio.length) {
+      throw new Error('El audio descargado está vacío.')
     }
 
-    const timestamp = Date.now()
-
-    const state = {
-
-      trackName:
-        song.trackName,
-
-      artistName:
-        song.artistName,
-
-      albumName:
-        song.collectionName || 'Desconocido',
-
-      artwork:
-        song.artworkUrl100 || null,
-
-      timestamp,
-
-      questionIds: [],
-
-      incorrectIds: []
+    const game = {
+      track: song.trackName,
+      artist: song.artistName,
+      timer: null
     }
 
-    saveGame(
-      m.chat,
-      state
-    )
+    games.set(chat, game)
 
-    const audioMessage =
-      await conn.sendMessage(
-        m.chat,
-        {
-          audio: audioBuffer,
-          mimetype: 'audio/mp4',
-          ptt: false
-        }
-      )
+    game.timer = setTimeout(async () => {
+      if (games.get(chat) !== game) return
 
-    const audioId =
-      audioMessage?.key?.id ||
-      audioMessage?.id
+      games.delete(chat)
 
-    if (!audioId) {
+      try {
+        await conn.sendMessage(chat, {
+          text: `⏰ ¡Se acabó el tiempo!\n\n🎵 La canción era: *${game.track}*\n🎤 Artista: *${game.artist}*\n\n🎮 ¡Inténtalo en la próxima partida!`
+        })
+      } catch (e) {
+        console.error('[SONGTRIVIA TIMER]', e)
+      }
+    }, 180000)
 
-      clearGame(m.chat)
+    await conn.sendMessage(chat, {
+      audio,
+      mimetype: 'audio/mp4',
+      ptt: false
+    }, { quoted: m })
 
-      throw new Error(
-        'No se pudo enviar el audio'
-      )
-    }
-
-    state.questionIds.push(
-      audioId
-    )
-
-    const question =
-      await conn.sendMessage(
-        m.chat,
-        {
-          text: `🎵 *SONG TRIVIA*
-
-🎧 Escucha atentamente la canción.
-
-❓ *¿Cómo se llama esta canción?*
-
-👥 _Todos pueden participar._
-
-💬 Responde citando este mensaje con el nombre de la canción.
-
-⏳ *Tienes 3 minutos para adivinarla.*
-
-🏆 ¡El primero en acertar gana!`
-        }
-      )
-
-    const questionId =
-      question?.key?.id ||
-      question?.id
-
-    if (!questionId) {
-
-      await deleteGameMessages(
-        conn,
-        m.chat
-      )
-
-      clearGame(m.chat)
-
-      return
-    }
-
-    state.questionIds.push(
-      questionId
-    )
-
-    saveGame(
-      m.chat,
-      state
-    )
-
-    await startTimer(
-      conn,
-      m.chat,
-      timestamp
-    )
+    await conn.sendMessage(chat, {
+      text: `🎶 *SONG TRIVIA*\n\n🎧 ¡Adivina qué canción está sonando!\n\n⏳ Tiempo: *3 minutos*\n🏆 El primero en responder correctamente gana.\n\n💡 Escribe *pista* si necesitas ayuda.\n🏳️ Escribe *rendirse* para revelar la canción.\n\n🎵 ¡Que comience el juego!`
+    }, { quoted: m })
 
   } catch (e) {
-
-    clearGame(m.chat)
-
-    await conn.reply(
-      m.chat,
-      `❌ No se pudo iniciar Song Trivia.\n\nError: ${e.message}`,
-      m
-    )
+    games.delete(chat)
+    console.error('[SONGTRIVIA ERROR]', e)
+    await m.reply(`❌ Error al iniciar SongTrivia:\n${e.message}`)
   }
 }
 
-handler.before = async function (
-  m,
-  { conn }
-) {
-
-  if (
-    !m.isGroup ||
-    !m.message ||
-    m.key?.fromMe ||
-    m.fromMe
-  ) {
-    return true
-  }
-
-  const state = getGame(m.chat)
-
-  if (!state) {
-    return true
-  }
-
-  const elapsed =
-    Date.now() - state.timestamp
-
-  if (elapsed >= 180000) {
-
-    await deleteGameMessages(
-      conn,
-      m.chat
-    )
-
-    clearGame(m.chat)
-
-    return true
-  }
-
-  const repliedId =
-    m.quoted?.id
-
-  if (!repliedId) {
-    return true
-  }
-
-  const repliedToQuestion =
-    (state.questionIds || []).includes(
-      repliedId
-    )
-
-  const repliedToIncorrect =
-    (state.incorrectIds || []).includes(
-      repliedId
-    )
-
-  if (
-    !repliedToQuestion &&
-    !repliedToIncorrect
-  ) {
-    return true
-  }
-
-  const answer =
-    m.text?.trim()
-
-  if (!answer) {
-    return true
-  }
-
-  if (
-    getCorrectAnswer(
-      answer,
-      state
-    )
-  ) {
-
-    await m.react('🎉')
-
-    await deleteGameMessages(
-      conn,
-      m.chat
-    )
-
-    clearGame(m.chat)
-
-    await conn.reply(
-      m.chat,
-      `🎉 *¡TENEMOS UN GANADOR!*
-
-🏆 Felicidades, *${m.pushName}*.
-
-🎵 *Canción:* ${state.trackName}
-
-🎤 *Artista:* ${state.artistName}
-
-💿 *Álbum:* ${state.albumName}
-
-🔥 *¡Has demostrado que conoces la música!*
-
-🎧 _Song Trivia · iTunes_`,
-      m
-    )
-
-    return true
-  }
-
-  const remaining =
-    180000 - elapsed
-
-  const minutes =
-    Math.floor(remaining / 60000)
-
-  const seconds =
-    Math.floor(
-      (remaining % 60000) / 1000
-    )
-
-  await m.react('❌')
-
-  const incorrectMessage =
-    await conn.reply(
-      m.chat,
-      `❌ *¡Respuesta incorrecta!*
-
-🔎 *Pista:* El artista es *${state.artistName}*.
-
-💿 _Álbum: ${state.albumName}_
-
-⏳ *Tiempo restante:* ${minutes} minutos y ${seconds} segundos.
-
-🎧 _¡Inténtalo nuevamente!_`,
-      m
-    )
-
-  const incorrectId =
-    incorrectMessage?.key?.id ||
-    incorrectMessage?.id
-
-  if (incorrectId) {
-
-    if (!Array.isArray(state.incorrectIds)) {
-      state.incorrectIds = []
-    }
-
-    state.incorrectIds.push(
-      incorrectId
-    )
-
-    state.incorrectIds = [
-      ...new Set(state.incorrectIds)
-    ]
-
-    saveData()
-  }
-
-  return true
-}
-
-handler.help = [
-  'songtrivia'
-]
-
-handler.tags = [
-  'game'
-]
-
-handler.command = [
-  'songtrivia'
-]
+handler.help = ['songtrivia']
+handler.tags = ['game']
+handler.command = ['songtrivia']
 
 export default handler
