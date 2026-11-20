@@ -24,13 +24,14 @@ const handler = async (m, { conn, args }) => {
       () => 'https://telegra.ph/file/24fa902ead26340f3df2c.png'
     );
 
+    // Obtener y preparar foto de perfil
     const avatarBuffer = await fetch(pp)
       .then(async res => {
         if (!res.ok) throw new Error('Error al obtener foto');
         return Buffer.from(await res.arrayBuffer());
       })
       .then(buffer => sharp(buffer)
-        .resize(144, 144, { fit: 'cover' })
+        .resize(220, 220, { fit: 'cover' })
         .png()
         .toBuffer()
       )
@@ -61,16 +62,16 @@ const handler = async (m, { conn, args }) => {
 
     if (current) lines.push(current);
 
-    // Foto circular
+    // Foto de perfil circular de 220x220
     const avatar = avatarBuffer
       ? `<image href="data:image/png;base64,${avatarBuffer.toString('base64')}"
-          x="36" y="184" width="144" height="144"
+          x="14" y="146" width="220" height="220"
           clip-path="url(#avatar)" />`
-      : `<circle cx="108" cy="256" r="72" fill="#888888"/>`;
+      : `<circle cx="124" cy="256" r="110" fill="#888888"/>`;
 
     // Texto junto al perfil
     const textSvg = lines.map((line, i) => `
-      <text x="205" y="${256 - ((lines.length - 1) * 24) + (i * 48)}"
+      <text x="250" y="${256 - ((lines.length - 1) * 24) + (i * 48)}"
         text-anchor="start"
         dominant-baseline="middle"
         font-family="Arial, sans-serif"
@@ -82,14 +83,14 @@ const handler = async (m, { conn, args }) => {
         paint-order="stroke">${escapeXml(line)}</text>
     `).join('');
 
-    // SVG transparente: sin rectángulo ni fondo
+    // Imagen transparente
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg"
         width="512" height="512" viewBox="0 0 512 512">
 
         <defs>
           <clipPath id="avatar">
-            <circle cx="108" cy="256" r="72"/>
+            <circle cx="124" cy="256" r="110"/>
           </clipPath>
         </defs>
 
@@ -99,17 +100,24 @@ const handler = async (m, { conn, args }) => {
       </svg>
     `;
 
+    // Convertir SVG a PNG
     const buffer = await sharp(Buffer.from(svg))
       .png()
       .toBuffer();
 
-    const stiker = await sticker(buffer, false, textbot, author);
+    // Generar sticker con metadatos
+    const stiker = await sticker(
+      buffer,
+      false,
+      textbot,
+      author
+    );
 
     if (!Buffer.isBuffer(stiker)) {
       throw new Error('No se pudo generar el sticker.');
     }
 
-    // Envío como sticker nativo, sin contexto ni publicidad
+    // Enviar sticker normal, sin contextInfo
     await conn.sendMessage(
       m.chat,
       { sticker: stiker },
