@@ -2,7 +2,7 @@
 import { sticker } from '../lib/sticker.js';
 import sharp from 'sharp';
 
-const handler = async (m, { conn, args, usedPrefix, command }) => {
+const handler = async (m, { conn, args }) => {
   try {
     let textFinal = args.join(' ') || m.quoted?.text;
 
@@ -11,6 +11,7 @@ const handler = async (m, { conn, args, usedPrefix, command }) => {
     }
 
     const target = m.quoted?.sender || m.sender;
+    textFinal = textFinal.trim();
 
     if (textFinal.length > 30) {
       await m.react('✖️');
@@ -23,34 +24,34 @@ const handler = async (m, { conn, args, usedPrefix, command }) => {
       () => 'https://telegra.ph/file/24fa902ead26340f3df2c.png'
     );
 
-    const nombre = await conn.getName(target);
-
     const avatarBuffer = await fetch(pp)
       .then(async res => {
-        if (!res.ok) throw new Error('No se pudo obtener el avatar.');
+        if (!res.ok) throw new Error('Error al obtener foto');
         return Buffer.from(await res.arrayBuffer());
       })
       .then(buffer => sharp(buffer)
-        .resize(112, 112, { fit: 'cover' })
+        .resize(144, 144, { fit: 'cover' })
         .png()
         .toBuffer()
       )
       .catch(() => null);
 
-    const escapeXml = (str) => String(str)
+    const escapeXml = str => String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;');
 
+    // Distribuir el texto en líneas
+    const words = textFinal.split(/\s+/);
     const lines = [];
     let current = '';
 
-    for (const word of textFinal.trim().split(/\s+/)) {
+    for (const word of words) {
       const test = current ? `${current} ${word}` : word;
 
-      if (test.length > 20 && current) {
+      if (test.length > 13 && current) {
         lines.push(current);
         current = word;
       } else {
@@ -60,41 +61,41 @@ const handler = async (m, { conn, args, usedPrefix, command }) => {
 
     if (current) lines.push(current);
 
+    // Foto circular
     const avatar = avatarBuffer
       ? `<image href="data:image/png;base64,${avatarBuffer.toString('base64')}"
-          x="200" y="105" width="112" height="112"
+          x="36" y="184" width="144" height="144"
           clip-path="url(#avatar)" />`
-      : `<circle cx="256" cy="161" r="56" fill="#444444"/>`;
+      : `<circle cx="108" cy="256" r="72" fill="#888888"/>`;
 
-    const messageSvg = lines.map((line, i) => `
-      <text x="256" y="${310 + (i * 48)}"
-        text-anchor="middle"
+    // Texto junto al perfil
+    const textSvg = lines.map((line, i) => `
+      <text x="205" y="${256 - ((lines.length - 1) * 24) + (i * 48)}"
+        text-anchor="start"
+        dominant-baseline="middle"
         font-family="Arial, sans-serif"
-        font-size="34"
+        font-size="38"
         font-weight="bold"
-        fill="#ffffff">${escapeXml(line)}</text>
+        fill="#ffffff"
+        stroke="#222222"
+        stroke-width="2"
+        paint-order="stroke">${escapeXml(line)}</text>
     `).join('');
 
+    // SVG transparente: sin rectángulo ni fondo
     const svg = `
-      <svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
+      <svg xmlns="http://www.w3.org/2000/svg"
+        width="512" height="512" viewBox="0 0 512 512">
+
         <defs>
           <clipPath id="avatar">
-            <circle cx="256" cy="161" r="56"/>
+            <circle cx="108" cy="256" r="72"/>
           </clipPath>
         </defs>
 
-        <rect width="512" height="512" fill="#000000"/>
-
         ${avatar}
+        ${textSvg}
 
-        <text x="256" y="247"
-          text-anchor="middle"
-          font-family="Arial, sans-serif"
-          font-size="28"
-          font-weight="bold"
-          fill="#ffffff">${escapeXml(nombre)}</text>
-
-        ${messageSvg}
       </svg>
     `;
 
@@ -102,17 +103,13 @@ const handler = async (m, { conn, args, usedPrefix, command }) => {
       .png()
       .toBuffer();
 
-    const stiker = await sticker(
-      buffer,
-      false,
-      textbot,
-      author
-    );
+    const stiker = await sticker(buffer, false, textbot, author);
 
     if (!Buffer.isBuffer(stiker)) {
       throw new Error('No se pudo generar el sticker.');
     }
 
+    // Envío como sticker nativo, sin contexto ni publicidad
     await conn.sendMessage(
       m.chat,
       { sticker: stiker },
