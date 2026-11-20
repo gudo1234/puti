@@ -10,7 +10,7 @@ import axios from 'axios'
 
 global.owner = [
    ['50492280729', '🪐 ݁𝆹𝅥𐙚˖ܵʑєܲυsܵ˖݁𝆹𝅥˃͈◡˂͈', true],
-   ['5215539356057'], ['5215547835230'], ['50488723207']];
+   ['818020305919'], ['50488723207']];
 global.APIs = {
   yuki: { url: "https://api.yuki-wabot.my.id", key: "YukiBot-MD" },
   vreden: { url: "https://api.vreden.web.id", key: null },
