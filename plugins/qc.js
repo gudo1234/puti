@@ -4,49 +4,40 @@ import sharp from 'sharp';
 
 const handler = async (m, { conn, args, usedPrefix, command }) => {
   try {
-    let text;
+    let textFinal = args.join(' ') || m.quoted?.text;
 
-    if (args.length >= 1) {
-      text = args.join(' ');
-    } else if (m.quoted && m.quoted.text) {
-      text = m.quoted.text;
-    } else {
+    if (!textFinal) {
       return conn.reply(m.chat, `${e} Te faltó el texto.`, m);
     }
 
-    if (!text) {
-      return conn.reply(m.chat, `${e} Te faltó el texto.`, m);
-    }
+    const target = m.quoted?.sender || m.sender;
 
-    const who = m.mentionedJid?.[0] || (m.quoted?.sender || m.sender);
-    const mentionRegex = new RegExp(
-      `@${who.split('@')[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`,
-      'g'
-    );
-
-    const mishi = text.replace(mentionRegex, '').trim();
-
-    if (mishi.length > 30) {
+    if (textFinal.length > 30) {
       await m.react('✖️');
       return conn.reply(m.chat, `${e} El texto no puede tener más de 30 caracteres.`, m);
     }
 
     await m.react('🕒');
 
-    const pp = await conn.profilePictureUrl(who).catch(
+    const pp = await conn.profilePictureUrl(target).catch(
       () => 'https://telegra.ph/file/24fa902ead26340f3df2c.png'
     );
 
-    const nombre = await conn.getName(who);
+    const nombre = await conn.getName(target);
 
-    const thumbnail = await (await fetch(icono)).buffer();
+    const avatarBuffer = await fetch(pp)
+      .then(async res => {
+        if (!res.ok) throw new Error('No se pudo obtener el avatar.');
+        return Buffer.from(await res.arrayBuffer());
+      })
+      .then(buffer => sharp(buffer)
+        .resize(112, 112, { fit: 'cover' })
+        .png()
+        .toBuffer()
+      )
+      .catch(() => null);
 
-    const avatar = await (await fetch(pp)).arrayBuffer().catch(() => null);
-
-    const width = 512;
-    const height = 768;
-
-    const escapeXml = (str) => str
+    const escapeXml = (str) => String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
@@ -54,24 +45,29 @@ const handler = async (m, { conn, args, usedPrefix, command }) => {
       .replace(/'/g, '&apos;');
 
     const lines = [];
-    const words = mishi.split(/\s+/);
-    let currentLine = '';
+    let current = '';
 
-    for (const word of words) {
-      const test = currentLine ? `${currentLine} ${word}` : word;
+    for (const word of textFinal.trim().split(/\s+/)) {
+      const test = current ? `${current} ${word}` : word;
 
-      if (test.length > 19 && currentLine) {
-        lines.push(currentLine);
-        currentLine = word;
+      if (test.length > 20 && current) {
+        lines.push(current);
+        current = word;
       } else {
-        currentLine = test;
+        current = test;
       }
     }
 
-    if (currentLine) lines.push(currentLine);
+    if (current) lines.push(current);
 
-    const textSvg = lines.map((line, index) => `
-      <text x="256" y="${350 + index * 48}"
+    const avatar = avatarBuffer
+      ? `<image href="data:image/png;base64,${avatarBuffer.toString('base64')}"
+          x="200" y="105" width="112" height="112"
+          clip-path="url(#avatar)" />`
+      : `<circle cx="256" cy="161" r="56" fill="#444444"/>`;
+
+    const messageSvg = lines.map((line, i) => `
+      <text x="256" y="${310 + (i * 48)}"
         text-anchor="middle"
         font-family="Arial, sans-serif"
         font-size="34"
@@ -79,26 +75,26 @@ const handler = async (m, { conn, args, usedPrefix, command }) => {
         fill="#ffffff">${escapeXml(line)}</text>
     `).join('');
 
-    const avatarSvg = avatar
-      ? `<image href="data:image/jpeg;base64,${Buffer.from(avatar).toString('base64')}"
-          x="216" y="115" width="80" height="80"
-          clip-path="url(#circle)" preserveAspectRatio="xMidYMid slice"/>`
-      : `<circle cx="256" cy="155" r="40" fill="#555555"/>`;
-
     const svg = `
-      <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
         <defs>
-          <clipPath id="circle">
-            <circle cx="256" cy="155" r="40"/>
+          <clipPath id="avatar">
+            <circle cx="256" cy="161" r="56"/>
           </clipPath>
         </defs>
-        <rect width="100%" height="100%" fill="#000000"/>
-        ${avatarSvg}
-        <text x="256" y="225" text-anchor="middle"
+
+        <rect width="512" height="512" fill="#000000"/>
+
+        ${avatar}
+
+        <text x="256" y="247"
+          text-anchor="middle"
           font-family="Arial, sans-serif"
-          font-size="25" font-weight="bold"
+          font-size="28"
+          font-weight="bold"
           fill="#ffffff">${escapeXml(nombre)}</text>
-        ${textSvg}
+
+        ${messageSvg}
       </svg>
     `;
 
@@ -106,34 +102,20 @@ const handler = async (m, { conn, args, usedPrefix, command }) => {
       .png()
       .toBuffer();
 
-    const stiker = await sticker(buffer, false, `${m.pushName}`);
+    const stiker = await sticker(
+      buffer,
+      false,
+      textbot,
+      author
+    );
 
-    if (!stiker || !Buffer.isBuffer(stiker)) {
+    if (!Buffer.isBuffer(stiker)) {
       throw new Error('No se pudo generar el sticker.');
     }
 
-    await conn.sendFile(
+    await conn.sendMessage(
       m.chat,
-      stiker,
-      'qc.webp',
-      '',
-      m,
-      true,
-      {
-        contextInfo: {
-          forwardingScore: 200,
-          isForwarded: false,
-          externalAdReply: {
-            showAdAttribution: false,
-            title: `${m.pushName}`,
-            body: textbot,
-            mediaType: 1,
-            sourceUrl: redes,
-            thumbnailUrl: redes,
-            thumbnail
-          }
-        }
-      },
+      { sticker: stiker },
       { quoted: m }
     );
 
@@ -142,7 +124,12 @@ const handler = async (m, { conn, args, usedPrefix, command }) => {
   } catch (err) {
     console.error(err);
     await m.react('✖️');
-    return conn.reply(m.chat, `${e} Error al generar el sticker: ${err.message}`, m);
+
+    return conn.reply(
+      m.chat,
+      `${e} Error al generar el sticker: ${err.message}`,
+      m
+    );
   }
 };
 
