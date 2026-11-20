@@ -23,8 +23,6 @@ const handler = async (m, { conn, args }) => {
     const pp = await conn.profilePictureUrl(target).catch(
       () => 'https://telegra.ph/file/24fa902ead26340f3df2c.png'
     );
-
-    // Obtener y preparar foto de perfil
     const avatarBuffer = await fetch(pp)
       .then(async res => {
         if (!res.ok) throw new Error('Error al obtener foto');
@@ -43,8 +41,6 @@ const handler = async (m, { conn, args }) => {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;');
-
-    // Distribuir el texto en líneas
     const words = textFinal.split(/\s+/);
     const lines = [];
     let current = '';
@@ -61,15 +57,11 @@ const handler = async (m, { conn, args }) => {
     }
 
     if (current) lines.push(current);
-
-    // Foto de perfil circular de 220x220
     const avatar = avatarBuffer
       ? `<image href="data:image/png;base64,${avatarBuffer.toString('base64')}"
           x="14" y="146" width="220" height="220"
           clip-path="url(#avatar)" />`
       : `<circle cx="124" cy="256" r="110" fill="#888888"/>`;
-
-    // Texto junto al perfil
     const textSvg = lines.map((line, i) => `
       <text x="250" y="${256 - ((lines.length - 1) * 24) + (i * 48)}"
         text-anchor="start"
@@ -82,8 +74,6 @@ const handler = async (m, { conn, args }) => {
         stroke-width="2"
         paint-order="stroke">${escapeXml(line)}</text>
     `).join('');
-
-    // Imagen transparente
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg"
         width="512" height="512" viewBox="0 0 512 512">
@@ -99,13 +89,9 @@ const handler = async (m, { conn, args }) => {
 
       </svg>
     `;
-
-    // Convertir SVG a PNG
     const buffer = await sharp(Buffer.from(svg))
       .png()
       .toBuffer();
-
-    // Generar sticker con metadatos
     const stiker = await sticker(
       buffer,
       false,
@@ -116,8 +102,6 @@ const handler = async (m, { conn, args }) => {
     if (!Buffer.isBuffer(stiker)) {
       throw new Error('No se pudo generar el sticker.');
     }
-
-    // Enviar sticker normal, sin contextInfo
     await conn.sendMessage(
       m.chat,
       { sticker: stiker },
